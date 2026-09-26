@@ -2,7 +2,7 @@
 // Each prefab becomes one GLB: its FBX mesh (parsed with three's FBXLoader, which triangulates
 // concave n-gons correctly; FBX2glTF mangled the crosswalk road pieces) with its material's texture.
 //
-//   cd patrik/3d/tools && npm install
+//   cd frontend/tools && npm install
 //   node import-unitypackage.mjs "<path>.unitypackage" ../assets/simplepoly-city
 //
 // Skips "_separate" vehicle prefabs (loose wheels) and the demo scene.

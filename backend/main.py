@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.loops.agent_loop import agent_loop
 from backend.loops.brain_loop import brain_loop
-from backend.routes import demo, events, me, signals, towns
+from backend.routes import demo, events, friends, invites, me, signals, towns
 
 
 @asynccontextmanager
@@ -30,8 +30,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (me, signals, towns, events, demo):
+for module in (me, friends, invites, signals, towns, events, demo):
     app.include_router(module.router)
+
+
+# Newer FastAPI router include can drop GET when POST is also registered on the same path.
+app.add_api_route("/demo/trigger/{scenario}", demo.trigger_demo, methods=["GET"])
 
 
 @app.get("/health")

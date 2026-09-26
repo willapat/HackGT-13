@@ -3,7 +3,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MapControls } from 'three/addons/controls/MapControls.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { startTownBackend } from './realtime.js';
 
 const N = 17;
 const ROADS = [2, 6, 10, 14];
@@ -168,6 +170,8 @@ addEventListener('resize', () => { followCam.aspect = innerWidth / innerHeight; 
 let following = null;
 let activeCam = camera;
 const FOLLOW_BACK = 1.3, FOLLOW_UP = 0.75;
+const FOLLOW_REST_MS = 2500; // after this long without input, the camera eases back behind the person
+let lastFollowInput = 0;
 
 // A trackpad pinch arrives as ctrl+wheel. Over a panel or label the browser would pinch-zoom the
 // whole page instead (blurry, panels pushed off screen), so only the town's camera may zoom.
@@ -290,6 +294,11 @@ const isCorner = (c, r) => roadSides(c, r).length >= 2;
 // ---- Town -------------------------------------------------------------------------------
 
 const blocked = new Set();
+const occluders = []; // buildings and trees that fade out when they hide a person
+function addOccluder(root) {
+  occluders.push(root);
+  root.traverse((m) => { m.userData.occluderRoot = root; });
+}
 const topOf = {}; // building roof height by tile, for labels/effects
 
 // Give a placed model its own materials, tinted toward `color` (textures multiply by it)
@@ -442,7 +451,8 @@ function buildCity() {
   };
   const greenery = (c, r, i) => {
     const m = [PARK_TREES[0], NATURE['bush-02'], PARK_TREES[2], NATURE['bush-01'], PARK_TREES[1]][i % 5];
-    place(m, c, r, { scale: m.includes('tree') ? 2.3 : 2.4, rotY: i });
+    const g = place(m, c, r, { scale: m.includes('tree') ? 2.3 : 2.4, rotY: i });
+    if (m.includes('tree')) addOccluder(g);
   };
 
   // ---- Roads, lots and buildings
@@ -465,6 +475,7 @@ function buildCity() {
         if (h.house[0] === c && h.house[1] === r) {
           const home = paintRoof(place(h.model, c, r, { ...(h.model.startsWith(SP) ? { scale: 0.92 } : { fit: 0.8 }), rotY: facing }), friend.color);
           topOf[key(c, r)] = topOf[key(h.c, h.r)] = new THREE.Box3().setFromObject(home).max.y;
+          addOccluder(home);
 
         } else if (h.c === c && h.r === r) {
           const [dc, dr] = [h.c - h.house[0], h.r - h.house[1]];
@@ -505,6 +516,7 @@ function buildCity() {
       const isSP = model.startsWith(SP);
       const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
       b.userData.building = isSP ? 'simplepoly' : 'kenney';
+      addOccluder(b);
       if (suburb) { // flush to the street it faces, and to the cross street on a corner
         const front = [Math.round(Math.sin(rotY)), Math.round(Math.cos(rotY))];
         seat(b, c, r, [front, ...roadSides(c, r).filter(([x, y]) => x !== front[0] || y !== front[1])]);
@@ -555,7 +567,7 @@ function buildCity() {
 
   // ---- Landmarks: the stadium at the pack's true scale fills its block; a windmill farm in the other corner
   const sc = STADIUM.tiles.reduce((a, [c, r]) => [a[0] + c / STADIUM.tiles.length, a[1] + r / STADIUM.tiles.length], [0, 0]);
-  place(STADIUM.model, sc[0], sc[1], { scale: 1.3, rotY: Math.PI / 2 });
+  addOccluder(place(STADIUM.model, sc[0], sc[1], { scale: 1.3, rotY: Math.PI / 2 }));
   place(PROPS.windmill, 0.5, 15.6, { scale: 2.2, rotY: Math.PI / 4 });
   for (const [x, z, rot] of [[0.5, 14.62, Math.PI / 2], [0.5, 16.38, Math.PI / 2], [-0.38, 15.5, 0], [1.38, 15.5, 0]]) {
     place(NATURE['grass-fence'], x, z, { scale: 2.4, rotY: rot });
@@ -612,7 +624,7 @@ function buildCity() {
     place(i % 2 ? NATURE['rock-small'] : NATURE['rock-big'], CENTER + Math.cos(a) * 0.8, CENTER + Math.sin(a) * 0.8, { scale: 1.6, rotY: a });
   }
   TREES.forEach(([c, r], i) => {
-    place(PARK_TREES[i % PARK_TREES.length], c, r, { scale: 2.6 });
+    addOccluder(place(PARK_TREES[i % PARK_TREES.length], c, r, { scale: 2.6 }));
     blocked.add(key(c, r));
   });
   place(PROPS['bench-1'], CENTER, CENTER - 1.1, { scale: 2, rotY: Math.PI });
@@ -733,6 +745,7 @@ function spawnFriends() {
     lbl.el.style.background = def.color;
     lbl.el.style.color = inkOn(def.color);
     lbl.el.onclick = () => focusFriend(f.id);
+    f.label = lbl;
     friends[f.id] = f;
   });
 }
@@ -1034,10 +1047,16 @@ async function trigger(name) {
   }
 }
 
+function renameFriend(f, name) {
+  f.name = name;
+  f.label.el.textContent = name;
+}
+
 function resetTown() {
   for (const k of Object.keys(effects)) { effects[k].destroy(); delete effects[k]; }
   $('#cards').innerHTML = '';
   for (const f of Object.values(friends)) {
+    renameFriend(f, FRIENDS.find((d) => d.id === f.id).name);
     f.status = 'Just vibing';
     eventOwned.delete(f.id);
     f.obj.visible = true;
@@ -1061,10 +1080,13 @@ function startFollow(f) {
   if (!following) {
     // Start from behind the friend so the camera doesn't swoop in from the city view
     followCam.position.copy(followOffset(f));
+    followControls.target.copy(f.obj.position).setY(0.35);
   }
   following = f;
   activeCam = followCam;
   controls.enabled = false;
+  followControls.enabled = true;
+  lastFollowInput = 0;
   $('#follow-name').textContent = f.name;
   $('#follow').hidden = false;
 }
@@ -1075,9 +1097,20 @@ function stopFollow() {
   following = null;
   activeCam = camera;
   controls.enabled = true;
+  followControls.enabled = false;
   $('#follow').hidden = true;
 }
 $('#follow-exit').onclick = stopFollow;
+
+// While following: drag / one finger to orbit around the person, scroll / pinch to zoom
+const followControls = new OrbitControls(followCam, renderer.domElement);
+Object.assign(followControls, {
+  enabled: false, enablePan: false, enableDamping: true,
+  minDistance: 0.5, maxDistance: 6, minPolarAngle: 0.2, maxPolarAngle: 1.45,
+});
+followControls.addEventListener('start', () => { lastFollowInput = Infinity; });
+followControls.addEventListener('end', () => { lastFollowInput = performance.now(); });
+followControls.domElement.addEventListener('wheel', () => { if (following) lastFollowInput = performance.now(); });
 
 // Click/tap a character to follow them (ignore drags, which pan the camera)
 const raycaster = new THREE.Raycaster();
@@ -1112,17 +1145,66 @@ function renderResidents() {
   }
 }
 
+// ---- See-through buildings ------------------------------------------------------------------------
+// Anything between the camera and a person fades to see-through, then fades back once it's clear.
+// In follow mode only the followed person counts; in the overview, every friend does.
+
+const FADED_OPACITY = 0.1;
+const fadeState = new Map(); // occluder root -> current opacity
+const occRay = new THREE.Raycaster();
+
+function setOpacity(root, a) {
+  root.traverse((m) => {
+    if (!m.isMesh) return;
+    if (!m.userData.ownMaterial) { // kit models share materials; buildings may carry [wall, lit window] pairs
+      m.material = Array.isArray(m.material)
+        ? m.material.map((x) => { const c = x.clone(); if (windowMats.has(x)) windowMats.add(c); return c; })
+        : m.material.clone();
+      m.userData.ownMaterial = true;
+    }
+    for (const mat of [m.material].flat()) {
+      mat.opacity = a;
+      mat.transparent = a < 0.999;
+      mat.depthWrite = a >= 0.999;
+    }
+  });
+}
+
+function updateOcclusion(dt) {
+  const hidden = new Set();
+  for (const f of following ? [following] : Object.values(friends)) {
+    if (!f.obj.visible) continue;
+    const p = f.obj.position.clone().setY(0.25);
+    const ndc = p.clone().project(activeCam);
+    occRay.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), activeCam);
+    const toPerson = occRay.ray.origin.distanceTo(p) - 0.1;
+    for (const h of occRay.intersectObjects(occluders, true)) {
+      if (h.distance >= toPerson) break;
+      hidden.add(h.object.userData.occluderRoot);
+    }
+  }
+  const k = 1 - Math.exp(-dt * 8);
+  for (const root of new Set([...hidden, ...fadeState.keys()])) {
+    const cur = fadeState.get(root) ?? 1;
+    const next = cur + ((hidden.has(root) ? FADED_OPACITY : 1) - cur) * k;
+    if (!hidden.has(root) && next > 0.99) { setOpacity(root, 1); fadeState.delete(root); continue; }
+    setOpacity(root, next);
+    fadeState.set(root, next);
+  }
+}
+
 // ---- Main loop -------------------------------------------------------------------------------
 
 const clock = new THREE.Clock();
 const v = new THREE.Vector3();
+const townApi = { liveMode: false };
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   const now = performance.now();
   for (const f of Object.values(friends)) {
     stepFriend(f, dt);
     f.mixer.update(dt);
-    if (!f.busy && !f.path.length && now > f.nextThink) think(f);
+    if (!townApi.liveMode && !f.busy && !f.path.length && now > f.nextThink) think(f);
   }
   for (const fx of animated) fx.update(dt);
   updateSky(dt);
@@ -1134,11 +1216,24 @@ function frame() {
     if (focusGoal.distanceTo(controls.target) < 0.01) focusGoal = null;
   }
   if (following) {
-    followCam.position.lerp(followOffset(following), 1 - Math.exp(-dt * 3));
-    followCam.lookAt(following.obj.position.clone().setY(0.35));
+    // Carry the camera along with the person, keeping whatever angle/zoom the viewer chose
+    const head = following.obj.position.clone().setY(0.35);
+    const delta = head.clone().sub(followControls.target);
+    followControls.target.add(delta);
+    followCam.position.add(delta);
+    if (now - lastFollowInput > FOLLOW_REST_MS) {
+      // Ease around to behind them (zoom and tilt stay as the viewer left them)
+      const sph = new THREE.Spherical().setFromVector3(followCam.position.clone().sub(head));
+      const ry = following.obj.rotation.y;
+      const diff = Math.atan2(-Math.sin(ry), -Math.cos(ry)) - sph.theta;
+      sph.theta += Math.atan2(Math.sin(diff), Math.cos(diff)) * (1 - Math.exp(-dt * 2));
+      followCam.position.copy(head).add(new THREE.Vector3().setFromSpherical(sph));
+    }
+    followControls.update();
   } else {
     controls.update();
   }
+  updateOcclusion(dt);
   renderer.render(scene, activeCam);
 
   // Labels hide while behind a panel: the panels' frosted blur would smear their colors
@@ -1407,10 +1502,15 @@ scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.buil
 wireSkyControls();
 spawnFriends();
 renderResidents();
-logFeed('Town loaded. Residents are wandering (scripted, not agent-driven).');
-document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => trigger(b.dataset.trigger); });
+logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
+Object.assign(townApi, {
+  friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
+  PLACES, FRIENDS, effects, trigger, liveMode: false,
+});
+const { triggerViaBackend } = startTownBackend(townApi);
+document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => triggerViaBackend(b.dataset.trigger); });
 const params = new URLSearchParams(location.search);
 if (friends[params.get('follow')]) startFollow(friends[params.get('follow')]);
 const auto = params.get('auto');
-auto?.split(',').forEach((t, i) => setTimeout(() => trigger(t), 1500 + i * 2500));
+auto?.split(',').forEach((t, i) => setTimeout(() => triggerViaBackend(t), 1500 + i * 2500));
 frame();

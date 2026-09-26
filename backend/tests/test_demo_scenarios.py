@@ -1,4 +1,37 @@
-from backend.routes.demo import scenario_signals
+import pytest
+from fastapi import HTTPException
+
+from backend.routes.demo import cast_roles, primary_roles, scenario_signals
+
+
+def _members(*names):
+    return [{"user_id": f"{n}-uuid", "display_name": n} for n in names]
+
+
+def test_cast_prefers_matching_names():
+    cast = cast_roles(_members("Leo", "ana", "Maya"))
+    assert cast["maya"] == "Maya-uuid"
+    assert cast["leo"] == "Leo-uuid"
+    assert cast["jordan"] == "ana-uuid"
+
+
+def test_cast_works_with_any_names():
+    cast = cast_roles(_members("ana", "ben"))
+    assert cast["maya"] == "ana-uuid"
+    assert cast["jordan"] == "ben-uuid"
+    assert cast["sam"] != cast["priya"]
+    assert primary_roles(cast) == {"ana-uuid": "maya", "ben-uuid": "jordan"}
+
+
+def test_cast_single_member_climbing_dedupes():
+    rows = scenario_signals("climbing", cast_roles(_members("ana")))
+    assert [r["user_id"] for r in rows] == ["ana-uuid"]
+
+
+def test_cast_empty_town_is_400():
+    with pytest.raises(HTTPException) as e:
+        cast_roles([])
+    assert e.value.status_code == 400
 
 
 def test_good_news_payload_is_only_a_signal():
@@ -35,3 +68,11 @@ def test_models_roundtrip():
     assert b.model_dump()["facts"] == []
     d = AgentDecisionOutput.model_validate({"action": "idle", "reason": "n", "fact_ids": []})
     assert d.action == "idle"
+
+
+def test_openrouter_model_ids():
+    from backend.llm import _openrouter_model
+
+    assert _openrouter_model("google/gemini-2.5-flash") == "google/gemini-2.5-flash"
+    assert _openrouter_model("gemini-2.5-flash") == "google/gemini-2.5-flash"
+    assert _openrouter_model("gemini-2.5-flash-lite") == "google/gemini-2.5-flash-lite"

@@ -53,7 +53,8 @@ def validate_agent_decision(raw_output: dict | None, ctx: AgentDecisionInput) ->
         c.user_id for c in ctx.nearby_characters
     }:
         return _reject(ctx, "hallucinated_target", decision.target_user_id)
-    if not set(decision.fact_ids) <= {f.id for f in ctx.relevant_facts}:
+    grounding_ids = {f.id for f in ctx.relevant_facts} | {e.id for e in ctx.active_events}
+    if not set(decision.fact_ids) <= grounding_ids:
         return _reject(ctx, "hallucinated_fact_id", decision.fact_ids)
     if decision.action in REQUIRED_TARGET_ACTIONS and decision.target_user_id is None:
         return _reject(ctx, "missing_required_target", decision.action)

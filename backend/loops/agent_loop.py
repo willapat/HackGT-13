@@ -9,7 +9,7 @@ from backend.loops import log_loop_error
 async def agent_loop():
     while True:
         try:
-            # supabase-py and the Anthropic calls are sync; threads keep the API responsive.
+            # supabase-py and OpenRouter calls are sync; threads keep the API responsive.
             for row in await asyncio.to_thread(claim_due_agents, get_client()):
                 await asyncio.to_thread(decide_for_character, row["town_id"], row["user_id"])
         except Exception as e:

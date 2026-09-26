@@ -68,6 +68,8 @@
     #follow { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 10px 8px 14px; display: flex; gap: 10px;
       align-items: center; }
     #follow[hidden] { display: none; }
+    .follow-tip { color: var(--muted); font-size: 12px; }
+    @media (max-width: 800px) { .follow-tip { display: none; } }
     #follow button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
     #hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--muted); }
 
@@ -110,14 +112,14 @@
       <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
       <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
     </div>
-    <div class="note">Character behavior here is scripted and random. No model is making decisions yet.</div>
+    <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
   </section>
 
   <div id="cards"></div>
   <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow</div>
 
   <div id="labels"></div>
-  <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <button id="follow-exit">Exit (Esc)</button></div>
+  <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>
   <script type="importmap">
     { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
   </script>

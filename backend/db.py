@@ -80,12 +80,29 @@ def claim_due_agents(db, limit: int = 10, lease_seconds: int = 30) -> list[dict]
     claimed = []
     for row in due:
         won = (
-            db.table("agents").update({"next_decision_at": iso_in(lease_seconds)})
-            .eq("town_id", row["town_id"]).eq("user_id", row["user_id"])
-            .eq("next_decision_at", row["next_decision_at"]).execute().data
+            db.table("agents")
+            .update({"next_decision_at": iso_in(lease_seconds)})
+            .eq("town_id", row["town_id"])
+            .eq("user_id", row["user_id"])
+            .eq("next_decision_at", row["next_decision_at"])
+            .execute()
         )
-        if won:
+        if won.data or getattr(won, "count", None):
             claimed.append(row)
+        else:
+            # Some PostgREST setups return no representation; re-read the lease we tried to set.
+            check = (
+                db.table("agents")
+                .select("next_decision_at")
+                .eq("town_id", row["town_id"])
+                .eq("user_id", row["user_id"])
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if check and check[0]["next_decision_at"] != row["next_decision_at"]:
+                claimed.append(row)
     return claimed
 
 
