@@ -277,6 +277,7 @@ function faceRoad(c, r) {
   const [dc, dr] = sides[(c + r) % sides.length];
   return Math.atan2(dc, dr);
 }
+const isCorner = (c, r) => roadSides(c, r).length >= 2;
 
 // ---- Town -------------------------------------------------------------------------------
 
@@ -311,6 +312,62 @@ function grayTexture(tex) {
   }
   return grayCache.get(tex);
 }
+// Paint only the roof: faces pointing up in the top part of the model get a grayscale copy of the
+// material in `color`; walls, windows and doors keep their own look.
+function paintRoof(obj, color) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const cut = box.min.y + (box.max.y - box.min.y) * 0.55;
+  const [a, b, cc, n] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  obj.traverse((m) => {
+    if (!m.isMesh) return;
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    const p = g.attributes.position, tris = p.count / 3;
+    const roof = [];
+    for (let t = 0; t < tris; t++) {
+      a.fromBufferAttribute(p, t * 3).applyMatrix4(m.matrixWorld);
+      b.fromBufferAttribute(p, t * 3 + 1).applyMatrix4(m.matrixWorld);
+      cc.fromBufferAttribute(p, t * 3 + 2).applyMatrix4(m.matrixWorld);
+      n.subVectors(cc, b).cross(a.clone().sub(b)).normalize();
+      roof.push(n.y > 0.3 && (a.y + b.y + cc.y) / 3 > cut);
+    }
+    if (!roof.some(Boolean)) return;
+    // Reorder triangles (walls first, roof last) and split them into two material groups
+    const order = [...Array(tris).keys()].sort((x, y) => roof[x] - roof[y]);
+    for (const name of Object.keys(g.attributes)) { // read per component: attributes may be interleaved
+      const src = g.attributes[name], k = src.itemSize, out = new Float32Array(src.count * k);
+      order.forEach((t, i) => {
+        for (let v = 0; v < 3; v++) for (let j = 0; j < k; j++) out[(i * 3 + v) * k + j] = src.getComponent(t * 3 + v, j);
+      });
+      g.setAttribute(name, new THREE.BufferAttribute(out, k, src.normalized));
+    }
+    const walls = roof.filter((x) => !x).length;
+    g.addGroup(0, walls * 3, 0);
+    g.addGroup(walls * 3, (tris - walls) * 3, 1);
+    const roofMat = m.material.clone();
+    if (roofMat.map) roofMat.map = grayTexture(roofMat.map);
+    roofMat.color.set(color);
+    m.geometry = g;
+    m.material = [m.material, roofMat];
+  });
+  return obj;
+}
+
+// Seat a building on its lot: center it, then push its front edge up to the road it faces, and on
+// a corner lot its side up to the second road too, so corner houses sit right on the corner.
+function seat(obj, c, r, sides, setback = 0.05) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj), mid = box.getCenter(new THREE.Vector3()), at = pos(c, r);
+  obj.position.x += at.x - mid.x;
+  obj.position.z += at.z - mid.z;
+  const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+  for (const [dc, dr] of sides) {
+    if (dc) obj.position.x += dc * (0.5 - setback - half.x);
+    if (dr) obj.position.z += dr * (0.5 - setback - half.z);
+  }
+  return obj;
+}
+
 function paint(obj, color) {
   obj.traverse((m) => {
     if (!m.isMesh) return;
@@ -366,9 +423,11 @@ function buildCity() {
         if (isRoad(x, y) || group(x) !== group(c) || group(y) !== group(r)) continue;
         if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isRoad(x + dx, y + dy))) lots.push([x, y]);
       }
-      // Named places on the block count toward its 2-3 buildings
-      lots.sort((a, b) => reserved.has(key(...b)) - reserved.has(key(...a)) || hash(...a) - hash(...b));
-      const count = lots.length <= 3 ? 2 : 2 + Math.floor(hash(c + r, 7) * 2);
+      // Named places first (they count toward the block's 2-3 buildings), then every corner lot, then the rest
+      const rank = (t) => (reserved.has(key(...t)) ? 0 : isCorner(...t) ? 1 : 2);
+      lots.sort((a, b) => rank(a) - rank(b) || hash(...a) - hash(...b));
+      const corners = lots.filter((t) => isCorner(...t)).length;
+      const count = Math.max(corners, lots.length <= 3 ? 2 : 2 + Math.floor(hash(c + r, 7) * 2));
       picked.set(id, new Set(lots.slice(0, count).map((t) => key(...t))));
     }
     return picked.get(id);
@@ -396,7 +455,7 @@ function buildCity() {
         const facing = Math.atan2(h.c - h.house[0], h.r - h.house[1]); // house faces down its driveway
         place(GROUND.grass, c, r);
         if (h.house[0] === c && h.house[1] === r) {
-          const home = paint(place(h.model, c, r, { ...(h.model.startsWith(SP) ? { scale: 0.92 } : { fit: 0.8 }), rotY: facing }), friend.color);
+          const home = paintRoof(place(h.model, c, r, { ...(h.model.startsWith(SP) ? { scale: 0.92 } : { fit: 0.8 }), rotY: facing }), friend.color);
           topOf[key(c, r)] = topOf[key(h.c, h.r)] = new THREE.Box3().setFromObject(home).max.y;
         } else if (h.c === c && h.r === r) {
           const [dc, dr] = [h.c - h.house[0], h.r - h.house[1]];
@@ -415,7 +474,7 @@ function buildCity() {
       const door = doorOf.get(key(c, r));
       const rotY = door ? Math.atan2(door[0] - c, door[1] - r) : faceRoad(c, r);
       if (rotY === null && !reserved.has(key(c, r))) { // no street frontage: a courtyard, never a building
-        place(suburb ? GROUND.grass : GROUND.paved, c, r);
+        place(GROUND.grass, c, r); // anything green stands on grass
         greenery(c, r, c * 3 + r);
         if (!suburb) {
           place(STREET.public_bench_01, c - 0.3, r + 0.25, { scale: METER, rotY: Math.PI / 2 });
@@ -436,6 +495,10 @@ function buildCity() {
       place(suburb ? GROUND.grass : GROUND.paved, c, r);
       const isSP = model.startsWith(SP);
       const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
+      if (suburb) { // flush to the street it faces, and to the cross street on a corner
+        const front = [Math.round(Math.sin(rotY)), Math.round(Math.cos(rotY))];
+        seat(b, c, r, [front, ...roadSides(c, r).filter(([x, y]) => x !== front[0] || y !== front[1])]);
+      } else seat(b, c, r, []);
       const top = new THREE.Box3().setFromObject(b).max.y;
       topOf[key(c, r)] = top;
 
