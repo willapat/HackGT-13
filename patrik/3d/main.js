@@ -1,4 +1,4 @@
-// Tiny Town 3D sandbox: Three.js + SimplePoly City (town) and Kenney Mini Characters, orthographic "isometric" camera.
+// Tiny Town 3D sandbox: Three.js + SimplePoly City (roads, greenery, buildings), Kenney City Kit buildings and Mini Characters, orthographic "isometric" camera.
 // Character behavior is scripted/random here; it stands in for the real character agents.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -12,20 +12,29 @@ const isRoad = (c, r) => ROADS.includes(c) || ROADS.includes(r);
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
 
 const SP = 'assets/simplepoly-city/';
+const COM = 'assets/city-kit-commercial/';
+const SUB = 'assets/city-kit-suburban/';
 const CH = 'assets/mini-characters/';
+const kenney = (dir, prefix, ids) => ids.split('').map((l) => `${dir}${prefix}${l}.glb`);
 const sp = (name) => `${SP}${name}.glb`;
 const colors = (name) => ['01', '02', '03'].map((n) => sp(`${name}-color${n}`));
 const shops = (...names) => names.map((n) => sp(`building-${n}`));
-const HOUSES = ['01', '02', '03', '04'].flatMap((n) => colors(`building-house-${n}`));
-// City zones by distance from the main crossroad (6,6), tallest in the middle. `height` stretches models
-// vertically (min-max, varied per lot) since the pack's towers top out at ~1.2 tiles.
+const HOUSES = [...['01', '02', '03', '04'].flatMap((n) => colors(`building-house-${n}`)), ...kenney(SUB, 'building-type-', 'abcdefghijklmnopqrstu')];
+// City zones by distance from the main crossroad (6,6), tallest in the middle, mixing both packs.
+// Kenney buildings (sorted into zones by their real height) keep their proportions; `height`
+// stretches only SimplePoly models (min-max, varied per lot), since that pack tops out at ~1.2 tiles.
 const ZONES = [
-  { upTo: 2.3, height: [2.3, 3], models: colors('building-sky-big') },
-  { upTo: 3.2, height: [1.5, 2], models: [...colors('building-sky-small'), ...colors('building-sky-big'), ...colors('building-residential')] },
-  { upTo: 4.3, height: [1.1, 1.4], models: [...colors('building-residential'), ...shops('restaurant', 'clothing', 'fast-food', 'drug-store', 'pizza', 'music-store')] },
-  { upTo: 5.4, height: [1, 1.15], models: shops('bakery', 'bar', 'chicken-shop', 'fruits-shop', 'gift-shop', 'shoes-shop', 'gas-station', 'auto-service') },
+  { upTo: 2.3, height: [2.3, 3], models: [...colors('building-sky-big'), ...kenney(COM, 'building-skyscraper-', 'bcde')] },
+  { upTo: 3.2, height: [1.5, 2], models: [...colors('building-sky-small'), ...colors('building-residential'), ...kenney(COM, 'building-skyscraper-', 'a'), ...kenney(COM, 'building-', 'mgfl')] },
+  { upTo: 4.3, height: [1.1, 1.4], models: [...colors('building-residential'), ...shops('restaurant', 'clothing', 'fast-food', 'drug-store', 'pizza', 'music-store'), ...kenney(COM, 'building-', 'abdhi')] },
+  { upTo: 5.4, height: [1, 1.15], models: [...shops('bakery', 'bar', 'chicken-shop', 'fruits-shop', 'gift-shop', 'shoes-shop', 'gas-station', 'auto-service'), ...kenney(COM, 'building-', 'cejkn')] },
   { upTo: Infinity, height: [1, 1], models: HOUSES },
 ];
+// Interleave the packs within each zone so neighbors alternate styles
+for (const z of ZONES) {
+  const [a, b] = [z.models.filter((m) => m.startsWith(SP)), z.models.filter((m) => !m.startsWith(SP))];
+  z.models = Array.from({ length: Math.max(a.length, b.length) * 2 }, (_, i) => (i % 2 ? b : a)[Math.floor(i / 2) % (i % 2 ? b : a).length]);
+}
 const ROAD = { straight: sp('road-lane-01'), cross: sp('road-intersection-01') };
 const GROUND = { grass: sp('natures-grass-tile'), paved: sp('road-concrete-tile') };
 const PARK_TREES = [sp('natures-big-tree'), sp('natures-fir-tree'), sp('natures-cube-tree')];
@@ -205,7 +214,8 @@ function buildCity() {
       const [lo, hi] = zone.height;
       const height = lo + (hi - lo) * (((c * 37 + r * 91) % 10) / 9);
       place(HOUSES.includes(model) ? GROUND.grass : GROUND.paved, c, r);
-      const b = place(model, c, r, { scale: 0.92, height, rotY: faceRoad(c, r) });
+      const opts = model.startsWith(SP) ? { scale: 0.92, height } : { fit: 0.86 };
+      const b = place(model, c, r, { ...opts, rotY: faceRoad(c, r) });
       topOf[key(c, r)] = new THREE.Box3().setFromObject(b).max.y;
       blocked.add(key(c, r));
     }
