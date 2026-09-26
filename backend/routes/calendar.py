@@ -1,4 +1,4 @@
-"""Connect / sync / disconnect your Google Calendar (free/busy only). The refresh token never goes back out."""
+"""Connect / sync / disconnect your Google Calendar (events, read-only). The refresh token never goes back out."""
 
 from datetime import datetime, timezone
 
@@ -23,11 +23,15 @@ def _status(db, uid: str) -> dict:
     if not rows:
         return {"connected": False}
     upcoming = (
-        db.table("events").select("id, town_id, start_at").eq("imported_for", uid)
+        db.table("events").select("start_at, end_at, building_id").eq("imported_for", uid)
         .gte("end_at", datetime.now(timezone.utc).isoformat()).execute().data or []
     )
-    blocks = {r["start_at"] for r in upcoming}  # the same block is copied into each town
-    return {"connected": True, **rows[0], "upcoming_busy_blocks": len(blocks)}
+    # The same event is copied into each town; count it once, and as "at a place" if any town has that place
+    events: dict[tuple, bool] = {}
+    for r in upcoming:
+        k = (r["start_at"], r["end_at"])
+        events[k] = events.get(k, False) or not r["building_id"].startswith("house:")
+    return {"connected": True, **rows[0], "upcoming_events": len(events), "upcoming_at_places": sum(events.values())}
 
 
 @router.get("")
