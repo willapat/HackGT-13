@@ -1,4 +1,4 @@
-// Tiny Town 3D sandbox: Three.js + Kenney 3D city kits, orthographic "isometric" camera.
+// Tiny Town 3D sandbox: Three.js + SimplePoly City (roads, greenery, buildings), Kenney City Kit buildings and Mini Characters, orthographic "isometric" camera.
 // Character behavior is scripted/random here; it stands in for the real character agents.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -7,38 +7,89 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { startTownBackend } from './realtime.js';
 
-const N = 12;
-const ROADS = [2, 6, 10];
+const N = 17;
+const ROADS = [2, 6, 10, 14];
+const CENTER = 8; // the park sits at the middle of the grid; the skyline rings it
 const inPark = (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
 const isRoad = (c, r) => ROADS.includes(c) || ROADS.includes(r);
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
 
+const SP = 'assets/simplepoly-city/';
 const COM = 'assets/city-kit-commercial/';
 const SUB = 'assets/city-kit-suburban/';
-const RD = 'assets/city-kit-roads/';
 const CH = 'assets/mini-characters/';
-const letters = (s) => s.split('');
-const SKYSCRAPERS = letters('abcde').map((l) => `${COM}building-skyscraper-${l}.glb`);
-const COMMERCIAL = letters('abcdefghijklmn').map((l) => `${COM}building-${l}.glb`);
-const HOUSES = letters('abcdefghijklmnopqrstu').map((l) => `${SUB}building-type-${l}.glb`);
+const CP = 'assets/city-props/'; // Coding Creature City Props 1 (CC0), modeled in meters
+const cp = (name) => `${CP}${name}.glb`;
+const kenney = (dir, prefix, ids) => ids.split('').map((l) => `${dir}${prefix}${l}.glb`);
+const sp = (name) => `${SP}${name}.glb`;
+const colors = (name) => ['01', '02', '03'].map((n) => sp(`${name}-color${n}`));
+const shops = (...names) => names.map((n) => sp(`building-${n}`));
+const HOUSES = [...['01', '02', '03', '04'].flatMap((n) => colors(`building-house-${n}`)), ...kenney(SUB, 'building-type-', 'abcdefghijklmnopqrstu')];
+// City zones by distance from the central park, tallest in the middle, mixing both packs.
+// Only Kenney skyscrapers form the core. Kenney buildings (sorted into zones by their real
+// height) keep their proportions; `height` stretches SimplePoly models (min-max, varied per lot,
+// capped at 2x) since that pack tops out at ~1.2 tiles.
+const ZONES = [
+  { upTo: 3.4, height: [1.8, 2], models: kenney(COM, 'building-skyscraper-', 'abcde').concat(kenney(COM, 'building-', 'm')) },
+  { upTo: 4.6, height: [1.5, 2], models: [...colors('building-sky-big'), ...colors('building-sky-small'), ...kenney(COM, 'building-', 'gfl')] },
+  { upTo: 5.9, height: [1.1, 1.4], models: [...colors('building-residential'), ...shops('restaurant', 'clothing', 'fast-food', 'drug-store', 'pizza', 'music-store'), ...kenney(COM, 'building-', 'abdhi')] },
+  { upTo: 7.3, height: [1, 1.15], models: [...shops('bakery', 'bar', 'chicken-shop', 'fruits-shop', 'gift-shop', 'shoes-shop', 'gas-station', 'factory'), ...kenney(COM, 'building-', 'cejkn')] },
+  { upTo: Infinity, height: [1, 1], models: HOUSES },
+];
+// Interleave the packs within each zone so neighbors alternate styles
+for (const z of ZONES) {
+  const [a, b] = [z.models.filter((m) => m.startsWith(SP)), z.models.filter((m) => !m.startsWith(SP))];
+  if (!a.length || !b.length) continue;
+  z.models = Array.from({ length: Math.max(a.length, b.length) * 2 }, (_, i) => (i % 2 ? b : a)[Math.floor(i / 2) % (i % 2 ? b : a).length]);
+}
+const ROAD = { straight: sp('road-lane-01'), cross: sp('road-intersection-01') };
+const GROUND = { grass: sp('natures-grass-tile'), paved: sp('road-concrete-tile') };
+const PARK_TREES = [sp('natures-big-tree'), sp('natures-fir-tree'), sp('natures-cube-tree')];
+const PROPS = Object.fromEntries(['street-light', 'bench-1', 'bench-2', 'traffic-signal-big', 'traffic-signal-small', 'traffic-sign-stop',
+  'traffic-sign-speed-limit', 'traffic-cone', 'traffic-control-barrier-fence', 'hydrant', 'dustbin', 'bus-stop', 'coffee-shop-chair',
+  'windmill', 'fence', 'billboard-small', 'billboard-medium', 'billboard-large'].map((n) => [n, sp(`props-${n}`)]));
+const NATURE = Object.fromEntries(['bush-01', 'bush-02', 'bush-03', 'pot-bush-big', 'pot-bush-small', 'rock-big', 'rock-small', 'grass-fence', 'grass-bar']
+  .map((n) => [n, sp(`natures-${n}`)]));
+const ROOF_PROPS = ['antenna', 'solar-panel', 'prop-air', 'prop'].map((n) => sp(`props-roof-${n}`));
+const HELIPAD = sp('props-roof-helipad');
+const VEHICLES = [...colors('vehicle-car'), sp('vehicle-taxi'), ...colors('vehicle-suv'), sp('vehicle-police-car'), ...colors('vehicle-pick-up-truck'),
+  ...colors('vehicle-bus'), sp('vehicle-ambulance'), ...colors('vehicle-truck'), ...colors('vehicle-container')];
+const STREET = Object.fromEntries(['trash_bin_c', 'trash_bin_c_green', 'trash_bin_c_blue', 'metal_garbage_can_01_medium', 'garbage_collector_green_medium',
+  'garbage_collector_blue_medium', 'payphone_stand', 'drop_box_01', 'traffic_bollard_01_metal_medium', 'fire_hydrant_01', 'barrel_02_medium_blue',
+  'barrel_02_medium_red', 'pallet_medium_01', 'concrete_jersey_barrier_01_medium', 'type_ii_barricade_01_medium', 'cone_i_medium', 'mailbox_01_white',
+  'public_bench_01', 'drinking_fountain_01', 'pedestrian_traffic_light_02_base_medium_black', 'cctv_camera_01_base'].map((n) => [n, cp(n)]));
+const METER = 2.8; // `scale` that puts a meters-sized City Props model next to SimplePoly props
+const CURBSIDE = ['trash_bin_c', 'payphone_stand', 'garbage_collector_green_medium', 'trash_bin_c_green', 'drop_box_01',
+  'traffic_bollard_01_metal_medium', 'metal_garbage_can_01_medium', 'garbage_collector_blue_medium', 'trash_bin_c_blue', 'fire_hydrant_01'];
+
+// Grid blocks between the roads: cols/rows 0-1, 3-5, 7-9, 11-13, 15-16
+const block = (c0, c1, r0, r1) => { const t = []; for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) t.push([c, r]); return t; };
+const STADIUM = { model: sp('building-stadium'), tiles: block(11, 13, 11, 13) }; // a full 3x3 city block
+const FARM = { tiles: block(0, 1, 15, 16) };
+const RIVER = { band: 4, width: 1, amp: 0.75 }; // a winding river through a green belt in front (+z) of the city
 
 const PLACES = {
-  library: { name: 'Library', model: `${COM}building-l.glb`, c: 3, r: 1, door: [3, 2] },
-  gym: { name: 'Boulder Gym', model: `${COM}building-h.glb`, c: 5, r: 1, door: [5, 2] },
-  cafe: { name: 'Bean There Café', model: `${COM}building-c.glb`, c: 7, r: 3, door: [6, 3] },
-  market: { name: 'Market', model: `${COM}building-f.glb`, c: 9, r: 5, door: [9, 6] },
+  library: { name: 'Library', model: sp('building-books-shop'), c: 3, r: 1, door: [3, 2] },
+  gym: { name: 'Boulder Gym', model: sp('building-auto-service'), c: 5, r: 1, door: [5, 2] },
+  cafe: { name: 'Bean There Café', model: sp('building-coffee-shop'), c: 7, r: 3, door: [6, 3] },
+  market: { name: 'Market', model: sp('building-super-market'), c: 9, r: 5, door: [9, 6] },
   park: { name: 'Central Park', c: 8, r: 7, door: [8, 6] },
   downtown: { name: 'downtown', c: 7, r: 5, door: [7, 6] },
 };
 
+// Each friend owns a whole outer block. Their house sits back from the street on `house`, with a
+// driveway on `c,r` leading to the road at `door` (where people stand when visiting). Colors are
+// picked to stand out from the scenery (no greens, blues, greys or browns).
 const FRIENDS = [
-  { id: 'maya', name: 'Maya', color: '#f0616d', model: 'character-female-a', home: { model: `${SUB}building-type-c.glb`, c: 1, r: 3, door: [2, 3] } },
-  { id: 'jordan', name: 'Jordan', color: '#4f8ef7', model: 'character-male-b', home: { model: `${SUB}building-type-h.glb`, c: 3, r: 5, door: [3, 6] } },
-  { id: 'sam', name: 'Sam', color: '#2fb36d', model: 'character-male-d', home: { model: `${SUB}building-type-k.glb`, c: 5, r: 7, door: [6, 7] } },
-  { id: 'priya', name: 'Priya', color: '#f2a33a', model: 'character-female-c', home: { model: `${SUB}building-type-n.glb`, c: 11, r: 7, door: [10, 7] } },
-  { id: 'leo', name: 'Leo', color: '#9b6cf0', model: 'character-male-f', home: { model: `${SUB}building-type-r.glb`, c: 1, r: 9, door: [2, 9] } },
+  { id: 'maya', name: 'Maya', color: '#ff3b30', model: 'character-female-a', block: block(0, 1, 3, 5), home: { model: sp('building-house-01-color01'), house: [0, 4], c: 1, r: 4, door: [2, 4] } },
+  { id: 'jordan', name: 'Jordan', color: '#ff2d95', model: 'character-male-b', block: block(11, 13, 0, 1), home: { model: `${SUB}building-type-k.glb`, house: [12, 0], c: 12, r: 1, door: [12, 2] } },
+  { id: 'sam', name: 'Sam', color: '#ffd60a', model: 'character-male-d', block: block(3, 5, 15, 16), home: { model: sp('building-house-03-color01'), house: [4, 16], c: 4, r: 15, door: [4, 14] } },
+  { id: 'priya', name: 'Priya', color: '#ff9500', model: 'character-female-c', block: block(15, 16, 7, 9), home: { model: `${SUB}building-type-r.glb`, house: [16, 8], c: 15, r: 8, door: [14, 8] } },
+  { id: 'leo', name: 'Leo', color: '#a24bff', model: 'character-male-f', block: block(0, 1, 11, 13), home: { model: sp('building-house-02-color01'), house: [0, 12], c: 1, r: 12, door: [2, 12] } },
 ];
-const TREES = [[9, 7], [7, 9], [9, 9], [8, 7.3]];
+// Dark text on light friend colors (yellow, orange), white on the rest
+const inkOn = (hex) => { const c = new THREE.Color(hex); return c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.6 ? '#1f2430' : '#fff'; };
+const TREES = [[7, 7], [9, 7], [7, 9], [9, 9]];
 
 const pos = (c, r) => new THREE.Vector3(c - N / 2 + 0.5, 0, r - N / 2 + 0.5);
 const key = (c, r) => `${c},${r}`;
@@ -85,7 +136,7 @@ function addLabel(className, text, getPos) {
   return { el, remove: () => { el.remove(); labels.delete(l); } };
 }
 
-// ---- Three.js setup ----------------------------------------------------------------give me some tea 
+// ---- Three.js setup ----------------------------------------------------------------
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -97,7 +148,7 @@ $('#game').append(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#9fd3ec');
 
-const VIEW = 11; // world units visible vertically at zoom 1
+const VIEW = 17; // world units visible vertically at zoom 1
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
 camera.position.set(14, 13, 14);
 function fitCamera() {
@@ -110,6 +161,8 @@ function fitCamera() {
 }
 fitCamera();
 addEventListener('resize', fitCamera);
+camera.zoom = 1.35; // open close to the old town's scale; scroll out to see the whole town
+camera.updateProjectionMatrix();
 
 // Third-person camera used while following a friend
 const followCam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 100);
@@ -120,28 +173,85 @@ const FOLLOW_BACK = 1.3, FOLLOW_UP = 0.75;
 const FOLLOW_REST_MS = 2500; // after this long without input, the camera eases back behind the person
 let lastFollowInput = 0;
 
+// A trackpad pinch arrives as ctrl+wheel. Over a panel or label the browser would pinch-zoom the
+// whole page instead (blurry, panels pushed off screen), so only the town's camera may zoom.
+addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+for (const t of ['gesturestart', 'gesturechange']) addEventListener(t, (e) => e.preventDefault(), { passive: false }); // Safari
+
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.minZoom = 0.6;
 controls.maxZoom = 5;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = 1.15;
-controls.target.set(0, 0, 0);
+controls.target.set(0, 0, RIVER.band / 2); // center on the city plus the river belt in front
+camera.position.z += RIVER.band / 2;
 
-scene.add(new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6));
+const hemi = new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff4e0', 2.2);
 sun.position.set(-8, 14, 6);
 sun.castShadow = true;
 sun.shadow.mapSize.setScalar(IS_MOBILE ? 1024 : 2048);
-Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 });
+Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, near: 1, far: 60 });
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-// Base plate under the city
-const plate = new THREE.Mesh(new THREE.BoxGeometry(N + 0.4, 0.3, N + 0.4), new THREE.MeshLambertMaterial({ color: '#b98a5a' }));
-plate.position.y = -0.151;
-plate.receiveShadow = true;
-scene.add(plate);
+// Base plate under the city, plus the green belt (sitting a hair lower, so tiles on it never z-fight)
+const slab = (w, d, top, z) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, d), new THREE.MeshLambertMaterial({ color: '#b98a5a' }));
+  m.position.set(0, top - 0.151, z);
+  m.receiveShadow = true;
+  scene.add(m);
+};
+slab(N + 0.4, N + 0.2, 0, -0.1);
+slab(N + 0.4, RIVER.band + 0.2, -0.01, N / 2 + (RIVER.band + 0.2) / 2);
+
+// River centerline (world z) at world x, and the matching tile row
+const riverZ = (x) => N / 2 + RIVER.band / 2 + Math.sin(x * 0.42 + 0.6) * RIVER.amp + Math.sin(x * 0.9) * RIVER.amp * 0.3;
+
+// A strip following the river's curve, `width` wide, as flat XZ geometry at height y
+function riverStrip(width, y) {
+  const xs = 90, across = 4, pos = [], idx = [];
+  for (let i = 0; i <= xs; i++) {
+    const x = -N / 2 - 0.2 + ((N + 0.4) * i) / xs;
+    const dz = (riverZ(x + 0.01) - riverZ(x - 0.01)) / 0.02; // tangent slope -> normal for even width
+    const len = Math.hypot(1, dz);
+    for (let j = 0; j <= across; j++) {
+      const o = (j / across - 0.5) * width;
+      pos.push(x - (dz / len) * o, y, riverZ(x) + o / len);
+    }
+  }
+  for (let i = 0; i < xs; i++) for (let j = 0; j < across; j++) {
+    const a = i * (across + 1) + j, b = a + across + 1;
+    idx.push(a, a + 1, b, b, a + 1, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// Animated low-poly water (river + park pond): vertices bob gently, staying under bridge decks
+function water(geometry) {
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+    color: '#3fa7d6', roughness: 0.25, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.92,
+  }));
+  scene.add(mesh); // no shadows on the moving surface: they shimmer
+  const attr = geometry.attributes.position;
+  const base = Float32Array.from(attr.array);
+  let t = 0;
+  animated.add({ update(dt) {
+    t += dt;
+    for (let i = 0; i < attr.count; i++) {
+      const x = base[i * 3], z = base[i * 3 + 2];
+      attr.array[i * 3 + 1] = base[i * 3 + 1] + Math.sin(x * 5 + t * 1.6) * 0.004 + Math.cos(z * 7 - t * 1.2) * 0.003;
+    }
+    attr.needsUpdate = true;
+  } });
+  return mesh;
+}
 
 // ---- Model loading -----------------------------------------------------------------
 
@@ -151,24 +261,35 @@ async function loadAll(paths) {
   await Promise.all([...new Set(paths)].map(async (p) => { models[p] = await loader.loadAsync(p); }));
 }
 
-function place(path, c, r, { fit = 0.92, rotY = 0 } = {}) {
+// SimplePoly models share one scale (a road tile is 20 units), so place them at that scale
+// to keep houses, shops and towers in proportion. `fit` instead stretches a model to a footprint.
+const SP_SCALE = 1 / 20;
+function place(path, c, r, { fit, scale = 1, height = 1, rotY = 0 } = {}) {
   const obj = models[path].scene.clone();
   const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
-  obj.scale.setScalar(fit / Math.max(size.x, size.z));
+  obj.scale.setScalar(fit ? fit / Math.max(size.x, size.z) : SP_SCALE * scale);
+  obj.scale.y *= height;
   obj.rotation.y = rotY;
   obj.position.copy(pos(c, r));
-  obj.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  const flat = Object.values(ROAD).includes(path) || Object.values(GROUND).includes(path);
+  obj.traverse((m) => { if (m.isMesh) { m.castShadow = !flat; m.receiveShadow = true; } });
   scene.add(obj);
   return obj;
 }
 
-// Rotate a building so its front faces an adjacent road (models face +z).
+// Buildings only go on lots that touch a road, and face it (models face +z). Corner lots pick
+// one of their two roads by position so a block's corners don't all turn the same way.
+const roadSides = (c, r) => [[0, 1], [1, 0], [0, -1], [-1, 0]].filter(([dc, dr]) => {
+  const [x, y] = [c + dc, r + dr];
+  return x >= 0 && y >= 0 && x < N && y < N && isRoad(x, y);
+});
 function faceRoad(c, r) {
-  for (const [dc, dr] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
-    if (isRoad(c + dc, r + dr) && c + dc >= 0 && r + dr >= 0 && c + dc < N && r + dr < N) return Math.atan2(dc, dr);
-  }
-  return 0;
+  const sides = roadSides(c, r);
+  if (!sides.length) return null;
+  const [dc, dr] = sides[(c + r) % sides.length];
+  return Math.atan2(dc, dr);
 }
+const isCorner = (c, r) => roadSides(c, r).length >= 2;
 
 // ---- Town -------------------------------------------------------------------------------
 
@@ -180,45 +301,382 @@ function addOccluder(root) {
 }
 const topOf = {}; // building roof height by tile, for labels/effects
 
+// Give a placed model its own materials, tinted toward `color` (textures multiply by it)
+function tint(obj, color, amount) {
+  const c = new THREE.Color(color);
+  obj.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); m.material.color.lerp(c, amount); } });
+  return obj;
+}
+
+// Repaint a model fully in `color`, keeping its detail: the texture goes grayscale (lightened),
+// then the material color paints it. Used for friends' houses and cars so they read as theirs.
+const grayCache = new Map();
+function grayTexture(tex) {
+  if (!grayCache.has(tex)) {
+    const img = tex.image;
+    const cv = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, cv.width, cv.height);
+    for (let i = 0; i < px.data.length; i += 4) {
+      const l = px.data[i] * 0.3 + px.data[i + 1] * 0.59 + px.data[i + 2] * 0.11;
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = Math.min(255, 70 + l * 0.8);
+    }
+    ctx.putImageData(px, 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    for (const k of ['flipY', 'colorSpace', 'wrapS', 'wrapT', 'magFilter', 'minFilter']) t[k] = tex[k];
+    grayCache.set(tex, t);
+  }
+  return grayCache.get(tex);
+}
+// Paint only the roof: faces pointing up in the top part of the model get a grayscale copy of the
+// material in `color`; walls, windows and doors keep their own look.
+function paintRoof(obj, color) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const cut = box.min.y + (box.max.y - box.min.y) * 0.55;
+  const [a, b, cc, n] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  obj.traverse((m) => {
+    if (!m.isMesh) return;
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    const p = g.attributes.position, tris = p.count / 3;
+    const roof = [];
+    for (let t = 0; t < tris; t++) {
+      a.fromBufferAttribute(p, t * 3).applyMatrix4(m.matrixWorld);
+      b.fromBufferAttribute(p, t * 3 + 1).applyMatrix4(m.matrixWorld);
+      cc.fromBufferAttribute(p, t * 3 + 2).applyMatrix4(m.matrixWorld);
+      n.subVectors(cc, b).cross(a.clone().sub(b)).normalize();
+      roof.push(n.y > 0.3 && (a.y + b.y + cc.y) / 3 > cut);
+    }
+    if (!roof.some(Boolean)) return;
+    // Reorder triangles (walls first, roof last) and split them into two material groups
+    const order = [...Array(tris).keys()].sort((x, y) => roof[x] - roof[y]);
+    for (const name of Object.keys(g.attributes)) { // read per component: attributes may be interleaved
+      const src = g.attributes[name], k = src.itemSize, out = new Float32Array(src.count * k);
+      order.forEach((t, i) => {
+        for (let v = 0; v < 3; v++) for (let j = 0; j < k; j++) out[(i * 3 + v) * k + j] = src.getComponent(t * 3 + v, j);
+      });
+      g.setAttribute(name, new THREE.BufferAttribute(out, k, src.normalized));
+    }
+    const walls = roof.filter((x) => !x).length;
+    g.addGroup(0, walls * 3, 0);
+    g.addGroup(walls * 3, (tris - walls) * 3, 1);
+    const roofMat = m.material.clone();
+    if (roofMat.map) roofMat.map = grayTexture(roofMat.map);
+    roofMat.color.set(color);
+    m.geometry = g;
+    m.material = [m.material, roofMat];
+  });
+  return obj;
+}
+
+// Seat a building on its lot: center it, then push its front edge up to the road it faces, and on
+// a corner lot its side up to the second road too, so corner houses sit right on the corner.
+function seat(obj, c, r, sides, setback = 0.05) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj), mid = box.getCenter(new THREE.Vector3()), at = pos(c, r);
+  obj.position.x += at.x - mid.x;
+  obj.position.z += at.z - mid.z;
+  const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+  for (const [dc, dr] of sides) {
+    if (dc) obj.position.x += dc * (0.5 - setback - half.x);
+    if (dr) obj.position.z += dr * (0.5 - setback - half.z);
+  }
+  return obj;
+}
+
+function paint(obj, color) {
+  obj.traverse((m) => {
+    if (!m.isMesh) return;
+    m.material = m.material.clone();
+    if (m.material.map) m.material.map = grayTexture(m.material.map);
+    m.material.color.set(color);
+  });
+  return obj;
+}
+
+// A low fence in the friend's color around their whole block, open where their path meets the road
+function blockFence(f) {
+  const cs = f.block.map(([c]) => c), rs = f.block.map(([, r]) => r);
+  const [c0, c1, r0, r1] = [Math.min(...cs) - 0.44, Math.max(...cs) + 0.44, Math.min(...rs) - 0.44, Math.max(...rs) + 0.44];
+  const mat = new THREE.MeshLambertMaterial({ color: f.color });
+  const [dc, dr] = [f.home.door[0] - f.home.c, f.home.door[1] - f.home.r];
+  const gate = { c: f.home.c + dc * 0.44, r: f.home.r + dr * 0.44 };
+  const rail = (x0, z0, x1, z1) => {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    if (len < 0.01) return;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(Math.abs(x1 - x0) + 0.03, 0.07, Math.abs(z1 - z0) + 0.03), mat);
+    m.position.copy(pos((x0 + x1) / 2, (z0 + z1) / 2)).setY(0.035);
+    m.castShadow = true;
+    scene.add(m);
+  };
+  const side = (x0, z0, x1, z1) => { // split around the gate if it sits on this side
+    const onSide = x0 === x1 ? Math.abs(gate.c - x0) < 0.05 : Math.abs(gate.r - z0) < 0.05;
+    if (!onSide) return rail(x0, z0, x1, z1);
+    if (x0 === x1) { rail(x0, z0, x0, gate.r - 0.22); rail(x0, gate.r + 0.22, x0, z1); }
+    else { rail(x0, z0, gate.c - 0.22, z0); rail(gate.c + 0.22, z0, x1, z0); }
+  };
+  side(c0, r0, c1, r0); side(c0, r1, c1, r1); side(c0, r0, c0, r1); side(c1, r0, c1, r1);
+}
+
 function buildCity() {
-  const grass = new THREE.MeshLambertMaterial({ color: '#7cc255' });
-  const park = new THREE.Mesh(new THREE.BoxGeometry(3, 0.04, 3), grass);
-  park.position.copy(pos(8, 8)).setY(0.02);
-  park.receiveShadow = true;
-  scene.add(park);
-
   const reserved = new Map();
-  for (const p of Object.values(PLACES)) if (p.model) reserved.set(key(p.c, p.r), p.model);
-  for (const f of FRIENDS) reserved.set(key(f.home.c, f.home.r), f.home.model);
+  const doorOf = new Map(); // named places face the road their door is on
+  for (const p of Object.values(PLACES)) if (p.model) { reserved.set(key(p.c, p.r), p.model); doorOf.set(key(p.c, p.r), p.door); }
+  const yards = new Map(); // tiles of a friend's block -> friend
+  for (const f of FRIENDS) for (const t of f.block) yards.set(key(...t), f);
+  const special = new Set([...STADIUM.tiles, ...FARM.tiles].map((t) => key(...t)));
+  const doors = new Set([...Object.values(PLACES), ...FRIENDS.map((f) => f.home)].map((a) => key(...a.door)));
+  const hash = (c, r) => ((c * 37 + r * 91 + c * r * 7) % 100) / 100;
+  // Suburban blocks get 2-3 houses, only on lots that touch a road; the rest are gardens
+  const group = (v) => ROADS.filter((x) => x < v).length;
+  const outerBlock = (c, r) => [0, ROADS.length].includes(group(c)) || [0, ROADS.length].includes(group(r));
+  const picked = new Map();
+  const suburbHouses = (c, r) => {
+    const id = `${group(c)},${group(r)}`;
+    if (!picked.has(id)) {
+      const lots = [];
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        if (isRoad(x, y) || group(x) !== group(c) || group(y) !== group(r)) continue;
+        if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isRoad(x + dx, y + dy))) lots.push([x, y]);
+      }
+      // Named places first (they count toward the block's 2-3 buildings), then every corner lot, then the rest
+      const rank = (t) => (reserved.has(key(...t)) ? 0 : isCorner(...t) ? 1 : 2);
+      lots.sort((a, b) => rank(a) - rank(b) || hash(...a) - hash(...b));
+      const corners = lots.filter((t) => isCorner(...t)).length;
+      const count = Math.max(corners, lots.length <= 3 ? 2 : 2 + Math.floor(hash(c + r, 7) * 2));
+      picked.set(id, new Set(lots.slice(0, count).map((t) => key(...t))));
+    }
+    return picked.get(id);
+  };
+  const greenery = (c, r, i) => {
+    const m = [PARK_TREES[0], NATURE['bush-02'], PARK_TREES[2], NATURE['bush-01'], PARK_TREES[1]][i % 5];
+    const g = place(m, c, r, { scale: m.includes('tree') ? 2.3 : 2.4, rotY: i });
+    if (m.includes('tree')) addOccluder(g);
+  };
 
-  let i = 0;
+  // ---- Roads, lots and buildings
+  let roofN = 0, curbN = 0;
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
       const onR = ROADS.includes(r), onC = ROADS.includes(c);
-      if (onR && onC) { place(`${RD}road-crossroad.glb`, c, r, { fit: 1 }); continue; }
-      if (onR) { place(`${RD}road-straight.glb`, c, r, { fit: 1 }); continue; } // model runs along x
-      if (onC) { place(`${RD}road-straight.glb`, c, r, { fit: 1, rotY: Math.PI / 2 }); continue; }
-      if (inPark(c, r)) continue;
-
-      place(`${RD}tile-low.glb`, c, r, { fit: 1 });
-      const dist = Math.hypot(c - 5.5, r - 5.5);
-      const pick = (arr) => arr[(c * 7 + r * 13 + c * r) % arr.length];
-      const model = reserved.get(key(c, r)) ||
-        (dist < 3.2 ? pick(SKYSCRAPERS) : dist < 5.3 ? pick(COMMERCIAL) : pick(HOUSES));
-      const b = place(model, c, r, { fit: model.includes('skyscraper') ? 0.9 : 0.86, rotY: faceRoad(c, r) });
-      addOccluder(b);
-      topOf[key(c, r)] = new THREE.Box3().setFromObject(b).max.y;
+      if (onR && onC) { place(ROAD.cross, c, r); continue; }
+      if (onR) { place(ROAD.straight, c, r, { rotY: Math.PI / 2 }); continue; } // model runs along z
+      if (onC) { place(ROAD.straight, c, r); continue; }
+      if (inPark(c, r)) { place(GROUND.grass, c, r); continue; }
       blocked.add(key(c, r));
-      i++;
+      if (special.has(key(c, r))) { place(STADIUM.tiles.some(([x, y]) => x === c && y === r) ? GROUND.paved : GROUND.grass, c, r); continue; }
+
+      const friend = yards.get(key(c, r));
+      if (friend) {
+        const h = friend.home;
+        const facing = Math.atan2(h.c - h.house[0], h.r - h.house[1]); // house faces down its driveway
+        place(GROUND.grass, c, r);
+        if (h.house[0] === c && h.house[1] === r) {
+          const home = paintRoof(place(h.model, c, r, { ...(h.model.startsWith(SP) ? { scale: 0.92 } : { fit: 0.8 }), rotY: facing }), friend.color);
+          topOf[key(c, r)] = topOf[key(h.c, h.r)] = new THREE.Box3().setFromObject(home).max.y;
+          addOccluder(home);
+
+        } else if (h.c === c && h.r === r) {
+          const [dc, dr] = [h.c - h.house[0], h.r - h.house[1]];
+          const drive = new THREE.Mesh(new THREE.BoxGeometry(dc ? 1 : 0.36, 0.012, dr ? 1 : 0.36), new THREE.MeshLambertMaterial({ color: '#c9c3b8' }));
+          drive.position.copy(pos(c, r)).setY(0.006);
+          drive.receiveShadow = true;
+          scene.add(drive);
+          paint(place(VEHICLES[friend.name.length % 7], c - dc * 0.05, r - dr * 0.05, { scale: 1.3, rotY: facing }), friend.color);
+          place(NATURE['bush-03'], c + dr * 0.32, r + dc * 0.32, { scale: 2.4 });
+        } else greenery(c, r, c + r * 2);
+        continue;
+      }
+
+      const suburb = outerBlock(c, r); // the ring outside roads 2 and 14 is all suburbs
+      const zone = suburb ? ZONES.at(-1) : ZONES.find((z) => Math.hypot(c - CENTER, r - CENTER) < z.upTo && z.models !== HOUSES) ?? ZONES.at(-2);
+      const door = doorOf.get(key(c, r));
+      const rotY = door ? Math.atan2(door[0] - c, door[1] - r) : faceRoad(c, r);
+      if (rotY === null && !reserved.has(key(c, r))) { // no street frontage: a courtyard, never a building
+        place(GROUND.grass, c, r); // anything green stands on grass
+        greenery(c, r, c * 3 + r);
+        if (!suburb) {
+          place(STREET.public_bench_01, c - 0.3, r + 0.25, { scale: METER, rotY: Math.PI / 2 });
+          place(NATURE['pot-bush-big'], c + 0.3, r - 0.3, { scale: 2.2 });
+        }
+        continue;
+      }
+      if (suburb && !reserved.has(key(c, r)) && !suburbHouses(c, r).has(key(c, r))) { // gardens keep the suburbs airy
+        place(GROUND.grass, c, r);
+        greenery(c, r, c * 3 + r);
+        if (hash(c, r) < 0.5) place(NATURE['bush-03'], c + 0.25, r - 0.25, { scale: 2.4 });
+        continue;
+      }
+      const n = zone.used = (zone.used ?? (c * 5 + r * 3)) + 1; // walk each zone's list so neighbors differ
+      const model = reserved.get(key(c, r)) || zone.models[n % zone.models.length];
+      const [lo, hi] = zone.height;
+      const height = lo + (hi - lo) * hash(c, r);
+      place(suburb ? GROUND.grass : GROUND.paved, c, r);
+      const isSP = model.startsWith(SP);
+      const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
+      b.userData.building = isSP ? 'simplepoly' : 'kenney';
+      addOccluder(b);
+      if (suburb) { // flush to the street it faces, and to the cross street on a corner
+        const front = [Math.round(Math.sin(rotY)), Math.round(Math.cos(rotY))];
+        seat(b, c, r, [front, ...roadSides(c, r).filter(([x, y]) => x !== front[0] || y !== front[1])]);
+      } else seat(b, c, r, []);
+      const top = new THREE.Box3().setFromObject(b).max.y;
+      topOf[key(c, r)] = top;
+
+      // Something on the sidewalk out front of shops and towers
+      if (!suburb && hash(c * 2, r) < 0.55) {
+        const along = hash(r * 3, c) < 0.5 ? -0.3 : 0.3;
+        const [fx, fz] = [Math.sin(rotY), Math.cos(rotY)]; // facing direction
+        place(STREET[CURBSIDE[curbN++ % CURBSIDE.length]], c + fx * 0.47 + fz * along, r + fz * 0.47 - fx * along, { scale: METER, rotY });
+      }
+      // Rooftops: helipads on the big towers, gear on other tall SimplePoly blocks, billboards on shops
+      if (!isSP || suburb) continue;
+      const roof = model.includes('sky-big') ? HELIPAD
+        : height >= 1.3 || model.includes('sky-small') || model.includes('residential') ? ROOF_PROPS[roofN++ % ROOF_PROPS.length]
+        : hash(r, c) < 0.45 ? [PROPS['billboard-small'], PROPS['billboard-medium'], PROPS['billboard-large']][roofN++ % 3] : null;
+      if (roof) place(roof, c, r, { scale: roof === HELIPAD ? 0.9 : 1.3, rotY }).position.y = top - 0.01;
     }
   }
 
-  for (const [c, r] of TREES) {
-    addOccluder(place(`${SUB}tree-large.glb`, c, r, { fit: 0.28 }));
-    blocked.add(key(Math.round(c), Math.round(r)));
+  // ---- Friends' blocks: colored fence, mailbox and flag so each home is easy to spot
+  for (const f of FRIENDS) {
+    blockFence(f);
+    const h = f.home;
+    const [dc, dr] = [h.door[0] - h.c, h.door[1] - h.r];
+    const side = { c: -dr * 0.34, r: dc * 0.34 };
+    tint(place(STREET.mailbox_01_white, h.c + dc * 0.4 + side.c, h.r + dr * 0.4 + side.r, { scale: METER, rotY: Math.atan2(dc, dr) }), f.color, 0.8);
+    // Flag on a pole in the front yard; the cloth hangs from a pivot at the pole top so it stays attached
+    const flagAt = pos(h.c - dc * 0.3 - side.c, h.r - dr * 0.3 - side.r);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9), new THREE.MeshLambertMaterial({ color: '#eeeeee' }));
+    pole.position.copy(flagAt).setY(0.45);
+    const pivot = new THREE.Group();
+    pivot.position.copy(flagAt).setY(0.8);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.16), new THREE.MeshLambertMaterial({ color: f.color, side: THREE.DoubleSide }));
+    cloth.position.x = 0.13; // hinge on the cloth's left edge
+    pivot.add(cloth);
+    pole.castShadow = cloth.castShadow = true;
+    scene.add(pole, pivot);
+    const phase = f.name.length;
+    animated.add({ update() { pivot.rotation.y = Math.sin(performance.now() / 450 + phase) * 0.4; } });
+    const at = pos(...h.house).setY(topOf[key(...h.house)] + 0.2);
+    const lbl = addLabel('lbl place home', `${f.name}'s house`, () => at);
+    lbl.el.style.background = f.color;
+    lbl.el.style.color = inkOn(f.color);
   }
-  // Street lights at crossings
-  for (const c of ROADS) for (const r of ROADS) place(`${RD}light-square.glb`, c + 0.42, r + 0.42, { fit: 0.3 });
+
+  // ---- Landmarks: the stadium at the pack's true scale fills its block; a windmill farm in the other corner
+  const sc = STADIUM.tiles.reduce((a, [c, r]) => [a[0] + c / STADIUM.tiles.length, a[1] + r / STADIUM.tiles.length], [0, 0]);
+  addOccluder(place(STADIUM.model, sc[0], sc[1], { scale: 1.3, rotY: Math.PI / 2 }));
+  place(PROPS.windmill, 0.5, 15.6, { scale: 2.2, rotY: Math.PI / 4 });
+  for (const [x, z, rot] of [[0.5, 14.62, Math.PI / 2], [0.5, 16.38, Math.PI / 2], [-0.38, 15.5, 0], [1.38, 15.5, 0]]) {
+    place(NATURE['grass-fence'], x, z, { scale: 2.4, rotY: rot });
+  }
+  for (const [x, z, m] of [[0, 15, 'bush-02'], [1.1, 16.1, 'bush-03'], [1.2, 15, 'rock-big'], [-0.1, 16.2, 'bush-01']]) place(NATURE[m], x, z, { scale: 2.2 });
+
+  // ---- Green belt with a winding river; roads run on through it and cross on bridges
+  const rows = RIVER.band;
+  for (let r = N; r < N + rows; r++) for (let c = 0; c < N; c++) {
+    if (ROADS.includes(c)) { place(ROAD.straight, c, r).position.y = 0.03; continue; }
+    place(GROUND.grass, c, r);
+  }
+  const sand = new THREE.Mesh(riverStrip(RIVER.width + 0.3, 0.006), new THREE.MeshLambertMaterial({ color: '#d9c58f' }));
+  sand.receiveShadow = true;
+  scene.add(sand);
+  water(riverStrip(RIVER.width, 0.014));
+  const stone = new THREE.MeshLambertMaterial({ color: '#cfc8bb' });
+  for (const c of ROADS) {
+    const x = pos(c, 0).x, z = riverZ(x), span = RIVER.width + 0.45;
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, span), stone); // top sits just under the road tiles
+    deck.position.set(x, -0.02, z);
+    scene.add(deck);
+    for (const s of [-0.47, 0.47]) {
+      const railing = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, span), stone);
+      railing.position.set(x + s, 0.08, z);
+      railing.castShadow = true;
+      scene.add(railing);
+    }
+  }
+  let g = 0;
+  for (let c = 0; c < N; c++) {
+    if (ROADS.includes(c)) continue;
+    const x = pos(c, 0).x;
+    for (let r = N; r < N + rows; r++) {
+      const z = pos(0, r).z;
+      if (Math.abs(z - riverZ(x)) < RIVER.width / 2 + 0.35 || hash(c, r) > 0.6) continue;
+      greenery(c + (hash(r, c) - 0.5) * 0.4, r, g++);
+    }
+    if (c % 3 === 1) place(NATURE['rock-small'], c + 0.3, riverZ(x) + RIVER.width / 2 + 0.2 + N / 2 - 0.5, { scale: 2 }); // world z -> tile row
+  }
+
+  // ---- Central park: pond ringed by rocks, trees in the corners, benches facing the water
+  const pond = new THREE.CircleGeometry(0.72, 20);
+  pond.rotateX(-Math.PI / 2);
+  pond.translate(pos(CENTER, CENTER).x, 0.02, pos(CENTER, CENTER).z);
+  water(pond);
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.8, 20), new THREE.MeshLambertMaterial({ color: '#b9ad97' }));
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.copy(pos(CENTER, CENTER)).setY(0.025);
+  scene.add(rim);
+  blocked.add(key(CENTER, CENTER));
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.3;
+    place(i % 2 ? NATURE['rock-small'] : NATURE['rock-big'], CENTER + Math.cos(a) * 0.8, CENTER + Math.sin(a) * 0.8, { scale: 1.6, rotY: a });
+  }
+  TREES.forEach(([c, r], i) => {
+    addOccluder(place(PARK_TREES[i % PARK_TREES.length], c, r, { scale: 2.6 }));
+    blocked.add(key(c, r));
+  });
+  place(PROPS['bench-1'], CENTER, CENTER - 1.1, { scale: 2, rotY: Math.PI });
+  place(PROPS['bench-2'], CENTER, CENTER + 1.1, { scale: 2 });
+  place(STREET.public_bench_01, CENTER - 1.1, CENTER, { scale: METER, rotY: Math.PI / 2 });
+  place(STREET.drinking_fountain_01, CENTER + 1.15, CENTER + 0.35, { scale: METER, rotY: -Math.PI / 2 });
+  for (const [c, r, m] of [[CENTER + 1.1, CENTER - 0.3, 'bush-01'], [CENTER - 0.4, CENTER - 1.2, 'pot-bush-big'],
+    [CENTER + 0.4, CENTER - 1.2, 'pot-bush-small'], [CENTER - 0.4, CENTER + 1.2, 'bush-02']]) place(NATURE[m], c, r, { scale: 2.2 });
+
+  // ---- Street furniture
+  // Street lights: one on each crossing, plus one mid-block on every other block face (skipping doorways)
+  const lamp = (x, z, rotY) => { place(PROPS['street-light'], x, z, { scale: 1.8, rotY }); LAMPS.push({ x, z, rotY }); };
+  for (const c of ROADS) for (const r of ROADS) lamp(c + 0.42, r + 0.42, -Math.PI / 4);
+  for (const i of [4, 8, 12]) for (const [k, road] of ROADS.entries()) { // middles of the blocks between roads
+    if ((i / 4 + k) % 2) continue;
+    const side = k % 2 ? 1 : -1;
+    if (!doors.has(key(road, i))) lamp(road + side * 0.44, i, side > 0 ? 0 : Math.PI); // along a north-south road
+    if (!doors.has(key(i, road))) lamp(i, road + side * 0.44, side > 0 ? -Math.PI / 2 : Math.PI / 2); // along an east-west road
+  }
+  for (const c of ROADS) for (const r of ROADS) {
+    const inner = Math.abs(c - CENTER) < 5 && Math.abs(r - CENTER) < 5;
+    if (inner) {
+      place(PROPS['traffic-signal-big'], c - 0.42, r - 0.42, { scale: 1.8, rotY: (3 * Math.PI) / 4 });
+      place(STREET.pedestrian_traffic_light_02_base_medium_black, c + 0.44, r - 0.44, { scale: METER, rotY: -Math.PI / 2 });
+      place(STREET.cctv_camera_01_base, c - 0.44, r + 0.44, { scale: METER });
+    } else {
+      place(PROPS['traffic-sign-stop'], c - 0.44, r + 0.44, { scale: 2 });
+      place(PROPS['traffic-signal-small'], c + 0.44, r - 0.44, { scale: 1.6 });
+    }
+    if (r + 1 < N) place((c + r) % 8 ? PROPS.hydrant : PROPS.dustbin, c + 0.44, r + 0.75, { scale: 2 });
+  }
+  // Parked vehicles along the curbs (skipping crossings and doorways), every pack vehicle in rotation
+  let v = 0;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const onR = ROADS.includes(r), onC = ROADS.includes(c);
+    if (onR === onC || doors.has(key(c, r)) || hash(c, r) > 0.3) continue;
+    const side = hash(r, c) < 0.5 ? -1 : 1;
+    const model = VEHICLES[v++ % VEHICLES.length];
+    if (onC) place(model, c + side * 0.33, r, { scale: 1.4, rotY: side > 0 ? 0 : Math.PI });
+    else place(model, c, r + side * 0.33, { scale: 1.4, rotY: side > 0 ? -Math.PI / 2 : Math.PI / 2 });
+  }
+  // A bus stop by the park, café chairs out front, and roadwork on the east side
+  place(PROPS['bus-stop'], CENTER + 1, ROADS[2] + 0.41, { scale: 1.6, rotY: Math.PI });
+  for (const dz of [-0.35, 0.3]) place(PROPS['coffee-shop-chair'], PLACES.cafe.door[0] + 0.4, PLACES.cafe.door[1] + dz, { scale: 1.6 });
+  const rw = ROADS[3];
+  place(PROPS['traffic-control-barrier-fence'], rw + 0.3, 4, { scale: 2, rotY: Math.PI / 2 });
+  place(STREET.concrete_jersey_barrier_01_medium, rw + 0.3, 4.45, { scale: METER, rotY: Math.PI / 2 });
+  place(STREET.type_ii_barricade_01_medium, rw + 0.3, 3.55, { scale: METER, rotY: Math.PI / 2 });
+  for (const dz of [-0.3, 0, 0.3]) place(dz ? PROPS['traffic-cone'] : STREET.cone_i_medium, rw + 0.12, 4 + dz, { scale: dz ? 2 : METER });
+  place(STREET.pallet_medium_01, rw + 0.36, 4.85, { scale: METER });
+  place(STREET.barrel_02_medium_blue, rw + 0.3, 3.2, { scale: METER });
+  place(STREET.barrel_02_medium_red, rw + 0.38, 3.05, { scale: METER });
 
   for (const p of Object.values(PLACES)) {
     if (!p.model) continue;
@@ -251,7 +709,7 @@ function findPath(from, to, roadsOnly = false) {
 
 const friends = {};
 const eventOwned = new Set();
-const WALK_SPEED = 0.65; // tiles per second: an unhurried stroll
+const WALK_SPEED = 0.9; // tiles per second: an unhurried stroll (the town is 17 tiles across)
 
 function spawnFriends() {
   FRIENDS.forEach((def, i) => {
@@ -285,6 +743,7 @@ function spawnFriends() {
     setAction(f, 'idle');
     const lbl = addLabel('lbl friend', def.name, () => obj.position.clone().setY(0.52));
     lbl.el.style.background = def.color;
+    lbl.el.style.color = inkOn(def.color);
     lbl.el.onclick = () => focusFriend(f.id);
     f.label = lbl;
     friends[f.id] = f;
@@ -433,7 +892,7 @@ async function think(f) {
 const effects = {};
 const animated = new Set();
 
-function houseTop(home) { return pos(home.c, home.r).setY(topOf[key(home.c, home.r)]); }
+function houseTop(home) { return pos(...home.house).setY(topOf[key(...home.house)]); }
 
 function partyLights(home) {
   const top = houseTop(home);
@@ -697,10 +1156,17 @@ const occRay = new THREE.Raycaster();
 function setOpacity(root, a) {
   root.traverse((m) => {
     if (!m.isMesh) return;
-    if (!m.userData.ownMaterial) { m.material = m.material.clone(); m.userData.ownMaterial = true; } // kit models share materials
-    m.material.opacity = a;
-    m.material.transparent = a < 0.999;
-    m.material.depthWrite = a >= 0.999;
+    if (!m.userData.ownMaterial) { // kit models share materials; buildings may carry [wall, lit window] pairs
+      m.material = Array.isArray(m.material)
+        ? m.material.map((x) => { const c = x.clone(); if (windowMats.has(x)) windowMats.add(c); return c; })
+        : m.material.clone();
+      m.userData.ownMaterial = true;
+    }
+    for (const mat of [m.material].flat()) {
+      mat.opacity = a;
+      mat.transparent = a < 0.999;
+      mat.depthWrite = a >= 0.999;
+    }
   });
 }
 
@@ -741,6 +1207,7 @@ function frame() {
     if (!townApi.liveMode && !f.busy && !f.path.length && now > f.nextThink) think(f);
   }
   for (const fx of animated) fx.update(dt);
+  updateSky(dt);
 
   if (focusGoal) {
     const delta = focusGoal.clone().sub(controls.target).multiplyScalar(Math.min(1, dt * 4));
@@ -769,28 +1236,270 @@ function frame() {
   updateOcclusion(dt);
   renderer.render(scene, activeCam);
 
+  // Labels hide while behind a panel: the panels' frosted blur would smear their colors
+  const panels = [...document.querySelectorAll('.panel:not([hidden]), #cards .card')].map((e) => e.getBoundingClientRect());
   for (const l of labels) {
     v.copy(l.getPos()).project(activeCam);
-    const hidden = v.z > 1 || (l.el.classList.contains('friend') && !friendVisible(l));
+    const [x, y] = [(v.x * 0.5 + 0.5) * innerWidth, (-v.y * 0.5 + 0.5) * innerHeight];
+    const covered = panels.some((b) => x > b.left - 40 && x < b.right + 40 && y > b.top && y < b.bottom + 24);
+    const hidden = v.z > 1 || covered || (l.el.classList.contains('friend') && !friendVisible(l));
     l.el.style.display = hidden ? 'none' : '';
-    l.el.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
-    l.el.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    l.el.style.left = `${x}px`;
+    l.el.style.top = `${y}px`;
   }
   requestAnimationFrame(frame);
 }
 const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent === f.name)?.obj.visible ?? true;
 
+// ---- Sky: time of day and weather ------------------------------------------------------------
+// Time follows the real local clock unless the slider takes over (or fast-forward is on). Weather
+// drifts on its own every couple of minutes until a weather button pins it.
+
+const sky = {
+  hour: 12, live: true, fast: false,
+  weather: 'clear', autoWeather: true, nextWeatherAt: 0,
+  cloud: 0, precip: 0, flash: 0, nextFlashAt: 0, night: 0,
+};
+const WEATHER = { // cloud cover, precipitation kind
+  clear: { cloud: 0, kind: null }, rain: { cloud: 0.6, kind: 'rain' },
+  storm: { cloud: 0.85, kind: 'rain' }, snow: { cloud: 0.5, kind: 'snow' },
+};
+const C = (h) => new THREE.Color(h);
+const SKY = { day: C('#9fd3ec'), dusk: C('#f3a36b'), night: C('#1b2b57'), overcastDay: C('#9aa5b3'), overcastNight: C('#232b3d') };
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+// Rain streaks and snow flakes share one volume over the town (and the river belt in front)
+const VOLUME = { x: N / 2 + 1, z0: -N / 2 - 1, z1: N / 2 + RIVER.band + 1, h: 9 };
+const DROPS = 2600;
+const dropPos = new Float32Array(DROPS * 6);
+const dropSeed = Float32Array.from({ length: DROPS * 3 }, Math.random);
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(dropPos, 3));
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: '#b9d6ff', transparent: true, opacity: 0.55 }));
+const flakePos = new Float32Array(DROPS * 3);
+const snowGeo = new THREE.BufferGeometry();
+snowGeo.setAttribute('position', new THREE.BufferAttribute(flakePos, 3));
+const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 3 * Math.min(devicePixelRatio, 2), sizeAttenuation: false }));
+rain.frustumCulled = snow.frustumCulled = false;
+scene.add(rain, snow);
+let fallT = 0;
+
+// Night lighting: a glowing bulb and a pool of light under every street light, and lit windows
+const glowTex = (() => {
+  const cv = Object.assign(document.createElement('canvas'), { width: 64, height: 64 });
+  const g = cv.getContext('2d').createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,170,80,1)'); g.addColorStop(0.45, 'rgba(255,150,60,0.45)'); g.addColorStop(1, 'rgba(255,140,50,0)');
+  const ctx = cv.getContext('2d'); ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+const lampGlow = [];
+const LAMPS = []; // every street light placed in buildCity: tile position and rotation
+function addStreetLamps() {
+  const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffc27a', transparent: true }); // warm sodium-ish glow
+  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  for (const { x, z, rotY } of LAMPS) {
+    // The lamp's arm reaches 0.207 tiles along its local -x; rotate that to find the bulb
+    const head = pos(x - 0.207 * Math.cos(rotY), z + 0.207 * Math.sin(rotY));
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), bulbMat);
+    bulb.position.copy(head).setY(0.55);
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(0.55, 24), poolMat);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.copy(head).setY(0.025);
+    scene.add(bulb, pool);
+    lampGlow.push(bulb, pool);
+  }
+  lampGlow.materials = [bulbMat, poolMat];
+}
+// Lit windows. Each wall triangle of a building is sampled at its texture color: Kenney glass is a
+// light sky blue, SimplePoly windows a flat dark grey (its walls are often blue, so one color rule
+// can't serve both). Window faces go into a second material group that glows at night; only ~60% of
+// panes are lit so it reads as occupied rooms, not a glowing facade.
+const windowMats = new Set();
+const texPixels = new Map();
+function pixelsOf(tex) {
+  if (!texPixels.has(tex)) {
+    const img = tex.image;
+    const cv = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    texPixels.set(tex, { w: cv.width, h: cv.height, data: ctx.getImageData(0, 0, cv.width, cv.height).data });
+  }
+  return texPixels.get(tex);
+}
+const isGlass = {
+  kenney: (r, g, b) => b > 165 && b - r > 40,
+  simplepoly: (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) < 18 && (r + g + b) / 3 > 40 && (r + g + b) / 3 < 110,
+};
+const litCopies = new Map();
+function lightWindows(obj, pack) {
+  obj.traverse((m) => {
+    if (!m.isMesh || Array.isArray(m.material) || !m.material.map) return;
+    const g = m.geometry;
+    if (!g.userData.windowTris) { // split once per shared geometry: [wall..., lit window...]
+      const src = g.index ? g.toNonIndexed() : g;
+      const P = src.attributes.position, UV = src.attributes.uv, tris = P.count / 3;
+      const px = pixelsOf(m.material.map);
+      const [a, b, c, n] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      const lit = [];
+      for (let t = 0; t < tris; t++) {
+        a.fromBufferAttribute(P, t * 3); b.fromBufferAttribute(P, t * 3 + 1); c.fromBufferAttribute(P, t * 3 + 2);
+        n.subVectors(c, b).cross(a.clone().sub(b)).normalize();
+        let on = false;
+        if (UV && Math.abs(n.y) < 0.3 && ((Math.floor(t / 2) * 2654435761) >>> 0) % 10 < 6) {
+          const u = (UV.getX(t * 3) + UV.getX(t * 3 + 1) + UV.getX(t * 3 + 2)) / 3;
+          const v = (UV.getY(t * 3) + UV.getY(t * 3 + 1) + UV.getY(t * 3 + 2)) / 3;
+          const x = Math.min(px.w - 1, Math.max(0, Math.floor((((u % 1) + 1) % 1) * px.w)));
+          const y = Math.min(px.h - 1, Math.max(0, Math.floor((((v % 1) + 1) % 1) * px.h)));
+          const o = (y * px.w + x) * 4;
+          on = isGlass[pack](px.data[o], px.data[o + 1], px.data[o + 2]);
+        }
+        lit.push(on);
+      }
+      const order = [...Array(tris).keys()].sort((x, y) => lit[x] - lit[y]);
+      const out = new THREE.BufferGeometry();
+      for (const name of Object.keys(src.attributes)) {
+        const at = src.attributes[name], k = at.itemSize, arr = new Float32Array(at.count * k);
+        order.forEach((t, i) => { for (let v = 0; v < 3; v++) for (let j = 0; j < k; j++) arr[(i * 3 + v) * k + j] = at.getComponent(t * 3 + v, j); });
+        out.setAttribute(name, new THREE.BufferAttribute(arr, k, at.normalized));
+      }
+      const walls = lit.filter((x) => !x).length;
+      out.addGroup(0, walls * 3, 0);
+      out.addGroup(walls * 3, (tris - walls) * 3, 1);
+      out.userData.windowTris = tris - walls;
+      g.userData.windowTris = out; // later clones of this model reuse the split
+    }
+    const split = g.userData.windowTris instanceof THREE.BufferGeometry ? g.userData.windowTris : g;
+    if (!split.userData.windowTris) return;
+    if (!litCopies.has(m.material)) {
+      const glow = m.material.clone();
+      glow.emissive = new THREE.Color('#ffc978');
+      glow.emissiveIntensity = 0;
+      windowMats.add(glow);
+      litCopies.set(m.material, glow);
+    }
+    m.geometry = split;
+    m.material = [m.material, litCopies.get(m.material)];
+  });
+}
+
+function setWeather(w, pinned = true) {
+  sky.weather = w;
+  if (pinned) sky.autoWeather = false;
+  document.querySelectorAll('[data-weather]').forEach((b) => b.classList.toggle('on', b.dataset.weather === (sky.autoWeather ? 'auto' : w)));
+  logFeed(`Weather: ${w}${sky.autoWeather ? ' (changing on its own)' : ''}.`);
+}
+
+function updateSky(dt) {
+  const now = new Date();
+  if (sky.live) sky.hour = now.getHours() + now.getMinutes() / 60;
+  else if (sky.fast) sky.hour = (sky.hour + dt * (24 / 120)) % 24; // a whole day in two minutes
+  if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
+    if (sky.nextWeatherAt) setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
+    sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
+  }
+  const w = WEATHER[sky.weather];
+  sky.cloud += (w.cloud - sky.cloud) * Math.min(1, dt * 0.6);
+  sky.precip += ((w.kind ? 1 : 0) - sky.precip) * Math.min(1, dt * 0.5);
+
+  // Sun: rises at 6, sets at 18. `el` is its height (-1..1); twilight glows near the horizon.
+  const a = ((sky.hour - 6) / 12) * Math.PI, el = Math.sin(a);
+  const day = smooth(-0.12, 0.2, el), twilight = Math.max(0, 1 - Math.abs(el) / 0.28) * smooth(-0.3, 0, el);
+  sky.night = 1 - day;
+  const col = SKY.night.clone().lerp(SKY.day, day).lerp(SKY.dusk, twilight * 0.7);
+  col.lerp(SKY.overcastNight.clone().lerp(SKY.overcastDay, day), sky.cloud * 0.8);
+  if (sky.flash > 0) col.lerp(C('#e8eeff'), sky.flash);
+  scene.background.copy(col);
+
+  const up = Math.max(el, 0.18);
+  if (day > 0.02) sun.position.set(-Math.cos(a) * 14, up * 16, 6);
+  else sun.position.set(Math.cos(a) * 10, 12, -4); // moonlight from the other side
+  sun.color.copy(C('#fff4e0')).lerp(C('#ffb070'), twilight).lerp(C('#9fb3ff'), 1 - day);
+  sun.intensity = (0.6 + 1.6 * day) * (1 - 0.7 * sky.cloud) + sky.flash * 2;
+  hemi.intensity = (0.85 + 0.75 * day) * (1 - 0.3 * sky.cloud) + sky.flash * 1.5;
+  hemi.color.copy(C('#8494cc')).lerp(C('#ffffff'), day);
+  hemi.groundColor.copy(C('#34405a')).lerp(C(sky.weather === 'snow' ? '#dfe6ee' : '#8a9a7a'), day);
+
+  // Lightning in storms: a quick double flash every few seconds
+  if (sky.weather === 'storm' && performance.now() > sky.nextFlashAt) {
+    sky.flash = 1;
+    sky.nextFlashAt = performance.now() + 3500 + Math.random() * 6000;
+  }
+  sky.flash = Math.max(0, sky.flash - dt * 5);
+
+  // Night lights
+  const lit = smooth(0.35, 0.8, sky.night + sky.cloud * 0.25);
+  for (const m of lampGlow.materials ?? []) m.opacity = lit;
+  for (const g of lampGlow) g.visible = lit > 0.01;
+  for (const m of windowMats) m.emissiveIntensity = lit * 1.4;
+
+  // Precipitation: only a share of the drops fall, ramping with the weather
+  fallT += dt;
+  const kind = w.kind ?? (sky.precip > 0.02 ? (snow.visible ? 'snow' : 'rain') : null);
+  const count = Math.floor(DROPS * sky.precip * (sky.weather === 'storm' ? 1 : 0.6));
+  rain.visible = kind === 'rain' && count > 0;
+  snow.visible = kind === 'snow' && count > 0;
+  const span = VOLUME.z1 - VOLUME.z0;
+  for (let i = 0; i < count; i++) {
+    const [sx, sy, sz] = [dropSeed[i * 3], dropSeed[i * 3 + 1], dropSeed[i * 3 + 2]];
+    const x = (sx * 2 - 1) * VOLUME.x, z = VOLUME.z0 + sz * span;
+    if (rain.visible) {
+      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 9) % VOLUME.h);
+      dropPos.set([x, y, z, x - 0.04, y + 0.28, z - 0.02], i * 6);
+    } else if (snow.visible) {
+      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 0.7) % VOLUME.h);
+      flakePos.set([x + Math.sin(fallT * 0.8 + sx * 20) * 0.15, y, z + Math.cos(fallT * 0.6 + sz * 20) * 0.15], i * 3);
+    }
+  }
+  rainGeo.setDrawRange(0, count * 2);
+  snowGeo.setDrawRange(0, count);
+  rainGeo.attributes.position.needsUpdate = snowGeo.attributes.position.needsUpdate = true;
+  rain.material.opacity = sky.weather === 'storm' ? 0.7 : 0.5;
+
+  const label = document.querySelector('#clock');
+  if (label) {
+    const h = Math.floor(sky.hour), m = Math.floor((sky.hour % 1) * 60);
+    label.textContent = `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}${sky.live ? ' · live' : sky.fast ? ' · ⏩' : ''}`;
+    const slider = document.querySelector('#time');
+    if (document.activeElement !== slider) slider.value = sky.hour;
+  }
+}
+
+function wireSkyControls() {
+  const slider = document.querySelector('#time');
+  slider.oninput = () => { sky.live = false; sky.fast = false; sky.hour = +slider.value; };
+  document.querySelector('#time-live').onclick = () => { sky.live = true; sky.fast = false; };
+  document.querySelector('#time-fast').onclick = () => { sky.live = false; sky.fast = !sky.fast; };
+  document.querySelectorAll('[data-weather]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.weather === 'auto') { sky.autoWeather = true; sky.nextWeatherAt = 1; setWeather(sky.weather, false); return; }
+      setWeather(b.dataset.weather);
+    };
+  });
+  const p = new URLSearchParams(location.search);
+  if (p.has('hour')) { sky.live = false; sky.hour = +p.get('hour'); }
+  if (p.has('weather')) { // start already in that weather instead of easing in
+    setWeather(p.get('weather'));
+    sky.cloud = WEATHER[sky.weather].cloud;
+    sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
+  }
+}
+
 // ---- Boot ----------------------------------------------------------------------------------------
 
 const allModels = [
-  ...SKYSCRAPERS, ...COMMERCIAL, ...HOUSES,
+  ...ZONES.flatMap((z) => z.models),
   ...Object.values(PLACES).filter((p) => p.model).map((p) => p.model),
   ...FRIENDS.map((f) => `${CH}${f.model}.glb`), ...FRIENDS.map((f) => f.home.model),
-  `${RD}road-straight.glb`, `${RD}road-crossroad.glb`, `${RD}tile-low.glb`, `${RD}light-square.glb`, `${SUB}tree-large.glb`,
+  ...Object.values(ROAD), ...Object.values(GROUND), ...PARK_TREES, ...Object.values(PROPS), ...Object.values(NATURE),
+  ...ROOF_PROPS, HELIPAD, ...VEHICLES, STADIUM.model,
+  ...Object.values(STREET),
 ];
 logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
+addStreetLamps();
+scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.building); });
+wireSkyControls();
 spawnFriends();
 renderResidents();
 logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
