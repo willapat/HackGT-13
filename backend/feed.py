@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from backend.identity import member_name
 from backend.models.enums import EventStatus, ParticipantStatus
-from backend.status import active_status
+from backend.status import effective_status
 
 # Character actions worth a feed card. idle / walk_to / go_home are just movement.
 SOCIAL_VERBS = {
@@ -26,11 +26,11 @@ def _parse(ts: str | None) -> datetime | None:
 
 
 def build_feed(uid: str, towns: dict[str, str], members: list[dict], runs: list[dict], actions: list[dict],
-               events: list[dict], now: datetime, limit: int = 40) -> dict:
+               events: list[dict], now: datetime, limit: int = 40, busy: dict[str, dict] | None = None) -> dict:
     """towns: {town_id: name}. members: town_members rows (with profiles) of those towns. runs: brain_runs.
     actions: agent_actions. events: events with event_participants. Returns {towns, items, today, inbox}."""
     people = {(m["town_id"], m["user_id"]): {"user_id": m["user_id"], "name": member_name(m) or "Someone", "color": m.get("color"),
-                                              "status": active_status(m.get("profiles"), now),
+                                              "status": effective_status(m.get("profiles"), now, (busy or {}).get(m["user_id"])),
                                               "photo": ((m.get("profiles") or {}).get("avatar") or {}).get("photo")} for m in members}
 
     def who(tid, user_id):

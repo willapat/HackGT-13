@@ -9,7 +9,7 @@ from backend.db import get_client
 from backend import photos
 from backend.feed import SOCIAL_VERBS, TODAY_WINDOW, build_feed, town_layout
 from backend.profile_stats import WEEK_DAYS, build_stats
-from backend.status import MAX_LENGTH, active_status
+from backend.status import MAX_LENGTH, active_status, calendar_busy
 from backend.models.api import ProfileUpdate, StatusIn
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -131,7 +131,9 @@ def my_feed(uid: str = Depends(current_user_id)):
     events = (db.table("events").select("*, event_participants(user_id, status)").in_("town_id", ids)
               .or_(f"status.in.(suggested,scheduled,confirmed),and(start_at.gte.{stamp(now)},start_at.lte.{soon})")
               .order("created_at", desc=True).limit(200).execute().data or [])
-    feed = build_feed(uid, towns, members, runs, actions, events, now)
+    busy = calendar_busy(db, list({m["user_id"] for m in members}), now)
+    feed = build_feed(uid, towns, members, runs, actions, events, now, busy=busy)
+    feed["my_calendar_busy"] = busy.get(uid)  # your own ring when you haven't set a status
     # The real layout, so town cards can draw each town as it is (roads, parks, friends' houses in their colors)
     layouts = {m["town_id"]: town_layout((m.get("towns") or {}), [x for x in members if x["town_id"] == m["town_id"]]) for m in mine}
     for t in feed["towns"]:
@@ -160,7 +162,9 @@ def my_stats(uid: str = Depends(current_user_id)):
                   .eq("status", "accepted").execute().data or [])
     hangouts = sum(1 for p in mine_going if (p.get("events") or {}).get("status") == "confirmed")
     shared = db.table("signals").select("id", count="exact").eq("user_id", uid).limit(1).execute().count or 0
-    return build_stats(uid, towns, members, actions, runs, friendships, hangouts, shared, datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    busy = calendar_busy(db, list({m["user_id"] for m in members}), now)
+    return build_stats(uid, towns, members, actions, runs, friendships, hangouts, shared, now, busy=busy)
 
 
 @router.put("/status")

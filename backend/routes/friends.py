@@ -12,7 +12,7 @@ from backend.auth import current_user_id
 from backend.db import get_client, now_iso
 from backend.models.api import FriendRequestIn, Respond, Username
 from backend.person import build_person
-from backend.status import active_status
+from backend.status import calendar_busy, effective_status
 
 router = APIRouter(tags=["friends"])
 
@@ -40,8 +40,9 @@ def _profiles(db, ids: list[str]) -> dict[str, dict]:
         return {}
     now = datetime.now(timezone.utc)
     rows = db.table("profiles").select("*").in_("id", ids).execute().data or []
+    busy = calendar_busy(db, ids, now)
     return {p["id"]: {**{k: p.get(k) for k in PUBLIC_FIELDS}, "bio": p.get("bio") or "",
-                      "active_status": active_status(p, now)} for p in rows}
+                      "active_status": effective_status(p, now, busy.get(p["id"]))} for p in rows}
 
 
 def _my_rows(db, uid: str, status: str) -> list[dict]:
@@ -153,6 +154,8 @@ def person_profile(user_id: UUID, uid: str = Depends(current_user_id)):
     a, b = sorted((uid, target))
     bond = db.table("friendships").select("*").eq("user_a", a).eq("user_b", b).limit(1).execute().data
     me_row = db.table("profiles").select("interests").eq("id", uid).limit(1).execute().data
+    now = datetime.now(timezone.utc)
+    busy = calendar_busy(db, [target], now).get(target) if shared_towns or target == uid else None
     return build_person(uid, rows[0], pair_row(db, uid, target), shared_towns,
                         (me_row[0].get("interests") if me_row else None) or [], mutual, bond[0] if bond else None,
-                        datetime.now(timezone.utc))
+                        now, busy=busy)

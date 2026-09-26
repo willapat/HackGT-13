@@ -13,7 +13,7 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const VIEWS = ['loading', 'error', 'auth', 'username', 'home', 'friends', 'inbox', 'profile', 'person', 'settings', 'help'];
 const SIGNED_IN_VIEWS = new Set(['home', 'friends', 'inbox', 'profile', 'person', 'settings', 'help']);
-const PANES = ['profile', 'character', 'towns', 'account', 'appearance', 'privacy'];
+const PANES = ['profile', 'character', 'towns', 'calendar', 'account', 'appearance', 'privacy'];
 
 let sb = null;
 let me = null; // current profile row
@@ -125,6 +125,7 @@ async function boot() {
     }
   });
   const { data: { session } } = await sb.auth.getSession();
+  if (session && calendarPane.returning) await calendarPane.finishConnect(session);
   if (session) await afterSignIn();
   else showAuth();
 }
@@ -419,8 +420,17 @@ const crossedPaths = (days) => days == null ? "You haven't crossed paths yet"
 
 const STATUS_HOURS = 3;
 const STATUS_LABEL = { free: 'Free', busy: 'Busy' };
-const myStatus = () => (me?.status && me.status_until && new Date(me.status_until) > new Date() ? { status: me.status, until: me.status_until } : null);
-const statusLeft = (until) => Math.max(0, Math.min(1, (new Date(until) - Date.now()) / (STATUS_HOURS * 3600e3)));
+// A status you set wins; otherwise your calendar makes you busy while a block runs (from /me/feed)
+function myStatus() {
+  if (me?.status && me.status_until && new Date(me.status_until) > new Date()) return { status: me.status, until: me.status_until };
+  const cal = feed.my_calendar_busy;
+  return cal && new Date(cal.until) > new Date() ? { status: 'busy', until: cal.until, since: cal.since, source: 'calendar' } : null;
+}
+// How much ring is left: over the calendar block when it came from one, else over the tap's 3 hours
+function statusLeft(st) {
+  const span = st.since ? new Date(st.until) - new Date(st.since) : STATUS_HOURS * 3600e3;
+  return Math.max(0, Math.min(1, (new Date(st.until) - Date.now()) / span));
+}
 
 function timeLeft(until) {
   const mins = Math.max(1, Math.ceil((new Date(until) - Date.now()) / 60e3));
@@ -432,7 +442,7 @@ function ring(elm, st) {
   elm.classList.remove('st-free', 'st-busy');
   if (!st) return;
   elm.classList.add(`st-${st.status}`);
-  elm.style.setProperty('--left', statusLeft(st.until).toFixed(3));
+  elm.style.setProperty('--left', statusLeft(st).toFixed(3));
 }
 
 function renderMyStatus() {
@@ -440,7 +450,14 @@ function renderMyStatus() {
   for (const id of ['#bar-avatar', '#menu-avatar', '#composer-avatar', '#me-avatar']) ring($(id), st);
   for (const box of $$('.status-control')) {
     box.replaceChildren();
-    if (st) {
+    if (st?.source === 'calendar') { // busy because of your calendar: one tap says you're free anyway
+      const on = el('span', 'status-on busy', `📅 Busy · ${timeLeft(st.until)}`);
+      on.title = 'From your calendar';
+      const free = el('button', 'status-tap free', 'Free anyway');
+      free.type = 'button';
+      free.onclick = () => setStatus('free');
+      box.append(on, free);
+    } else if (st) {
       const on = el('span', `status-on ${st.status}`, `${STATUS_LABEL[st.status]} · ${timeLeft(st.until)}`);
       const end = el('button', 'link small', 'End');
       end.type = 'button';
@@ -544,6 +561,7 @@ function renderFeed() {
     return li;
   }));
   $('#no-today').hidden = feed.today.length > 0;
+  renderMyStatus(); // your calendar may have made you busy since the last refresh
   const free = feed.free_now || [];
   $('#free-now').replaceChildren(...free.map((p) => mateRow(p, `Free · ${timeLeft(p.status.until)} · ${p.town.name}`)));
   $('#free-section').hidden = !free.length;
@@ -969,7 +987,7 @@ function renderPerson(p) {
     return;
   }
 
-  if (p.status) $('#p-status').replaceChildren(el('span', `status-on ${p.status.status}`, `${STATUS_LABEL[p.status.status]} · ${timeLeft(p.status.until)}`));
+  if (p.status) $('#p-status').replaceChildren(el('span', `status-on ${p.status.status}`, `${p.status.source === 'calendar' ? '📅 ' : ''}${STATUS_LABEL[p.status.status]} · ${timeLeft(p.status.until)}`));
   $('#p-bio').textContent = p.bio;
   $('#p-bio').hidden = !p.bio;
   const stats = [];
@@ -1115,6 +1133,7 @@ function showSettings(pane) {
     if (pane === 'appearance') appearance.load();
     if (pane === 'privacy') privacy.load();
     if (pane === 'towns') townsPane.load();
+    if (pane === 'calendar') calendarPane.load();
   }
   currentPane = pane;
   for (const el of $$('.pane')) el.hidden = el.dataset.pane !== pane;
@@ -1573,6 +1592,87 @@ const appearance = (() => {
   }
   for (const b of $$('[data-theme-choice]')) b.onclick = () => { setTheme(b.dataset.themeChoice); load(); };
   return { load };
+})();
+
+// Calendar: connect Google Calendar (free/busy only). Google sends people back to ?calendar=google with a
+// refresh token in the session exactly once; it goes straight to the backend, which does all the syncing.
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.freebusy';
+const calendarPane = (() => {
+  // Read before supabase-js tidies the URL: are we coming back from Google, and did it fail?
+  const query = new URLSearchParams(location.search), fragment = new URLSearchParams(location.hash.slice(1));
+  const returning = query.get('calendar') === 'google';
+  const googleError = returning && (query.get('error_description') || fragment.get('error_description'));
+
+  const ago = (iso) => {
+    const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
+  };
+
+  function render(s) {
+    const on = Boolean(s?.connected);
+    $('#cal-connect').hidden = on || !s;
+    $('#cal-sync').hidden = !on;
+    $('#cal-disconnect').hidden = !on;
+    $('#cal-status').textContent = !s ? 'Checking…' : !on ? 'Not connected'
+      : `Connected${s.last_synced_at ? ` · synced ${ago(s.last_synced_at)}` : ''} · ${s.upcoming_busy_blocks} busy ${s.upcoming_busy_blocks === 1 ? 'block' : 'blocks'} coming up`;
+    $('#cal-error').hidden = !s?.last_error;
+    $('#cal-error').textContent = s?.last_error || '';
+  }
+
+  async function load() {
+    render(null);
+    try { render(await api('/me/calendar')); } catch (err) { $('#cal-status').textContent = 'Not available'; toast(err.message, 'error'); }
+  }
+
+  async function finishConnect(session) {
+    history.replaceState(null, '', `${location.pathname}#/settings/calendar`);
+    if (googleError) return toast(`Google Calendar wasn't connected: ${googleError}`, 'error');
+    if (!session.provider_refresh_token) return toast("Google didn't grant ongoing calendar access. Try connecting again.", 'error');
+    try {
+      await api('/me/calendar/google', { method: 'POST', body: { refresh_token: session.provider_refresh_token, scopes: GOOGLE_SCOPES } });
+      toast('Google Calendar connected');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  $('#cal-connect').onclick = async () => {
+    busy($('#cal-connect'), true, 'Opening Google…');
+    const { data: { user } } = await sb.auth.getUser();
+    const options = {
+      redirectTo: `${location.origin}${location.pathname}?calendar=google`,
+      scopes: GOOGLE_SCOPES,
+      queryParams: { access_type: 'offline', prompt: 'consent' }, // ask for a refresh token every time
+    };
+    // First time: link Google to this account. Already linked (e.g. reconnecting): sign in with it again.
+    const linked = user?.identities?.some((i) => i.provider === 'google');
+    const { error } = linked
+      ? await sb.auth.signInWithOAuth({ provider: 'google', options })
+      : await sb.auth.linkIdentity({ provider: 'google', options });
+    if (error) {
+      toast(error.message, 'error');
+      busy($('#cal-connect'), false, 'Connect Google Calendar');
+    }
+  };
+
+  $('#cal-sync').onclick = async () => {
+    busy($('#cal-sync'), true, 'Syncing…');
+    try { render(await api('/me/calendar/sync', { method: 'POST' })); toast('Calendar synced'); } catch (err) { toast(err.message, 'error'); load(); }
+    busy($('#cal-sync'), false, 'Sync now');
+  };
+
+  $('#cal-disconnect').onclick = async () => {
+    const yes = await confirmDialog({
+      title: 'Disconnect Google Calendar?',
+      body: 'Luma stops reading your busy times and removes the ones it copied. Google access is revoked too.',
+      confirmLabel: 'Disconnect', danger: true,
+    });
+    if (!yes) return;
+    try { await api('/me/calendar', { method: 'DELETE' }); toast('Google Calendar disconnected'); } catch (err) { toast(err.message, 'error'); }
+    load();
+  };
+
+  return { load, finishConnect, returning };
 })();
 
 // Privacy & data: download, delete account

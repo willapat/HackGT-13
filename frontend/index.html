@@ -330,6 +330,7 @@
             <a href="#/settings/profile" data-pane="profile"><span class="well"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>Profile</a>
             <a href="#/settings/character" data-pane="character"><span class="well"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg></span>Your character</a>
             <a href="#/settings/towns" data-pane="towns"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V8l6-4v17"/><path d="M11 21V10l8 3v8"/></svg></span>Towns</a>
+            <a href="#/settings/calendar" data-pane="calendar"><span class="well"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>Calendar</a>
             <a href="#/settings/account" data-pane="account"><span class="well"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>Account</a>
             <a href="#/settings/appearance" data-pane="appearance"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></span>Appearance</a>
             <a href="#/settings/privacy" data-pane="privacy"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg></span>Privacy &amp; data</a>
@@ -413,6 +414,23 @@
                 <p class="sub">In each town you pick the name you go by and your color (it paints your roof, car, mailbox, flag and name tag). Nobody else in that town can use the same name or a color too close to yours.</p>
                 <ul class="people" id="settings-towns"></ul>
                 <p class="empty" id="settings-no-towns">You're not in any towns yet.</p>
+              </div>
+            </div>
+
+            <!-- Calendar -->
+            <div class="pane" data-pane="calendar" hidden>
+              <div class="card">
+                <h2>Google Calendar</h2>
+                <p class="sub">Luma only sees <b>when</b> you're busy, never what or where. While you're busy your character stays home, and suggested plans avoid those times. Your calendar is checked every few minutes.</p>
+                <div class="kv">
+                  <div><div class="k">Status</div><div class="v" id="cal-status">Checking…</div></div>
+                </div>
+                <div class="actions-row" style="justify-content:flex-start">
+                  <button class="primary" id="cal-connect" hidden>Connect Google Calendar</button>
+                  <button id="cal-sync" hidden>Sync now</button>
+                  <button class="danger" id="cal-disconnect" hidden>Disconnect</button>
+                </div>
+                <p class="msg error" id="cal-error" hidden></p>
               </div>
             </div>
 

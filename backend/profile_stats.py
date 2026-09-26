@@ -6,7 +6,7 @@ friendship scores, confirmed plans), never generated. `build_stats` is pure; `GE
 from datetime import datetime
 
 from backend.identity import member_name
-from backend.status import active_status
+from backend.status import effective_status
 
 WEEK_DAYS = 7
 RECONNECT_AFTER_DAYS = 7
@@ -19,7 +19,7 @@ def _days_between(then: str | None, now: datetime) -> float | None:
 
 
 def build_stats(uid: str, towns: dict[str, str], members: list[dict], actions: list[dict], runs: list[dict],
-                friendships: list[dict], hangouts: int, shared: int, now: datetime) -> dict:
+                friendships: list[dict], hangouts: int, shared: int, now: datetime, busy: dict[str, dict] | None = None) -> dict:
     """towns: {town_id: name}. members: town_members rows (with profiles) of those towns. actions / runs:
     agent_actions and brain_runs from the last week. friendships: your rows. Returns the profile highlights."""
     activity = {tid: 0 for tid in towns}
@@ -40,7 +40,7 @@ def build_stats(uid: str, towns: dict[str, str], members: list[dict], actions: l
     for m in members:
         if m["user_id"] != uid and m["user_id"] not in mates:
             mates[m["user_id"]] = {"user_id": m["user_id"], "name": member_name(m) or "Someone", "color": m.get("color"),
-                                   "status": active_status(m.get("profiles"), now),
+                                   "status": effective_status(m.get("profiles"), now, (busy or {}).get(m["user_id"])),
                                    "photo": ((m.get("profiles") or {}).get("avatar") or {}).get("photo"),
                                    "town": {"id": m["town_id"], "name": towns.get(m["town_id"], "Town")}}
     bonds = {}

@@ -10,7 +10,7 @@ Never included: email, invite codes, towns you aren't both in, signals, calendar
 
 from datetime import datetime
 
-from backend.status import active_status
+from backend.status import effective_status
 
 
 def friend_state(uid: str, row: dict | None) -> dict:
@@ -25,7 +25,7 @@ def friend_state(uid: str, row: dict | None) -> dict:
 
 
 def build_person(uid: str, profile: dict, friend_row: dict | None, shared_towns: list[dict], my_interests: list[str],
-                 mutual: list[dict], bond: dict | None, now: datetime) -> dict:
+                 mutual: list[dict], bond: dict | None, now: datetime, busy: dict | None = None) -> dict:
     """profile: their profiles row. shared_towns: [{id, name, residents, their_name, their_color}] for towns you're
     both in. mutual: public profiles of people you're both friends with. bond: your friendships row with them."""
     target = profile["id"]
@@ -48,7 +48,7 @@ def build_person(uid: str, profile: dict, friend_row: dict | None, shared_towns:
         **card,
         "bio": profile.get("bio") or "",
         "character": avatar.get("character"),
-        "status": active_status(profile, now),
+        "status": effective_status(profile, now, busy),
         "interests": [{"name": i, "shared": i in mine} for i in sorted(theirs, key=lambda i: i not in mine)],
         "shared_towns": shared_towns,
         "mutual_friends": mutual[:12],
