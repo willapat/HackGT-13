@@ -5,3 +5,11 @@ A little isometric town where each resident is one of your real friends. An AI r
 The goal is to strengthen real friendships: help people notice when friends need them, find what they have in common, and actually spend time together offline.
 
 Built for HackGT 13.
+
+# Run backend locally
+- make sure you are in the root HackGT-13 dir then run:
+python3 -m uvicorn backend.main:app --reload
+
+# Run frontend locally (run backend first)
+cd frontend
+python3 -m http.server 8080

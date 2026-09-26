@@ -1,7 +1,7 @@
 // Shared by every page: where the backend is, the Supabase client (for login), and an authed fetch helper.
 // The Supabase URL and publishable key come from the backend's GET /demo/config, so no keys live in git.
 
-export const BACKEND = window.TINY_TOWN_BACKEND || 'http://localhost:8000';
+export const BACKEND = window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 
 let clientPromise = null;
 
