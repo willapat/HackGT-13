@@ -5,7 +5,6 @@ import { activeCam, following } from './camera.js';
 import { logFeed } from './hud.js';
 import { LANDSCAPE, N, pos, townApi } from './layout.js';
 import { models } from './models.js';
-import { markCurrentScheduleItems } from './panels.js';
 import { controls, hemi, renderer, scene, SNOW_SKIP, sun } from './stage.js';
 
 // Time follows GET /demo/clock (live, fast, or the slider). Weather drifts on its own
@@ -376,7 +375,6 @@ export function updateSky(dt) {
   }
   const dateEl = document.querySelector('#town-date');
   if (dateEl) dateEl.textContent = townDateLabel();
-  if (document.querySelector('#schedules .sched-item')) markCurrentScheduleItems();
 }
 
 function hourFromIso(iso) {

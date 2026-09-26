@@ -1,14 +1,18 @@
 // Keeps a real town (town/?town=<id>) in step with the database, as the signed-in user:
-// agents' moves (GET /towns/{id}), moods/activities, and chat bubbles (GET /towns/{id}/activity).
+// agents' moves (GET /towns/{id}), moods/activities, people's own bubbles and house moods, and chat bubbles
+// (GET /towns/{id}/activity).
 // Everything is derived from database rows, so every viewer sees the same town.
 import { api } from '../../frontend/shared/session.js';
 import { placementsMatchScreen } from './sky.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
+// A bubble or house mood someone set ({..., until}) shows until it runs out (backend/house.py)
+const active = (x) => (x && Date.parse(x.until) > Date.now() ? x : null);
+// Without a mood of their own, the town brain's mood for them still shows over the house
+const BRAIN_MOOD = { sunny: 'party', rainbow: 'party', rainy: 'rainy', stormy: 'stormy' };
 
 export function startTownSync(townId, initial, t) {
   const placed = {}; // user_id -> action|building|depart already drawn
-  const moodFx = {}; // user_id -> { kind, fx }
   let lastActionId = null;
   let pollGen = 0;
 
@@ -41,18 +45,12 @@ export function startTownSync(townId, initial, t) {
       const houseName = m.home?.name || `${f.name}'s house`; // someone renamed their house: relabel it for everyone
       if (f.home && f.home.name !== houseName) {
         f.home.name = houseName;
-        if (f.homeLabel) f.homeLabel.el.textContent = houseName;
+        t.refreshHouseLabel(f);
       }
       const status = m.activity || m.mood;
       if (status && f.status !== status) t.setStatus(f.id, status);
-      const kind = m.mood === 'sunny' || m.mood === 'rainbow' ? 'party' : m.mood === 'rainy' || m.mood === 'stormy' ? 'rain' : null;
-      if (moodFx[m.user_id]?.kind === kind) continue;
-      moodFx[m.user_id]?.fx?.destroy();
-      moodFx[m.user_id] = {
-        kind,
-        fx: kind === 'party' ? t.partyLights(f.home, { focus: false })
-          : kind === 'rain' ? t.rainCloud(f.home, { focus: false }) : null,
-      };
+      t.setHouseMood(f, active(m.home?.mood)?.kind || BRAIN_MOOD[m.mood] || null);
+      t.setPinned(f, active(m.bubble)?.text || null);
     }
   }
 

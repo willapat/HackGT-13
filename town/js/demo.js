@@ -3,12 +3,11 @@ import { focusOn } from './camera.js';
 import { effects, partyLights, rainCloud } from './effects.js';
 import { $, logFeed, showCard } from './hud.js';
 import { FRIENDS, PLACES, pos } from './layout.js';
-import { renderResidents } from './panels.js';
 import { eventOwned, faceTowards, friends, interrupt, meet, release, say, walkTo } from './people.js';
 
 function claim(...ids) { return ids.map((id) => { eventOwned.add(id); interrupt(friends[id]); return friends[id]; }); }
 function unclaim(...ids) { ids.forEach((id) => { eventOwned.delete(id); release(friends[id]); }); }
-export function setStatus(id, status) { friends[id].status = status; renderResidents(); }
+export function setStatus(id, status) { friends[id].status = status; }
 
 export async function trigger(name) {
   if (name === 'reset') return resetTown();
@@ -108,6 +107,5 @@ function resetTown() {
     f.obj.visible = true;
     if (f.busy && !f.path.length) release(f);
   }
-  renderResidents();
   logFeed('↺ Town reset.');
 }

@@ -131,6 +131,43 @@ class HouseName(BaseModel):
     name: str | None = Field(default=None, max_length=40)  # null or "" = back to "<you>'s house"
 
 
+class BubbleIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def one_line(self):
+        from backend.house import BUBBLE_MAX, clean_text
+        self.text = clean_text(self.text)
+        if not self.text:
+            raise ValueError("say something")
+        if len(self.text) > BUBBLE_MAX:
+            raise ValueError(f"keep it to {BUBBLE_MAX} characters")
+        return self
+
+
+class MoodIn(BaseModel):
+    mood: str
+
+    @model_validator(mode="after")
+    def known(self):
+        from backend.house import MOODS
+        if self.mood not in MOODS:
+            raise ValueError(f"mood must be one of {', '.join(MOODS)}")
+        return self
+
+
+class MailIn(BaseModel):
+    to_user_id: UUID
+    text: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def not_blank(self):
+        self.text = self.text.strip()
+        if not self.text:
+            raise ValueError("write something")
+        return self
+
+
 class JoinTown(BaseModel):
     invite_code: str = Field(min_length=1, max_length=20)
     me: MemberIdentity

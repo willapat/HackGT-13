@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
 import { activeCam } from './camera.js';
+import { refreshHouseLabel } from './effects.js';
 import { OPEN_ZOOM } from './stage.js';
 import { topOf } from './city.js';
 import { $, logFeed } from './hud.js';
@@ -165,6 +166,7 @@ function close() {
 }
 
 addEventListener('town:building', (e) => open(e.detail));
+addEventListener('town:mail-open', close); // one floating card at a time (mine.js)
 $('#bld-close').onclick = close;
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && openId) close(); });
 
@@ -179,7 +181,7 @@ $('#bld-rename').onsubmit = async (e) => {
   try {
     const row = await api(`/towns/${TOWN_ID}/members/me/home`, { method: 'PATCH', body: { name: name || null } });
     me.home.name = row.home?.name || `${me.name}'s house`;
-    me.homeLabel.el.textContent = me.home.name;
+    refreshHouseLabel(me);
     logFeed(`You renamed your house to “${me.home.name}”.`);
     render();
   } catch (err) {

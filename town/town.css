@@ -23,27 +23,50 @@ html, body { margin: 0; height: 100%; overflow: hidden; touch-action: pan-x pan-
 .panel { position: fixed; background: var(--panel); border-radius: 12px; box-shadow: var(--shadow-pop); }
 h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 
-#side { top: 16px; left: 16px; width: 290px; max-height: calc(100% - 32px); padding: 14px; display: flex;
-  flex-direction: column; gap: 14px; }
-#side .title { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; background: var(--brand); -webkit-background-clip: text;
-  background-clip: text; color: transparent; width: fit-content; }
-#side .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
-#residents { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-#residents li { display: flex; gap: 8px; align-items: flex-start; }
-.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; }
-.status { color: var(--muted); font-size: 12px; }
-#schedules { overflow-y: auto; min-height: 140px; flex: 1.4; display: grid; gap: 12px; align-content: start; font-size: 12.5px; }
-.sched-person h3 { margin: 0 0 2px; font-size: 13px; display: flex; gap: 6px; align-items: center; }
-.sched-day { color: var(--muted); font-size: 12px; margin: 8px 0 2px; font-weight: 700; }
-.sched-item { padding: 4px 0; border-top: 1px solid var(--line); }
-.sched-item.now { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); border-radius: 8px; padding: 5px 8px; border-top: none; }
-.sched-when { color: var(--muted); font-variant-numeric: tabular-nums; }
-.sched-where { color: var(--muted); font-size: 12px; }
-#feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 0.7; display: grid;
-  gap: 4px; align-content: start; font-size: 12.5px; }
-#feed li { padding: 4px 0; border-top: 1px solid var(--line); }
-#feed time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
-.feedwrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+/* Top left: back home and the town's invite code (the town's name stands behind the town in 3D) */
+#top { position: fixed; top: 16px; left: 16px; display: flex; gap: 8px; z-index: 10; }
+#top .panel { position: static; }
+#top .back { margin: 0; padding: 8px 14px; background: var(--panel); }
+#top .back:hover { background: var(--accent-soft); }
+#invite-code { font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); border: none; border-radius: 999px;
+  padding: 8px 14px; cursor: pointer; }
+#invite-code:hover { color: var(--ink); }
+#invite-code[hidden] { display: none; }
+
+/* Town happenings: a few short toasts in the bottom-left corner */
+#feed { position: fixed; left: 16px; bottom: 16px; z-index: 5; list-style: none; margin: 0; padding: 0; display: grid;
+  gap: 6px; max-width: min(360px, calc(100vw - 32px)); pointer-events: none; }
+#feed li { background: rgba(20, 23, 28, 0.78); color: #fff; font-size: 12.5px; padding: 6px 12px; border-radius: 12px;
+  width: fit-content; animation: pop 0.25s ease-out; transition: opacity 0.5s; }
+#feed li.gone { opacity: 0; }
+
+/* Your bar: bubble over your character, mood on your house, your mailbox */
+#me { left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px;
+  border-radius: 999px; max-width: calc(100vw - 32px); }
+#me[hidden], #moods[hidden] { display: none; }
+#say { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; }
+#say-text { font: inherit; border: none; background: var(--input); border-radius: 999px; padding: 8px 14px; width: 250px;
+  min-width: 0; flex: 1; color: var(--ink); }
+#say-text:focus { outline: 2px solid var(--accent); background: #fff; }
+.quick { display: flex; }
+.quick-emoji { font-size: 17px; border: none; background: none; cursor: pointer; padding: 4px; border-radius: 50%; line-height: 1; }
+.quick-emoji:hover { background: var(--hover); transform: scale(1.15); }
+#me > button, #say .ghost { font: inherit; font-weight: 600; border: none; background: var(--soft); color: var(--ink);
+  border-radius: 999px; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
+#me > button:hover, #say .ghost:hover { background: var(--soft-hover); }
+#say .ghost { padding: 6px 10px; }
+#say .ghost[hidden] { display: none; }
+#mail-open { position: relative; }
+#mail-count { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;
+  background: #ff3b30; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+#mail-count[hidden] { display: none; }
+#moods { left: 50%; bottom: 72px; transform: translateX(-50%); padding: 8px; display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 4px; width: min(420px, calc(100vw - 32px)); }
+#moods .mood { font: inherit; font-size: 13px; font-weight: 600; border: none; background: none; border-radius: 10px;
+  padding: 8px; display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; color: var(--ink); }
+#moods .mood:hover { background: var(--hover); }
+#moods .emoji { font-size: 20px; }
+#moods .clear { grid-column: 1 / -1; justify-content: center; color: var(--muted); }
 
 #triggers { top: 16px; right: 16px; padding: 12px; width: 250px; max-width: calc(100vw - 32px); display: grid; gap: 6px; }
 #triggers > * { min-width: 0; }
@@ -79,9 +102,14 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
   padding: 2px 8px; border-radius: 999px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
 .lbl.place { background: rgba(255, 255, 255, 0.92); color: var(--ink); font-size: 13px; }
 .lbl.friend { color: #fff; pointer-events: auto; cursor: pointer; }
-.bubble { position: absolute; transform: translate(-50%, -100%); background: #fff; color: var(--ink); padding: 6px 12px;
+.bubble { position: absolute; transform: translate(-50%, calc(-100% - 16px)); /* clears the name tag below */ background: #fff; color: var(--ink); padding: 6px 12px;
   border-radius: 18px; font-size: 13px; max-width: 170px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   animation: pop 0.2s ease-out; }
+.bubble.pinned { border: 2px solid var(--accent); font-weight: 600; animation: none; }
+.bubble.pinned::after { content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+  border: 6px solid transparent; border-top-color: var(--accent); border-bottom: 0; }
+.lbl.mailflag { background: #ff3b30; color: #fff; pointer-events: auto; cursor: pointer; animation: bob 1.4s ease-in-out infinite; }
+@keyframes bob { 50% { margin-top: -4px; } }
 #follow { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 10px 8px 14px; display: flex; gap: 10px;
   align-items: center; }
 #follow[hidden] { display: none; }
@@ -93,8 +121,15 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 .back:hover { background: var(--accent-soft); }
 #hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 14px; font-size: 12px; color: var(--muted); border-radius: 999px; }
 
+body:has(#me:not([hidden])) #hint { bottom: 72px; }
+#moods { z-index: 11; }
+
 @media (max-width: 800px) {
-  #side { width: calc(100% - 32px); max-height: 38%; }
+  #me { top: 64px; bottom: auto; }
+  #moods { top: 120px; bottom: auto; }
+  #say-text { width: auto; }
+  .quick { display: none; }
+  #feed { bottom: 200px; }
   #triggers { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
   #cards { width: calc(100% - 32px); bottom: 190px; }
   #hint { display: none; }
@@ -197,3 +232,40 @@ ul.who .pip { width: 8px; height: 8px; border-radius: 50%; background: currentCo
   #building .bld-body { max-height: min(28vh, 220px); }
   #building .close { width: 36px; height: 36px; }
 }
+
+/* ---- Mailbox card: floats above the mailbox you clicked ---- */
+#mail { width: min(300px, calc(100vw - 24px)); padding: 14px; transform-origin: center bottom;
+  transform: translate(-50%, calc(-100% - 14px)); animation: bld-in 0.18s ease-out; }
+#mail[hidden], #mail-send[hidden] { display: none; }
+#mail::after { content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+  border: 7px solid transparent; border-top-color: #fff; border-bottom: 0; }
+#mail .float-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+#mail .title { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+#mail .meta { margin-top: 2px; color: var(--muted); font-size: 13px; }
+#mail .close { flex: none; width: 32px; height: 32px; margin: -4px -4px 0 0; border: none; border-radius: 50%;
+  background: var(--soft); color: var(--ink); font-size: 18px; line-height: 1; cursor: pointer; }
+#mail .close:hover { background: var(--soft-hover); }
+#mail-send { display: grid; gap: 8px; margin-top: 10px; }
+#mail-text { font: inherit; resize: vertical; min-height: 64px; border: 1px solid transparent; border-radius: 10px;
+  background: var(--input); padding: 8px 12px; color: var(--ink); }
+#mail-text:focus { outline: none; background: #fff; border-color: var(--accent); }
+#mail .mail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#mail .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#mail button.go { font: inherit; font-weight: 600; border: none; border-radius: 10px; background: var(--accent); color: #fff;
+  padding: 8px 18px; cursor: pointer; }
+#mail button.go:hover { background: var(--accent-hover); }
+#mail button.go:disabled { opacity: 0.45; cursor: default; }
+#mail-list { list-style: none; margin: 8px -6px 0; padding: 0; display: grid; gap: 2px; max-height: min(40vh, 300px); overflow-y: auto; }
+#mail-list:empty { display: none; }
+#mail-list li { display: flex; gap: 10px; padding: 8px 6px; border-radius: 10px; }
+#mail-list li.new { background: var(--accent-soft); }
+#mail-list .who-av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  font-weight: 700; font-size: 12px; }
+#mail-list .mail-body { min-width: 0; flex: 1; }
+#mail-list .mail-from { font-size: 13px; }
+#mail-list .when { color: var(--muted); }
+#mail-list .mail-text { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#mail-list .mail-acts { display: flex; gap: 6px; margin-top: 6px; }
+#mail-list .mail-acts button { font: inherit; font-size: 12px; font-weight: 600; border: none; background: var(--soft);
+  border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+#mail-list .mail-acts button:hover { background: var(--soft-hover); }
