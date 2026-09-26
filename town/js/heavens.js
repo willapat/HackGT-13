@@ -1,10 +1,11 @@
 // Sun, moon and stars in the sky behind the town. They follow the town clock (sky.hour): the sun rises on the side
 // its light comes from (sun.position in sky.js), crosses the top of the view and sets on the other side; the moon
 // takes the night shift with tonight's phase. Cloud hides them. Drawn on the far plane, so the town is always in front.
+// Off for now: main.js loads this only with ?sky=1, and calls updateHeavens() after the camera moves each frame.
 import * as THREE from 'three';
 import { activeCam } from './camera.js';
 import { sky } from './sky.js';
-import { animated, scene } from './stage.js';
+import { scene } from './stage.js';
 
 function canvasTexture(size, draw) {
   const cv = Object.assign(document.createElement('canvas'), { width: size, height: size });
@@ -86,48 +87,48 @@ function pin(s, x, y, px) {
   s.scale.setScalar(a.distanceTo(b) * px);
 }
 
-// Which side of the screen a body rises on: its compass direction at rise, seen from the camera
+// Which side of the screen a body rises on: its compass direction at rise, seen from the camera. It slides smoothly
+// through the middle as the camera turns (a hard -1/1 made the sun jump across the sky mid-rotation).
 function riseSide(worldX, worldZ) {
   right.setFromMatrixColumn(activeCam.matrixWorld, 0).setY(0).normalize();
-  return dir.set(worldX, 0, worldZ).normalize().dot(right) < 0 ? -1 : 1;
+  return Math.max(-1, Math.min(1, dir.set(worldX, 0, worldZ).normalize().dot(right) * 2));
 }
 // Arc across the open sky above the town: rise at one top corner, highest mid-screen, set at the other
 const arcX = (side, t) => side * 0.55 * Math.cos(t); // t: 0 at rise .. PI at set
 const arcY = (el) => 0.45 + 0.45 * Math.max(0, el);
 
-animated.add({
-  update() {
-    const ang = ((sky.hour - 6) / 12) * Math.PI, el = Math.sin(ang); // same arc as the light in sky.js
-    const clear = 1 - Math.min(1, sky.cloud * 1.1);
-    // Sun: along the light's own direction (-cos, 6) so its shadows point away from it
-    sunSprite.visible = el > -0.1;
-    if (sunSprite.visible) {
-      pin(sunSprite, arcX(riseSide(-14, 6), ang), arcY(el), 150); // rises where sky.js's morning light comes from
-      sunSprite.material.opacity = smooth(-0.1, 0.08, el) * (0.25 + 0.75 * clear);
-      sunSprite.material.color.set('#ffffff').lerp(new THREE.Color('#ffae70'), 1 - smooth(0, 0.35, el));
+export function updateHeavens() {
+  activeCam.updateMatrixWorld(); // this frame's camera, not last frame's, or they swim while you drag
+  const ang = ((sky.hour - 6) / 12) * Math.PI, el = Math.sin(ang); // same arc as the light in sky.js
+  const clear = 1 - Math.min(1, sky.cloud * 1.1);
+  // Sun: along the light's own direction (-cos, 6) so its shadows point away from it
+  sunSprite.visible = el > -0.1;
+  if (sunSprite.visible) {
+    pin(sunSprite, arcX(riseSide(-14, 6), ang), arcY(el), 150); // rises where sky.js's morning light comes from
+    sunSprite.material.opacity = smooth(-0.1, 0.08, el) * (0.25 + 0.75 * clear);
+    sunSprite.material.color.set('#ffffff').lerp(new THREE.Color('#ffae70'), 1 - smooth(0, 0.35, el));
+  }
+  // Moon: opposite the sun, where sky.js puts the night light
+  const mel = -el;
+  moonSprite.visible = mel > -0.1;
+  if (moonSprite.visible) {
+    const today = `${sky.y}-${sky.mo}-${sky.d}`;
+    if (today !== moonDay) {
+      moonDay = today;
+      moonSprite.material.map?.dispose();
+      moonSprite.material.map = moonTexture(moonPhase());
+      moonSprite.material.needsUpdate = true;
     }
-    // Moon: opposite the sun, where sky.js puts the night light
-    const mel = -el;
-    moonSprite.visible = mel > -0.1;
-    if (moonSprite.visible) {
-      const today = `${sky.y}-${sky.mo}-${sky.d}`;
-      if (today !== moonDay) {
-        moonDay = today;
-        moonSprite.material.map?.dispose();
-        moonSprite.material.map = moonTexture(moonPhase());
-        moonSprite.material.needsUpdate = true;
-      }
-      pin(moonSprite, arcX(riseSide(-10, -4), ang - Math.PI), arcY(mel), 130); // sky.js's moonlight at moonrise
-      moonSprite.material.opacity = smooth(-0.1, 0.08, mel) * (0.15 + 0.85 * clear);
-    }
-    // Stars come out as it gets dark and hide behind cloud
-    const starOpacity = smooth(0.55, 0.95, sky.night) * clear;
-    stars.visible = starOpacity > 0.01;
-    if (stars.visible) {
-      const pos = starGeo.attributes.position;
-      starNdc.forEach(([x, y], i) => { a.set(x, y, FAR).unproject(activeCam); pos.setXYZ(i, a.x, a.y, a.z); });
-      pos.needsUpdate = true;
-      starMat.opacity = starOpacity * (0.85 + 0.15 * Math.sin(performance.now() / 700));
-    }
-  },
-});
+    pin(moonSprite, arcX(riseSide(-10, -4), ang - Math.PI), arcY(mel), 130); // sky.js's moonlight at moonrise
+    moonSprite.material.opacity = smooth(-0.1, 0.08, mel) * (0.15 + 0.85 * clear);
+  }
+  // Stars come out as it gets dark and hide behind cloud
+  const starOpacity = smooth(0.55, 0.95, sky.night) * clear;
+  stars.visible = starOpacity > 0.01;
+  if (stars.visible) {
+    const pos = starGeo.attributes.position;
+    starNdc.forEach(([x, y], i) => { a.set(x, y, FAR).unproject(activeCam); pos.setXYZ(i, a.x, a.y, a.z); });
+    pos.needsUpdate = true;
+    starMat.opacity = starOpacity * (0.85 + 0.15 * Math.sin(performance.now() / 700));
+  }
+}

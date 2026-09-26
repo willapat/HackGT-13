@@ -28,6 +28,7 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #top .panel { position: static; }
 #top .back { margin: 0; padding: 8px 14px; background: var(--panel); }
 #top .back:hover { background: var(--accent-soft); }
+#recenter { font-family: inherit; border: none; cursor: pointer; }
 #invite-code { font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); border: none; border-radius: 999px;
   padding: 8px 14px; cursor: pointer; }
 #invite-code:hover { color: var(--ink); }
@@ -108,6 +109,10 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 .bubble.pinned { border: 2px solid var(--accent); font-weight: 600; animation: none; }
 .bubble.pinned::after { content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
   border: 6px solid transparent; border-top-color: var(--accent); border-bottom: 0; }
+.lbl.mailpin { pointer-events: auto; cursor: pointer; font-size: 9px; line-height: 1; width: 15px; height: 15px;
+  box-sizing: border-box; padding: 0 0 1px; display: grid; place-items: center; border: 1.5px solid #fff;
+  transition: transform 0.12s; }
+.lbl.mailpin:hover { transform: translate(-50%, -100%) scale(1.5); }
 .lbl.mailflag { background: #ff3b30; color: #fff; pointer-events: auto; cursor: pointer; animation: bob 1.4s ease-in-out infinite; }
 @keyframes bob { 50% { margin-top: -4px; } }
 #follow { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 10px 8px 14px; display: flex; gap: 10px;

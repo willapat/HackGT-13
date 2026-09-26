@@ -23,6 +23,7 @@
 
   <nav id="top">
     <a class="back panel" href="../frontend/">← Home</a>
+    <button id="recenter" class="back panel" type="button" title="Back to the starting view">⌖ Recenter</button>
     <button id="invite-code" class="panel" type="button" hidden title="Copy the invite code"></button>
   </nav>
 
@@ -99,9 +100,9 @@
     <form id="say" autocomplete="off">
       <input id="say-text" maxlength="60" placeholder="Say something over your character…" aria-label="Your bubble" />
       <span class="quick" id="say-quick"></span>
-      <button type="button" id="say-clear" class="ghost" hidden title="Take your bubble down">✕</button>
+      <button type="button" id="say-clear" class="ghost" hidden title="Take your bubble down (it comes down on its own after 3 hours)">✕</button>
     </form>
-    <button type="button" id="mood-open" title="Put a mood on your house">🏠 <span id="mood-now">Mood</span></button>
+    <button type="button" id="mood-open" title="Put a mood on your house for 3 hours">🏠 <span id="mood-now">Mood</span></button>
     <button type="button" id="mail-open" title="Your mailbox">📬<span id="mail-count" hidden></span></button>
   </div>
   <div id="moods" class="panel" hidden role="menu" aria-label="House moods"></div>
