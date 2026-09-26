@@ -1,13 +1,13 @@
-// The building card: click a named building (its tag or the building itself) to see who's there now, who's on
-// the way, and who went there earlier today. It floats above the building. Only your own house's card offers a
-// rename; everyone sees the new name (townsync.js updates their labels). Real towns only.
+// The place card: click a named building (its tag or the building itself). It floats above the building and
+// shows the walk you'll take, then who's there or on the way. Earlier visits appear only when someone has
+// already left. Only your own house's card offers a rename (townsync.js updates other labels). Real towns only.
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
 import { activeCam } from './camera.js';
 import { topOf } from './city.js';
 import { $, logFeed } from './hud.js';
-import { key, PLACES, pos, TOWN, TOWN_ID } from './layout.js';
-import { friends, tileOf } from './people.js';
+import { inkOn, key, PLACES, pos, TOWN, TOWN_ID } from './layout.js';
+import { friends, minutesAway, tileOf } from './people.js';
 
 const card = $('#building');
 let openId = null, earlier = [], meId = null, liveTimer = null, historyTimer = null, anchor = null;
@@ -19,21 +19,59 @@ const houseOwner = (id) => friends[id.slice(6)];
 const nameOf = (id) => (isHouse(id) ? houseOwner(id)?.home?.name || 'A house' : PLACES[id]?.name || id);
 const townTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
 
-// People list: a colored dot, their name, and an optional note ("2:15 PM")
-function fill(sel, rows, empty) {
+// Known place ids (towngen catalog, plus the parks and landmarks a town can name). Anything else stays "Place".
+const KIND = {
+  cafe: 'Café', library: 'Library', gym: 'Gym', market: 'Market', bakery: 'Bakery',
+  pizza: 'Pizzeria', restaurant: 'Restaurant', fastfood: 'Fast food', chicken: 'Chicken shop',
+  bar: 'Bar', music: 'Music store', clothing: 'Clothing store', shoes: 'Shoe store',
+  gifts: 'Gift shop', pharmacy: 'Pharmacy', grocer: 'Fruit stand', gas: 'Gas station',
+  garage: 'Auto shop', factory: 'Factory', park: 'Park', downtown: 'Downtown',
+  outerpark: 'Park', stadium: 'Stadium', farm: 'Farm',
+};
+
+const kindOf = (id) => (isHouse(id) ? (id === `house:${meId}` ? 'Your house' : 'House') : KIND[id] || 'Place');
+
+function peopleSummary(here, coming) {
+  if (!here && !coming) return 'Nobody here or on the way';
+  const bits = [];
+  if (here) bits.push(`${here} here`);
+  if (coming) bits.push(`${coming} on the way`);
+  return bits.join(' · ');
+}
+
+function awayLabel(f) {
+  const mins = minutesAway(f);
+  return mins ? `${mins} min away` : 'On the way';
+}
+
+// One row: colored initial, name, and a status that is also written out ("Here", "6 min away").
+function fill(sel, rows) {
   const ul = $(sel);
-  ul.innerHTML = '';
-  if (!rows.length) {
-    ul.innerHTML = '<li class="none"></li>';
-    ul.firstChild.textContent = empty;
-    return;
-  }
-  for (const [f, note] of rows) {
+  ul.replaceChildren();
+  for (const row of rows) {
     const li = document.createElement('li');
-    li.innerHTML = '<span class="dot"></span><span class="who-name"></span><span class="note"></span>';
-    li.querySelector('.dot').style.background = f.color;
-    li.querySelector('.who-name').textContent = f.name;
-    li.querySelector('.note').textContent = note;
+    const av = document.createElement('span');
+    av.className = 'who-av';
+    av.style.background = row.f.color;
+    av.style.color = inkOn(row.f.color);
+    av.textContent = (row.f.name || '?').trim().slice(0, 1).toUpperCase();
+    av.setAttribute('aria-hidden', 'true');
+    const name = document.createElement('span');
+    name.className = 'who-name';
+    name.textContent = row.f.name || 'Friend';
+    name.title = name.textContent;
+    const status = document.createElement('span');
+    status.className = `who-status ${row.kind}`;
+    if (row.kind !== 'past') {
+      const pip = document.createElement('span');
+      pip.className = 'pip';
+      pip.setAttribute('aria-hidden', 'true');
+      status.append(pip);
+    }
+    const text = document.createElement('span');
+    text.textContent = row.status;
+    status.append(text);
+    li.append(av, name, status);
     ul.append(li);
   }
 }
@@ -42,19 +80,31 @@ function render() {
   if (!openId) return;
   const id = openId;
   const own = isHouse(id) && id === `house:${meId}`;
-  $('#bld-kind').textContent = isHouse(id) ? (own ? 'Your house' : 'House') : 'Place';
-  $('#bld-name').textContent = nameOf(id);
+  const name = nameOf(id);
+  const kind = kindOf(id);
+  const title = $('#bld-name');
+  title.textContent = name;
+  title.title = name;
+  const meta = $('#bld-meta');
+  meta.textContent = kind;
+  meta.hidden = kind.toLowerCase() === name.trim().toLowerCase();
   $('#bld-rename').hidden = !own;
   $('#bld-go').hidden = !friends[meId];
   // Now and on the way come from the characters as drawn: headed here (agents.target) and arrived or still walking
   const people = Object.values(friends);
   const here = people.filter((f) => f.destId === id && !f.path.length);
-  const coming = people.filter((f) => f.destId === id && f.path.length);
+  const coming = people.filter((f) => f.destId === id && f.path.length)
+    .sort((a, b) => (minutesAway(a) ?? 999) - (minutesAway(b) ?? 999) || (a.name || '').localeCompare(b.name || ''));
   const now = new Set([...here, ...coming].map((f) => f.id));
   const before = earlier.filter((v) => friends[v.user_id] && !now.has(v.user_id));
-  fill('#bld-here', here.map((f) => [f, '']), 'Nobody right now');
-  fill('#bld-coming', coming.map((f) => [f, '']), 'Nobody heading here');
-  fill('#bld-earlier', before.map((v) => [friends[v.user_id], townTime(v.at)]), 'Nobody else today');
+  $('#bld-summary').textContent = peopleSummary(here.length, coming.length);
+  fill('#bld-people', [
+    ...here.map((f) => ({ f, status: 'Here', kind: 'here' })),
+    ...coming.map((f) => ({ f, status: awayLabel(f), kind: 'away' })),
+  ]);
+  const past = $('#bld-earlier-wrap');
+  past.hidden = !before.length;
+  if (before.length) fill('#bld-earlier', before.map((v) => ({ f: friends[v.user_id], status: townTime(v.at), kind: 'past' })));
 }
 
 async function loadHistory() {

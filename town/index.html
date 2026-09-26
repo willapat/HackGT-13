@@ -58,23 +58,40 @@
   </section>
 
   <section id="building" class="panel" hidden aria-live="polite">
-    <button class="close" id="bld-close" aria-label="Close">×</button>
-    <div class="kind" id="bld-kind"></div>
-    <div class="title" id="bld-name"></div>
-    <form id="bld-rename" hidden>
-      <input id="bld-rename-input" maxlength="40" placeholder="Name your house" aria-label="House name" />
-      <button type="submit">Rename</button>
-    </form>
-    <h2>Head there</h2>
-    <form id="bld-go">
-      <label class="mins">Minutes
-        <input id="bld-minutes" type="number" min="1" max="180" value="10" inputmode="numeric" aria-label="Minutes to get there" />
-      </label>
-      <button type="submit">Go now</button>
-    </form>
-    <h2>Here now</h2><ul class="who" id="bld-here"></ul>
-    <h2>On the way</h2><ul class="who" id="bld-coming"></ul>
-    <h2>Earlier today</h2><ul class="who" id="bld-earlier"></ul>
+    <div class="bld-head">
+      <div class="bld-top">
+        <div class="bld-id">
+          <h2 class="title" id="bld-name"></h2>
+          <div class="meta" id="bld-meta"></div>
+        </div>
+        <button class="close" id="bld-close" type="button" aria-label="Close">×</button>
+      </div>
+      <form id="bld-rename" hidden>
+        <input id="bld-rename-input" maxlength="40" placeholder="Name your house" aria-label="House name" />
+        <button type="submit">Save</button>
+      </form>
+      <form id="bld-go">
+        <div class="travel">
+          <label class="mins">
+            <input id="bld-minutes" type="number" min="1" max="180" value="10" inputmode="numeric" aria-label="Minutes to get there" />
+            <span>min away</span>
+          </label>
+          <div class="mode">Walking</div>
+        </div>
+        <button type="submit" class="go">Go there</button>
+      </form>
+    </div>
+    <div class="bld-body">
+      <div class="who-block">
+        <h2>People</h2>
+        <p class="summary" id="bld-summary"></p>
+        <ul class="who" id="bld-people"></ul>
+        <div id="bld-earlier-wrap" class="earlier" hidden>
+          <h3>Earlier</h3>
+          <ul class="who" id="bld-earlier"></ul>
+        </div>
+      </div>
+    </div>
   </section>
 
   <div id="cards"></div>

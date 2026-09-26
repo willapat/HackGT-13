@@ -22,7 +22,7 @@ function townDateLabel() {
   const y = sky.y, mo = sky.mo, d = sky.d;
   const src = y ? { y, mo, d } : (() => { const n = new Date(); return { y: n.getFullYear(), mo: n.getMonth() + 1, d: n.getDate() }; })();
   const wd = WEEKDAYS[new Date(src.y, src.mo - 1, src.d).getDay()];
-  return `${wd} ${String(src.d).padStart(2, '0')}/${String(src.mo).padStart(2, '0')}/${src.y}`;
+  return `${wd} ${String(src.mo).padStart(2, '0')}/${String(src.d).padStart(2, '0')}/${src.y}`;
 }
 const WEATHER = { // cloud cover, precipitation kind, haze (how far you can see)
   clear: { cloud: 0, kind: null, haze: 0 }, rain: { cloud: 0.6, kind: 'rain', haze: 0.35 },

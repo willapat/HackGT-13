@@ -110,6 +110,8 @@ export function walkTo(f, target, shift = 0, timing = null) {
   f.walkFrom = f.obj.position.clone();
   f.route = axisAligned(here, route).map(toWorld);
   f.path = f.route.slice();
+  f.trailPlace = target;
+  f.trailing = true;
   f.travelMinutes = timing?.travelMinutes || null;
   f.departAt = timing?.departAt || null;
   f.walkStarted = performance.now();
@@ -128,6 +130,17 @@ function isoTownMinutes(iso) {
   const et = new Date(t - 4 * 60 * 60 * 1000);
   return Date.UTC(et.getUTCFullYear(), et.getUTCMonth(), et.getUTCDate()) / 60000
     + et.getUTCHours() * 60 + et.getUTCMinutes() + et.getUTCSeconds() / 60;
+}
+
+// Minutes still to walk, from the trip the character is already on. Null when that time isn't known.
+export function minutesAway(f) {
+  if (!f.path?.length) return null;
+  if (f.travelMinutes) {
+    const p = walkProgress(f);
+    if (p != null && p < 1) return Math.max(1, Math.round(f.travelMinutes * (1 - p)));
+  }
+  const left = Number(f.minutesLeft);
+  return left > 0 ? Math.round(left) : null;
 }
 
 // 0–1 along the path. depart_at is town time, so the slider hour places them on the route:
@@ -169,6 +182,7 @@ function pointAlong(from, route, t) {
 
 function finishWalk(f, ok) {
   f.trailing = false;
+  f.trailPlace = null;
   f.route = [];
   f.path = [];
   f.travelMinutes = null;
@@ -272,6 +286,7 @@ function stepCalendar(f) {
   f.destId = seg.destId === 'home' ? `house:${f.id}` : seg.destId;
   if (seg.phase !== 'walk') {
     f.trailing = false;
+    f.trailPlace = null;
     const key = `at:${seg.destId}`;
     if (f.calKey !== key) {
       f.calKey = key;
@@ -279,6 +294,7 @@ function stepCalendar(f) {
       f.path = [];
       f.departAt = null;
       f.travelMinutes = null;
+      f.minutesLeft = null;
       f.obj.position.copy(doorWorld(seg.place));
       setAction(f, 'idle');
     }
@@ -298,6 +314,7 @@ function stepCalendar(f) {
     walkTo(f, seg.place, 0, null);
     f.departAt = null;
   }
+  f.trailPlace = seg.place;
   if (f.route?.length && f.walkFrom) {
     const { pos, face } = pointAlong(f.walkFrom, f.route, frac);
     if (face && frac < 1) faceTowards(f, face);
@@ -305,6 +322,7 @@ function stepCalendar(f) {
     setAction(f, frac >= 1 ? 'idle' : 'walk');
   }
   f.trailing = frac < 1 && !!f.route?.length;
+  f.minutesLeft = frac >= 1 ? null : Math.max(1, Math.round(seg.travel * (1 - frac)));
   f.calMinute = nowM;
   return true;
 }
@@ -318,6 +336,7 @@ export function stepFriend(f, dt) {
     f.obj.position.copy(pos);
     if (frac >= 1) {
       f.trailing = false;
+      f.trailPlace = null;
       f.path = [];
       setAction(f, 'idle');
       return;
@@ -424,6 +443,7 @@ export function placeAgent(f, row) {
 
 export function interrupt(f) {
   f.trailing = false;
+  f.trailPlace = null;
   f.path = [];
   f.route = [];
   f.travelMinutes = null;
@@ -615,18 +635,31 @@ function strokeGeometry(pts) {
   return out;
 }
 
+// The line ahead of a walker, from where they are standing to the door they're going to.
+// Rebuilt from the character (not from whoever clicked), so every screen draws the same path.
+function trailAhead(f) {
+  const place = f.trailPlace;
+  if (!place?.door || !f.obj.visible) return null;
+  const here = toTile(f.obj.position);
+  const end = sidewalkPoint(place);
+  if (Math.hypot(here.x - end.x, here.z - end.z) < 0.35) return null;
+  const start = [Math.round(here.x), Math.round(here.z)];
+  const tiles = (walkable(...start) && findPath(start, place.door)) || [];
+  const pts = axisAligned(here, [...tiles.map(([c, r]) => ({ x: c, z: r })), end]);
+  const from = f.obj.position.clone();
+  const route = pts.map(toWorld);
+  if (routeLength(from, route) < 0.2) return null;
+  return { from, route };
+}
+
 export function syncTrail(f) {
-  const moving = f.trailing && f.obj.visible && f.route?.length && f.walkFrom;
-  if (!moving) {
+  const ahead = trailAhead(f);
+  if (!ahead) {
     hideTrail(f);
     return;
   }
-  const along = distanceAlong(f.walkFrom, f.route, f.obj.position);
-  const total = routeLengthOf(f.walkFrom, f.route);
-  if (total - along < 0.05) {
-    hideTrail(f);
-    return;
-  }
+  const { from, route } = ahead;
+  const total = routeLengthOf(from, route);
   if (f.trailArrow) f.trailArrow.visible = false;
   if (!f.trail) {
     f.trail = new THREE.Mesh(
@@ -639,7 +672,7 @@ export function syncTrail(f) {
     f.trail.renderOrder = 4;
     scene.add(f.trail);
   }
-  const geo = strokeGeometry(roundCorners(spanRoute(f.walkFrom, f.route, along, total)));
+  const geo = strokeGeometry(roundCorners(spanRoute(from, route, 0, total)));
   if (!geo.getAttribute('position')?.count) {
     geo.dispose();
     if (f.trail) f.trail.visible = false;

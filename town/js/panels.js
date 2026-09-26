@@ -40,7 +40,7 @@ function townWall(iso) {
 function clockDateLabel(iso) {
   const p = townWall(iso);
   if (!p) return '';
-  return `${WEEKDAYS[new Date(p.y, p.mo - 1, p.d).getDay()]} ${String(p.d).padStart(2, '0')}/${String(p.mo).padStart(2, '0')}/${p.y}`;
+  return `${WEEKDAYS[new Date(p.y, p.mo - 1, p.d).getDay()]} ${String(p.mo).padStart(2, '0')}/${String(p.d).padStart(2, '0')}/${p.y}`;
 }
 
 function clockTimeRange(startIso, endIso) {
