@@ -159,6 +159,8 @@ function fitCamera() {
 }
 fitCamera();
 addEventListener('resize', fitCamera);
+camera.zoom = 1.35; // open close to the old town's scale; scroll out to see the whole town
+camera.updateProjectionMatrix();
 
 // Third-person camera used while following a friend
 const followCam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 100);
@@ -1122,12 +1124,16 @@ function frame() {
   }
   renderer.render(scene, activeCam);
 
+  // Labels hide while behind a panel: the panels' frosted blur would smear their colors
+  const panels = [...document.querySelectorAll('.panel:not([hidden]), #cards .card')].map((e) => e.getBoundingClientRect());
   for (const l of labels) {
     v.copy(l.getPos()).project(activeCam);
-    const hidden = v.z > 1 || (l.el.classList.contains('friend') && !friendVisible(l));
+    const [x, y] = [(v.x * 0.5 + 0.5) * innerWidth, (-v.y * 0.5 + 0.5) * innerHeight];
+    const covered = panels.some((b) => x > b.left - 40 && x < b.right + 40 && y > b.top && y < b.bottom + 24);
+    const hidden = v.z > 1 || covered || (l.el.classList.contains('friend') && !friendVisible(l));
     l.el.style.display = hidden ? 'none' : '';
-    l.el.style.left = `${(v.x * 0.5 + 0.5) * innerWidth}px`;
-    l.el.style.top = `${(-v.y * 0.5 + 0.5) * innerHeight}px`;
+    l.el.style.left = `${x}px`;
+    l.el.style.top = `${y}px`;
   }
   requestAnimationFrame(frame);
 }
