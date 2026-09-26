@@ -7,12 +7,12 @@ from backend.config import settings
 def _client():
     from google import genai
 
-    return genai.Client(api_key=settings.GEMINI_MODEL_KEY)
+    return genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 def complete(model: str, system: str, user: str, max_tokens: int) -> str:
-    if not settings.GEMINI_MODEL_KEY:
-        raise RuntimeError("GEMINI_MODEL_KEY is not set")
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set")
     from google.genai import types
 
     resp = _client().models.generate_content(

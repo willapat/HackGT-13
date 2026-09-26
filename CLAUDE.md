@@ -79,7 +79,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - [x] Repo scaffolding / stack chosen (FastAPI + Three.js)
 - [x] Town rendering + camera (`frontend/`)
 - [x] Database schema (10 core tables)
-- [x] Backend on the 10-table core schema, JWT-authed REST API (e2e-tested against live Supabase; brain/agent model calls need `GEMINI_MODEL_KEY`)
+- [x] Backend on the 10-table core schema, JWT-authed REST API (e2e-tested against live Supabase; brain/agent model calls need `GEMINI_API_KEY`)
 - [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2)
 - [x] Town brain pipeline
 - [x] Character agent loop + action menu
@@ -89,7 +89,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
-- 2026-09-26: Switched LLM calls from Anthropic to Gemini (`GEMINI_MODEL_KEY`, `google-genai`). Brain/action: `gemini-2.5-flash`; character agents: `gemini-2.5-flash-lite`.
+- 2026-09-26: Switched LLM calls from Anthropic to Gemini (`GEMINI_API_KEY`, `google-genai`). Brain/action: `gemini-2.5-flash`; character agents: `gemini-2.5-flash-lite`.
 - 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `frontend/`.
 - 2026-09-25: `frontend/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.
 - 2026-09-25: Real character agents, grounded by the town brain, fixed action menu.

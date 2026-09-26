@@ -156,8 +156,8 @@ def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | No
                 "user_id", user_id
             ).execute()
             return None
-        if not settings.GEMINI_MODEL_KEY:
-            write_idle(db, town_id, user_id, "GEMINI_MODEL_KEY missing")
+        if not settings.GEMINI_API_KEY:
+            write_idle(db, town_id, user_id, "GEMINI_API_KEY missing")
             return None
         raw = complete(
             settings.AGENT_MODEL, build_agent_system_prompt(ctx.display_name), build_agent_user_prompt(ctx), 512
