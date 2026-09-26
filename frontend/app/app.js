@@ -1,9 +1,9 @@
 // Entry app: sign in / create account → pick a username (first time) → home (friends + towns),
 // plus the account menu, settings (#/settings/<pane>) and help (#/help). Routes live in the URL hash
 // so the back button and links work.
-import { api, getSupabase } from './session.js';
+import { api, getSupabase } from '../shared/session.js';
 import { confirmDialog, getTheme, setTheme, toast } from './ui.js';
-import * as Colors from './colors.js';
+import * as Colors from '../shared/colors.js';
 import { createWheel } from './wheel.js';
 
 const $ = (s) => document.querySelector(s);
@@ -340,7 +340,7 @@ function renderTowns() {
     handle.append(townIdentityNote(m));
     handle.append([t.created_by === me.id ? ' · your town' : '', ` · invite code ${t.invite_code}`,
       m.house_x == null ? ' · no house yet' : ''].join(''));
-    li.onclick = () => { location.href = `town.html?town=${encodeURIComponent(t.id)}`; };
+    li.onclick = () => { location.href = `../town/?town=${encodeURIComponent(t.id)}`; };
     return li;
   }));
   $('#no-towns').hidden = townsIn().length > 0;

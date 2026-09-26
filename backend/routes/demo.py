@@ -12,7 +12,7 @@ from backend.schedules import clock_mode, events_for_users, local_now, set_town_
 router = APIRouter(prefix="/demo", tags=["demo"])
 
 SCENARIOS = {"goodNews", "climbing", "roughWeek"}
-# Roles match the character ids in frontend/main.js FRIENDS.
+# Roles match the character ids in town/js/layout.js DEMO_FRIENDS.
 ROLES = ["maya", "jordan", "sam", "priya", "leo"]
 
 

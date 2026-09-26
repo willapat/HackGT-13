@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Tiny Town 3D</title>
+  <link rel="stylesheet" href="town.css" />
+  <script src="../frontend/lib/supabase.js"></script>
+  <script src="../frontend/shared/config.js"></script>
+  <script type="module">
+    // Signed-out visitors go to the login page. If the backend is down, the scripted town still runs.
+    import { getSupabase } from '../frontend/shared/session.js';
+    try {
+      const sb = await getSupabase();
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) location.replace('../frontend/');
+    } catch { /* backend unreachable: allow the offline demo */ }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <aside id="side" class="panel">
+    <div>
+      <a class="back" href="../frontend/">← Friends</a>
+      <div class="title">Tiny Town</div>
+      <div class="sub">Three.js + SimplePoly City + Kenney: rendering sandbox</div>
+    </div>
+    <div>
+      <h2>Residents</h2>
+      <ul id="residents"></ul>
+    </div>
+    <div class="feedwrap">
+      <h2>Schedules</h2>
+      <div id="schedules"><div class="sched-where">Waiting on calendars…</div></div>
+    </div>
+    <div class="feedwrap">
+      <h2>Town feed</h2>
+      <ul id="feed"></ul>
+    </div>
+  </aside>
+
+  <section id="triggers" class="panel">
+    <h2>Demo signals</h2>
+    <button data-trigger="goodNews">🎉 Maya shares good news</button>
+    <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
+    <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
+    <button data-trigger="reset">↺ Reset town</button>
+    <h2>Time &amp; weather</h2>
+    <div class="sky-row"><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
+    <div class="sky-row" id="town-date" aria-live="polite"></div>
+    <div class="sky-row"><button id="time-live">🕒 Live clock</button><button id="time-fast">⏩ Fast day</button></div>
+    <div class="sky-row weather">
+      <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
+      <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
+    </div>
+    <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
+  </section>
+
+  <div id="cards"></div>
+  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow</div>
+
+  <div id="labels"></div>
+  <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>
+  <script type="importmap">
+    { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -11,5 +11,8 @@ Built for HackGT 13.
 python3 -m uvicorn backend.main:app --reload
 
 # Run frontend locally (run backend first)
-cd frontend
-python3 -m http.server 8080
+From the repo root:
+python3 serve.py
+
+Then open http://localhost:8080/frontend/ (the 3D town is at /town/). The account app lives in `frontend/`,
+the 3D town in `town/`; `serve.py` serves both (and nothing else, so `.env` stays private).

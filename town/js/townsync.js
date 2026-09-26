@@ -1,7 +1,7 @@
-// Keeps a real town (town.html?town=<id>) in step with the database, as the signed-in user:
+// Keeps a real town (town/?town=<id>) in step with the database, as the signed-in user:
 // agents' moves (GET /towns/{id}), moods/activities, and chat bubbles (GET /towns/{id}/activity).
 // Everything is derived from database rows, so every viewer sees the same town.
-import { api } from './session.js';
+import { api } from '../../frontend/shared/session.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
 

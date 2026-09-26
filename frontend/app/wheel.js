@@ -1,6 +1,6 @@
 // A color wheel: hue around the circle, saturation outward, brightness from a slider. Colors other
 // people already use show as dots. Used by the "your name and color in this town" dialog.
-import { hexToHsv, hsvToHex } from './colors.js';
+import { hexToHsv, hsvToHex } from '../shared/colors.js';
 
 const MIN_S = 0.3; // the wheel's center is still a pale color, never grey
 

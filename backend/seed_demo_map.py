@@ -5,7 +5,7 @@ character's home and look.
     python3 -m backend.seed_demo_map <town_id>
     python3 -m backend.seed_demo_map --dry-run    # print what would be written, write nothing
 
-Copied from the constants at the top of frontend/main.js (N, ROADS, inPark, TREES, STADIUM, FARM,
+Copied from the demo constants in town/js/layout.js (N, ROADS, inPark, TREES, STADIUM, FARM,
 PLACES, FRIENDS). "lot" tiles are filled by buildCity()'s own zone rules, exactly as the hard-coded
 version does today. Model keys are asset paths without "assets/" and ".glb".
 """

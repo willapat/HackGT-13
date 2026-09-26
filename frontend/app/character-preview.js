@@ -10,7 +10,7 @@ export const LOOKS = ['female-a', 'female-b', 'female-c', 'female-d', 'female-e'
 
 const loader = new GLTFLoader();
 let gltfs = null;
-const loadAll = () => (gltfs ??= Promise.all(LOOKS.map((l) => loader.loadAsync(`assets/mini-characters/${l}.glb`)))
+const loadAll = () => (gltfs ??= Promise.all(LOOKS.map((l) => loader.loadAsync(`../town/assets/mini-characters/${l}.glb`)))
   .then((list) => Object.fromEntries(LOOKS.map((l, i) => [l, list[i]]))));
 
 export async function createPreview(stage) {
