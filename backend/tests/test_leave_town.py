@@ -53,7 +53,7 @@ class FakeDB:
 def leave(monkeypatch, tables, uid):
     db = FakeDB(tables)
     monkeypatch.setattr(towns_route, "get_client", lambda: db)
-    monkeypatch.setattr(towns_route, "require_member", lambda *a: None)
+    monkeypatch.setattr(towns_route, "require_member", lambda *a: {})  # no house placed, so no plot to free
     towns_route.leave_town("00000000-0000-0000-0000-000000000001", uid=uid)
     return db.writes
 

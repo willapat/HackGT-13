@@ -5,7 +5,7 @@ This is not an LLM decision. The times and places are what the person shared.
 
 from datetime import datetime, timedelta
 
-from backend.db import iso_in, now_iso, parse_ts
+from backend.db import iso_in, now_iso, parse_ts, writer
 from backend.models.enums import AgentAction
 from backend.town_map import buildings, house_building_id
 
@@ -210,6 +210,6 @@ def snap_town_to_clock(db, town_id: str, now: datetime) -> list[dict]:
         }
         if xy is not None:
             change["x"], change["y"] = xy
-        db.table("agents").update(change).eq("town_id", town_id).eq("user_id", uid).execute()
+        db.table("agents").update({**change, "written_by": writer("calendar")}).eq("town_id", town_id).eq("user_id", uid).execute()
         moved.append({"user_id": uid, "action": action, "target": target, "reason": reason})
     return moved

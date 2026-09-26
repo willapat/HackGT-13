@@ -559,3 +559,32 @@ dialog p { margin: 0 0 16px; color: var(--muted); font-size: 15px; }
   .spinner { animation-duration: 2s; }
   button { transition: none; }
 }
+
+/* ---- Friend checklists (create a town, invite friends) ---- */
+.field-label { font-size: 14px; font-weight: 600; margin: 4px 0 8px; }
+ul.people li.pick { cursor: pointer; }
+ul.people li.pick[aria-checked="true"] { background: var(--accent-soft); }
+ul.people li.pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+ul.people li.pick input[type="checkbox"] { width: 20px; height: 20px; flex: none; margin: 0; padding: 0; accent-color: var(--accent); pointer-events: none; box-shadow: none; }
+ul.people li.pick.locked { cursor: default; opacity: 0.55; }
+ul.people li.pick.locked:hover { background: none; }
+dialog ul.people.scroll { max-height: 240px; }
+/* Long dialogs scroll inside themselves; the title stays put */
+dialog.wide-dialog form { max-height: calc(100vh - 48px); overflow-y: auto; }
+#create-prompt { font-size: 15px; font-weight: 400; }
+
+/* ---- Toggle chips (pick places when creating a town) ---- */
+button.chip.toggle { padding: 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; background: var(--soft); color: var(--ink); }
+button.chip.toggle:hover:not(:disabled) { background: var(--soft-hover); }
+button.chip.toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+button.chip.toggle:disabled { opacity: 0.4; cursor: default; }
+
+/* ---- Towns card: header actions and the "create a town" tile ---- */
+.head-actions { display: flex; align-items: center; gap: 12px; }
+.town-card.create-tile {
+  display: grid; place-items: center; align-content: center; gap: 8px; min-height: 212px; padding: 16px; text-align: center;
+  background: var(--bg); box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); font-weight: 600;
+}
+.town-card.create-tile:hover:not(:disabled) { background: var(--hover); box-shadow: inset 0 0 0 2px var(--accent); color: var(--accent); }
+.create-tile .plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: #fff; font-size: 26px; font-weight: 400; }
+.create-tile .hint { font-weight: 400; }

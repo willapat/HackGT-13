@@ -12,7 +12,7 @@ from backend.agent.conversation import generate_lines
 from backend.agent.prompt import build_agent_system_prompt, build_agent_user_prompt
 from backend.agent.validate import parse_raw_json, validate_agent_decision
 from backend.config import settings
-from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts
+from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts, writer
 from backend.interactions.path_score import record_interaction
 from backend.llm import complete
 from backend.calendar_drive import current_trip, estimate_travel_minutes, next_check_iso
@@ -52,7 +52,7 @@ def _event_is_now(event: dict, now: datetime) -> bool:
 def write_idle(db, town_id: str, user_id: str, reason: str) -> None:
     # Leave updated_at alone so a failed model call doesn't restart the walk the calendar just started.
     db.table("agents").update(
-        {"action": AgentAction.idle.value, "next_decision_at": jittered_next_decision()}
+        {"action": AgentAction.idle.value, "next_decision_at": jittered_next_decision(), "written_by": writer("agent")}
     ).eq("town_id", town_id).eq("user_id", user_id).execute()
     db.table("agent_actions").insert(
         {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": reason}}
@@ -172,7 +172,7 @@ def commit_decision(
     here = next((b for b in ctx.available_buildings if b["id"] == ctx.current_location_building_id), {})
     if here.get("door"):
         change["x"], change["y"] = here["door"]
-    db.table("agents").update(change).eq("town_id", town_id).eq("user_id", user_id).execute()
+    db.table("agents").update({**change, "written_by": writer("agent")}).eq("town_id", town_id).eq("user_id", user_id).execute()
 
     details = {
         "reasoning": decision.reason,
@@ -195,7 +195,7 @@ def _stay_home(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict
     home = house_building_id(user_id)
     decision = AgentDecisionOutput(action=AgentAction.idle.value, target_building_id=home, reason="Nothing on the calendar right now.")
     if location(me) == home and (me.get("action") or AgentAction.idle.value) == AgentAction.idle.value:
-        db.table("agents").update({"next_decision_at": jittered_next_decision()}).eq("town_id", town_id).eq(
+        db.table("agents").update({"next_decision_at": jittered_next_decision(), "written_by": writer("agent")}).eq("town_id", town_id).eq(
             "user_id", user_id
         ).execute()
         return decision
@@ -210,7 +210,7 @@ def _stay_home(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict
     }
     if door:
         change["x"], change["y"] = door
-    db.table("agents").update(change).eq("town_id", town_id).eq("user_id", user_id).execute()
+    db.table("agents").update({**change, "written_by": writer("agent")}).eq("town_id", town_id).eq("user_id", user_id).execute()
     db.table("agent_actions").insert(
         {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": decision.reason}}
     ).execute()
@@ -234,7 +234,7 @@ def follow_calendar(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me:
         return _stay_home(db, town_id, user_id, ctx, me)
     dest = trip["building_id"]
     if location(me) == dest and (me.get("action") or AgentAction.idle.value) == trip["action"]:
-        db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
+        db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now), "written_by": writer("agent")}).eq("town_id", town_id).eq(
             "user_id", user_id
         ).execute()
         # Return a decision so the model is not asked to walk them somewhere else.
@@ -255,7 +255,7 @@ def follow_calendar(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me:
         db, town_id, user_id, decision, ctx, [],
         walk={"travel_minutes": trip["travel_minutes"], "depart_at": trip.get("depart_at")},
     )
-    db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
+    db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now), "written_by": writer("agent")}).eq("town_id", town_id).eq(
         "user_id", user_id
     ).execute()
     return decision
@@ -272,7 +272,7 @@ def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | No
         if trip:
             return trip
         if still_committed(me):
-            db.table("agents").update({"next_decision_at": jittered_next_decision()}).eq("town_id", town_id).eq(
+            db.table("agents").update({"next_decision_at": jittered_next_decision(), "written_by": writer("agent")}).eq("town_id", town_id).eq(
                 "user_id", user_id
             ).execute()
             return None

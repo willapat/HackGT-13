@@ -4,6 +4,16 @@
 import { api } from '../../frontend/shared/session.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
+
+// What the page built the city and residents from. The scene is built once at load, so when this changes
+// (a friend moves in and claims a plot, the town regrows, someone renames their house or changes their name
+// or color) the page reloads to rebuild it. Moves, moods and chats are applied live without a reload.
+const layoutKey = (d) => JSON.stringify([
+  d.town?.tiles,
+  (d.members || []).filter((m) => m.house_x != null)
+    .map((m) => [m.user_id, m.house_x, m.house_y, m.home?.name ?? null, m.name ?? null, m.color ?? null])
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+]);
 const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownSync(townId, initial, t) {
@@ -11,7 +21,16 @@ export function startTownSync(townId, initial, t) {
   const moodFx = {}; // user_id -> { kind, fx }
   let lastActionId = null;
 
+  const builtFrom = layoutKey(initial);
+  let reloading = false;
+
   function applyTown(data) {
+    if (!reloading && layoutKey(data) !== builtFrom) {
+      reloading = true;
+      t.logFeed('The town changed (someone moved in or it grew): refreshing…');
+      setTimeout(() => location.reload(), 1200);
+      return;
+    }
     for (const row of data.agents || []) {
       const f = t.friends[row.user_id];
       if (!f || applied[row.user_id] === row.updated_at) continue;

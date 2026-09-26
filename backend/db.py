@@ -2,10 +2,17 @@
 
 from datetime import datetime, timedelta, timezone
 import threading
+from uuid import uuid4
 
 from supabase import Client, create_client
 
 from backend.config import settings
+
+def writer(source: str) -> str:
+    """A fresh agents.written_by value. The database rejects any agents update that doesn't set a new one
+    (trigger agents_require_writer); the prefix says which code path wrote the row."""
+    return f"{source}:{uuid4().hex[:12]}"
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -68,7 +75,7 @@ def claim_due_agents(db, limit: int = 10, lease_seconds: int = 30) -> list[dict]
     for row in due:
         won = (
             db.table("agents")
-            .update({"next_decision_at": iso_in(lease_seconds)})
+            .update({"next_decision_at": iso_in(lease_seconds), "written_by": writer("claim")})
             .eq("town_id", row["town_id"])
             .eq("user_id", row["user_id"])
             .eq("next_decision_at", row["next_decision_at"])

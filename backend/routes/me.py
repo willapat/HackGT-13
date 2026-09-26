@@ -23,7 +23,7 @@ def get_me(uid: str = Depends(current_user_id)):
     if not profile:
         raise HTTPException(status_code=404, detail="profile not found")
     towns = (
-        db.table("town_members").select("house_x, house_y, joined_at, name, color, towns(id, name, invite_code, created_by)")
+        db.table("town_members").select("house_x, house_y, home, joined_at, name, color, towns(id, name, invite_code, created_by)")
         .eq("user_id", uid).order("joined_at").execute().data or []
     )
     return {"profile": profile[0], "towns": towns}
