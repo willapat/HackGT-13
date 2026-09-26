@@ -40,3 +40,34 @@ def test_private_posts_are_only_ever_shown_to_their_author():
 def test_signals_that_are_not_posts_are_skipped():
     s = [sig(1, "sam", mood="rough_week"), sig(2, "sam", text="", audience="town", town_id="t1")]
     assert post_items("me", s, TOWNS, PEOPLE, FRIENDS, NOW) == []
+
+
+def test_only_visible_town_and_friends_posts_take_reactions_and_comments():
+    from backend.posts import can_respond
+    town = sig(1, "sam", text="pizza?", audience="town", town_id="t1")
+    other = sig(2, "zoe", text="hi", audience="town", town_id="t2")
+    friends = sig(3, "maya", text="news", audience="friends")
+    private = sig(4, "me", text="rough day", audience="private")
+    assert can_respond("me", town, TOWNS, FRIENDS)
+    assert not can_respond("me", other, TOWNS, FRIENDS)
+    assert can_respond("me", friends, TOWNS, FRIENDS)
+    assert not can_respond("sam", friends, TOWNS, {})  # Sam isn't Maya's friend
+    assert not can_respond("me", private, TOWNS, FRIENDS)  # not even the author: nobody else would see it
+
+
+def test_feed_posts_carry_reaction_counts_and_comments():
+    from backend.posts import with_responses
+    s = [sig(1, "sam", text="pizza at 7?", audience="town", town_id="t1"), sig(2, "me", text="shh", audience="private")]
+    items = post_items("me", s, TOWNS, PEOPLE, FRIENDS, NOW)
+    reactions = [{"signal_id": 1, "user_id": "me", "emoji": "🎉"}, {"signal_id": 1, "user_id": "zoe", "emoji": "❤️"},
+                 {"signal_id": 1, "user_id": "maya", "emoji": "❤️"}]
+    comments = [{"id": 8, "signal_id": 1, "user_id": "sam", "text": "come thru", "created_at": "2026-09-26T13:00:00Z"},
+                {"id": 7, "signal_id": 1, "user_id": "me", "text": "I'm in", "created_at": "2026-09-26T12:30:00Z"}]
+    out = with_responses(items, reactions, comments, "me", lambda u, t: {"name": u.title()})
+    town, mine = out
+    assert town["reactions"] == [{"emoji": "❤️", "count": 2}, {"emoji": "🎉", "count": 1}]
+    assert town["my_reaction"] == "🎉"
+    assert [c["text"] for c in town["comments"]] == ["I'm in", "come thru"]
+    assert town["comments"][0]["can_delete"] and not town["comments"][1]["can_delete"]
+    assert town["comments"][1]["author"]["name"] == "Sam"
+    assert "reactions" not in mine and "comments" not in mine
