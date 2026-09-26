@@ -95,6 +95,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: 3D polish (`frontend/main.js`). See-through buildings draw a depth-only pass first so only their front surface blends (no stacked glass "bars"). Windmill rotor spins (faster in rough weather). Weather is also in the lighting: one shader patch on every lit material (`addWeather`/`WX` in `main.js`) does snow cover, wet darkening + glossy roads in rain, overcast desaturation and drifting cloud shadows; overcast light is cool and flat with soft shadows, `scene.fog` hazes the far side in rain/snow/storm, and lamp pools grow on wet streets. Snow flakes are round and world-sized.
 - 2026-09-26: Removed the river/green belt from the frontend entirely; a town is drawn as exactly its tile grid.
 - 2026-09-26: The 3D left panel lists each resident's calendar from snapshot `schedules` (weekday + DD/MM/YYYY, time, place). The current town-clock block is highlighted.
 - 2026-09-26: Demo snapshot follows the live Tiny Town (`DEMO_TOWN_ID`). An empty `characters` map no longer hides every 3D person.
