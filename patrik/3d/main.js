@@ -15,10 +15,17 @@ const SP = 'assets/simplepoly-city/';
 const CH = 'assets/mini-characters/';
 const sp = (name) => `${SP}${name}.glb`;
 const colors = (name) => ['01', '02', '03'].map((n) => sp(`${name}-color${n}`));
-const SKYSCRAPERS = [...colors('building-sky-big'), ...colors('building-sky-small'), ...colors('building-residential')];
-const COMMERCIAL = ['bakery', 'bar', 'chicken-shop', 'clothing', 'drug-store', 'fast-food', 'fruits-shop', 'gift-shop',
-  'music-store', 'pizza', 'restaurant', 'shoes-shop', 'gas-station'].map((n) => sp(`building-${n}`));
+const shops = (...names) => names.map((n) => sp(`building-${n}`));
 const HOUSES = ['01', '02', '03', '04'].flatMap((n) => colors(`building-house-${n}`));
+// City zones by distance from the main crossroad (6,6), tallest in the middle. `height` stretches models
+// vertically (min-max, varied per lot) since the pack's towers top out at ~1.2 tiles.
+const ZONES = [
+  { upTo: 2.3, height: [2.3, 3], models: colors('building-sky-big') },
+  { upTo: 3.2, height: [1.5, 2], models: [...colors('building-sky-small'), ...colors('building-sky-big'), ...colors('building-residential')] },
+  { upTo: 4.3, height: [1.1, 1.4], models: [...colors('building-residential'), ...shops('restaurant', 'clothing', 'fast-food', 'drug-store', 'pizza', 'music-store')] },
+  { upTo: 5.4, height: [1, 1.15], models: shops('bakery', 'bar', 'chicken-shop', 'fruits-shop', 'gift-shop', 'shoes-shop', 'gas-station', 'auto-service') },
+  { upTo: Infinity, height: [1, 1], models: HOUSES },
+];
 const ROAD = { straight: sp('road-lane-01'), cross: sp('road-intersection-01') };
 const GROUND = { grass: sp('natures-grass-tile'), paved: sp('road-concrete-tile') };
 const PARK_TREES = [sp('natures-big-tree'), sp('natures-fir-tree'), sp('natures-cube-tree')];
@@ -35,8 +42,8 @@ const PLACES = {
 
 const FRIENDS = [
   { id: 'maya', name: 'Maya', color: '#f0616d', model: 'character-female-a', home: { model: sp('building-house-01-color01'), c: 1, r: 3, door: [2, 3] } },
-  { id: 'jordan', name: 'Jordan', color: '#4f8ef7', model: 'character-male-b', home: { model: sp('building-house-02-color02'), c: 3, r: 5, door: [3, 6] } },
-  { id: 'sam', name: 'Sam', color: '#2fb36d', model: 'character-male-d', home: { model: sp('building-house-03-color03'), c: 5, r: 7, door: [6, 7] } },
+  { id: 'jordan', name: 'Jordan', color: '#4f8ef7', model: 'character-male-b', home: { model: sp('building-residential-color02'), c: 3, r: 5, door: [3, 6] } },
+  { id: 'sam', name: 'Sam', color: '#2fb36d', model: 'character-male-d', home: { model: sp('building-sky-small-color03'), c: 5, r: 7, door: [6, 7] } },
   { id: 'priya', name: 'Priya', color: '#f2a33a', model: 'character-female-c', home: { model: sp('building-house-04-color01'), c: 11, r: 7, door: [10, 7] } },
   { id: 'leo', name: 'Leo', color: '#9b6cf0', model: 'character-male-f', home: { model: sp('building-house-01-color03'), c: 1, r: 9, door: [2, 9] } },
 ];
@@ -154,10 +161,11 @@ async function loadAll(paths) {
 // SimplePoly models share one scale (a road tile is 20 units), so place them at that scale
 // to keep houses, shops and towers in proportion. `fit` instead stretches a model to a footprint.
 const SP_SCALE = 1 / 20;
-function place(path, c, r, { fit, scale = 1, rotY = 0 } = {}) {
+function place(path, c, r, { fit, scale = 1, height = 1, rotY = 0 } = {}) {
   const obj = models[path].scene.clone();
   const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
   obj.scale.setScalar(fit ? fit / Math.max(size.x, size.z) : SP_SCALE * scale);
+  obj.scale.y *= height;
   obj.rotation.y = rotY;
   obj.position.copy(pos(c, r));
   obj.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
@@ -191,12 +199,13 @@ function buildCity() {
       if (onC) { place(ROAD.straight, c, r); continue; }
       if (inPark(c, r)) { place(GROUND.grass, c, r); continue; }
 
-      const dist = Math.hypot(c - 5.5, r - 5.5);
-      const pick = (arr) => arr[(c * 7 + r * 13 + c * r) % arr.length];
-      const model = reserved.get(key(c, r)) ||
-        (dist < 3.2 ? pick(SKYSCRAPERS) : dist < 5.3 ? pick(COMMERCIAL) : pick(HOUSES));
+      const zone = ZONES.find((z) => Math.hypot(c - 6, r - 6) < z.upTo);
+      const n = zone.used = (zone.used ?? (c * 5 + r * 3)) + 1; // walk each zone's list so neighbors differ
+      const model = reserved.get(key(c, r)) || zone.models[n % zone.models.length];
+      const [lo, hi] = zone.height;
+      const height = lo + (hi - lo) * (((c * 37 + r * 91) % 10) / 9);
       place(HOUSES.includes(model) ? GROUND.grass : GROUND.paved, c, r);
-      const b = place(model, c, r, { scale: 0.92, rotY: faceRoad(c, r) });
+      const b = place(model, c, r, { scale: 0.92, height, rotY: faceRoad(c, r) });
       topOf[key(c, r)] = new THREE.Box3().setFromObject(b).max.y;
       blocked.add(key(c, r));
     }
@@ -702,7 +711,7 @@ const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent
 // ---- Boot ----------------------------------------------------------------------------------------
 
 const allModels = [
-  ...SKYSCRAPERS, ...COMMERCIAL, ...HOUSES,
+  ...ZONES.flatMap((z) => z.models),
   ...Object.values(PLACES).filter((p) => p.model).map((p) => p.model),
   ...FRIENDS.map((f) => `${CH}${f.model}.glb`), ...FRIENDS.map((f) => f.home.model),
   ...Object.values(ROAD), ...Object.values(GROUND), ...PARK_TREES, ...Object.values(PROPS),

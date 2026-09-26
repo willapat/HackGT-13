@@ -89,7 +89,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
-- 2026-09-26: Town rebuilt on SimplePoly City; Kenney city kits removed (Kenney Mini Characters kept). Same 12x12 grid, roads and `PLACES`. Place models: library = books shop, gym = auto service, cafe = coffee shop, market = super market.
+- 2026-09-26: Town rebuilt on SimplePoly City; Kenney city kits removed (Kenney Mini Characters kept). Same 12x12 grid, roads and `PLACES`. Place models: library = books shop, gym = auto service, cafe = coffee shop, market = super market. Buildings are zoned by distance from the (6,6) crossroad (`ZONES` in `main.js`): towers stretched up to 3x in the core, then mid-rises, shops, houses at the edge. Jordan and Sam live in apartment towers.
 - 2026-09-26: Added SimplePoly City (Unity Asset Store, Standard EULA) as 117 textured GLBs, converted without Unity via `patrik/3d/tools/` (three FBXLoader + gltf-transform). Team chose to commit them to the public repo despite the EULA's redistribution limits.
 - 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `patrik/3d/`.
 - 2026-09-25: `patrik/3d/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.
