@@ -193,9 +193,10 @@ $('#bld-go').onsubmit = async (e) => {
   e.preventDefault();
   const me = friends[meId];
   if (!me || !openId) return;
-  const minutes = Math.round(Number($('#bld-minutes').value));
-  if (!(minutes >= 1 && minutes <= 180)) {
-    logFeed('Pick a travel time between 1 and 180 minutes.');
+  // ponytail: the box is seconds for now (quick demo walks); back to minutes by dropping the / 60
+  const seconds = Math.round(Number($('#bld-minutes').value));
+  if (!(seconds >= 1 && seconds <= 180)) {
+    logFeed('Pick a travel time between 1 and 180 seconds.');
     return;
   }
   const here = tileOf(me);
@@ -204,9 +205,10 @@ $('#bld-go').onsubmit = async (e) => {
   try {
     await api(`/towns/${TOWN_ID}/members/me/move`, {
       method: 'POST',
-      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: minutes },
+      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: seconds / 60 },
     });
-    logFeed(`You head to ${nameOf(openId)} (${minutes} min).`);
+    logFeed(`You head to ${nameOf(openId)} (${seconds} sec).`);
+    close();
   } catch (err) {
     logFeed(`Couldn't head there: ${err.message}`);
   } finally {

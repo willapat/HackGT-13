@@ -146,7 +146,8 @@ class MoveIn(BaseModel):
     building_id: str = Field(min_length=1, max_length=80)  # a place id ("cafe") or "house:<user_id>"
     from_x: float = Field(ge=0)  # where your character is right now (fractional mid-walk is fine)
     from_y: float = Field(ge=0)
-    travel_minutes: int | None = Field(default=None, ge=1, le=180)  # how long the walk takes; omitted keeps the place estimate
+    # how long the walk takes; omitted keeps the place estimate. Float so the page can send seconds (s / 60).
+    travel_minutes: float | None = Field(default=None, gt=0, le=180)
 
 
 class SignalIn(BaseModel):
