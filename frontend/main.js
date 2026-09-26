@@ -28,11 +28,12 @@ const ROADS = TILES
   : [2, 6, 10, 14];
 // ponytail: one CENTER is used for both axes, so the pond should sit on the diagonal (x === y); split into CX/CY if not
 const CENTER = TILES ? (tilesOf('pond')[0]?.[0] ?? Math.floor(N / 2)) : 8; // the park sits at the middle; the skyline rings it
-const PARKISH = new Set(['park', 'pond', 'tree']);
+const PARKISH = new Set(['park', 'pond', 'tree', 'path']); // walkable green (path = grass with a dirt track)
 const inPark = TILES ? (c, r) => PARKISH.has(tileAt(c, r)) : (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
 const isRoad = TILES ? (c, r) => tileAt(c, r) === 'road' : (c, r) => ROADS.includes(c) || ROADS.includes(r);
 // Tile words from backend/town_map.py; any other word is an explicit model (asset path without assets/ and .glb)
-const TILE_KINDS = new Set(['road', 'park', 'pond', 'tree', 'stadium', 'farm', 'home', 'driveway', 'yard', 'lot']);
+const TILE_KINDS = new Set(['road', 'park', 'pond', 'tree', 'path', 'stadium', 'farm', 'home', 'driveway', 'yard', 'lot',
+  'garden', 'picnic', 'plaza', 'patio', 'oak', 'fountain', 'water', 'bench-n', 'bench-s', 'bench-e', 'bench-w']); // all after 'lot' are decorative scenes (DECOR in buildCity)
 const asset = (k) => `assets/${k}.glb`;
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
 
@@ -74,6 +75,7 @@ const NATURE = Object.fromEntries(['bush-01', 'bush-02', 'bush-03', 'pot-bush-bi
   .map((n) => [n, sp(`natures-${n}`)]));
 const ROOF_PROPS = ['antenna', 'solar-panel', 'prop-air', 'prop'].map((n) => sp(`props-roof-${n}`));
 const HELIPAD = sp('props-roof-helipad');
+const PARASOLS = [`${COM}detail-parasol-a.glb`, `${COM}detail-parasol-b.glb`];
 const VEHICLES = [...colors('vehicle-car'), sp('vehicle-taxi'), ...colors('vehicle-suv'), sp('vehicle-police-car'), ...colors('vehicle-pick-up-truck'),
   ...colors('vehicle-bus'), sp('vehicle-ambulance'), ...colors('vehicle-truck'), ...colors('vehicle-container')];
 const STREET = Object.fromEntries(['trash_bin_c', 'trash_bin_c_green', 'trash_bin_c_blue', 'metal_garbage_can_01_medium', 'garbage_collector_green_medium',
@@ -123,6 +125,11 @@ const FRIENDS = TILES ? TOWN.members.filter((m) => m.house_x != null && m.home?.
       home: { model: h.model ? asset(h.model) : fallback.home.model, house: [m.house_x, m.house_y], c: h.driveway[0], r: h.driveway[1], door: h.door },
     };
   }) : DEMO_FRIENDS;
+// Background houses (towns.map.background_homes = {color, homes: [{model, house: [x, y]}]}): plain one-tile
+// houses whose tile holds their model key, all with the same muted roof color. No plot, driveway, fence, car or name tag.
+const BG = TILES ? TOWN.town.map?.background_homes : null;
+const BG_ROOFS = new Set((BG?.homes || []).map((h) => `${h.house[0]},${h.house[1]}`));
+const BG_COLOR = BG?.color || '#b8b2a7';
 // Dark text on light friend colors (yellow, orange), white on the rest
 const inkOn = (hex) => { const c = new THREE.Color(hex); return c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.6 ? '#1f2430' : '#fff'; };
 const TREES = TILES ? tilesOf('tree') : [[7, 7], [9, 7], [7, 9], [9, 9]];
@@ -493,6 +500,68 @@ function buildCity() {
     if (m.includes('tree')) addOccluder(g);
   };
 
+  // Decorative tiles: small scenes (props at their normal scale) that fill space between buildings
+  const turn = (c, r) => faceRoad(c, r) ?? ((c + r) % 4) * (Math.PI / 2);
+  const DECOR = {
+    garden: (c, r) => {
+      place(GROUND.grass, c, r);
+      greenery(c, r, c * 3 + r);
+      place(NATURE['bush-03'], c + 0.28, r - 0.26, { scale: 2.4 });
+      place(NATURE['rock-small'], c - 0.3, r + 0.28, { scale: 2 });
+    },
+    picnic: (c, r) => {
+      place(GROUND.grass, c, r);
+      place(PROPS['bench-1'], c, r - 0.15, { scale: 2, rotY: turn(c, r) });
+      place(NATURE['pot-bush-small'], c + 0.32, r + 0.3, { scale: 2.2 });
+      place(NATURE['bush-01'], c - 0.32, r + 0.3, { scale: 2.2 });
+    },
+    plaza: (c, r) => {
+      place(GROUND.paved, c, r);
+      place(STREET.drinking_fountain_01, c + 0.1, r - 0.1, { scale: METER, rotY: turn(c, r) });
+      place(STREET.public_bench_01, c - 0.3, r + 0.25, { scale: METER, rotY: Math.PI / 2 });
+      place(NATURE['pot-bush-big'], c + 0.3, r + 0.3, { scale: 2.2 });
+    },
+    patio: (c, r) => {
+      place(GROUND.paved, c, r);
+      place(PARASOLS[0], c - 0.2, r - 0.2, { fit: 0.38 });
+      place(PARASOLS[1], c + 0.22, r + 0.2, { fit: 0.38 });
+      place(PROPS['coffee-shop-chair'], c + 0.3, r - 0.3, { scale: 1.6 });
+      place(PROPS['coffee-shop-chair'], c - 0.32, r + 0.3, { scale: 1.6 });
+    },
+    // Building blocks for symmetric parks: a big tree, a fountain, and benches facing n/s/e/w
+    oak: (c, r) => {
+      place(GROUND.grass, c, r);
+      addOccluder(place(PARK_TREES[0], c, r, { scale: 2.6 }));
+    },
+    fountain: (c, r) => {
+      place(GROUND.paved, c, r);
+      place(STREET.drinking_fountain_01, c, r, { scale: METER });
+      for (const [dx, dz] of [[-0.32, -0.32], [0.32, -0.32], [-0.32, 0.32], [0.32, 0.32]]) place(NATURE['pot-bush-small'], c + dx, r + dz, { scale: 2.2 });
+    },
+    water: (c, r) => { // a small round pond with a stone rim, like the central park's
+      place(GROUND.grass, c, r);
+      const pool = new THREE.CircleGeometry(0.36, 20);
+      pool.rotateX(-Math.PI / 2);
+      pool.translate(pos(c, r).x, 0.02, pos(c, r).z);
+      water(pool);
+      const rim = new THREE.Mesh(new THREE.RingGeometry(0.36, 0.42, 20), new THREE.MeshLambertMaterial({ color: '#b9ad97' }));
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.copy(pos(c, r)).setY(0.025);
+      scene.add(rim);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        place(NATURE['rock-small'], c + Math.cos(a) * 0.42, r + Math.sin(a) * 0.42, { scale: 1.4, rotY: a });
+      }
+    },
+    ...Object.fromEntries(Object.entries({ n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] }).map(([dir, [fx, fz]]) => [`bench-${dir}`, (c, r) => {
+      // A bench whose long side faces `dir` (bench models face -z at rotY 0), pulled toward that side,
+      // with two small trees behind it
+      place(GROUND.grass, c, r);
+      place(PROPS['bench-1'], c + fx * 0.22, r + fz * 0.22, { scale: 2, rotY: Math.atan2(-fx, -fz) });
+      for (const s of [-1, 1]) addOccluder(place(PARK_TREES[1], c - fx * 0.3 + fz * s * 0.3, r - fz * 0.3 + fx * s * 0.3, { scale: 1.6 }));
+    }])),
+  };
+
   // ---- Roads, lots and buildings
   let roofN = 0, curbN = 0;
   for (let r = 0; r < N; r++) {
@@ -503,9 +572,20 @@ function buildCity() {
       if (onC) { place(ROAD.straight, c, r); continue; }
       if (TILES && tileAt(c, r) === undefined) { blocked.add(key(c, r)); continue; } // outside a non-square map
       if (TILES && isRoad(c, r)) { place(ROAD.straight, c, r, { rotY: isRoad(c - 1, r) || isRoad(c + 1, r) ? Math.PI / 2 : 0 }); continue; } // a road that doesn't span the map
-      if (inPark(c, r)) { place(GROUND.grass, c, r); continue; }
+      if (inPark(c, r)) {
+        place(GROUND.grass, c, r);
+        if (tileAt(c, r) === 'path') { // light brown track, running away from the road it starts at
+          const alongZ = isRoad(c, r - 1) || isRoad(c, r + 1);
+          const track = new THREE.Mesh(new THREE.BoxGeometry(alongZ ? 0.34 : 1, 0.012, alongZ ? 1 : 0.34), new THREE.MeshLambertMaterial({ color: '#c9a878' }));
+          track.position.copy(pos(c, r)).setY(0.008);
+          track.receiveShadow = true;
+          scene.add(track);
+        }
+        continue;
+      }
       blocked.add(key(c, r));
       if (special.has(key(c, r))) { place(STADIUM.tiles.some(([x, y]) => x === c && y === r) ? GROUND.paved : GROUND.grass, c, r); continue; }
+      if (DECOR[tileAt(c, r)]) { DECOR[tileAt(c, r)](c, r); continue; }
 
       const friend = yards.get(key(c, r));
       if (friend) {
@@ -555,6 +635,7 @@ function buildCity() {
       place(suburb ? GROUND.grass : GROUND.paved, c, r);
       const isSP = model.startsWith(SP);
       const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
+      if (BG_ROOFS.has(key(c, r))) paintRoof(b, BG_COLOR);
       b.userData.building = isSP ? 'simplepoly' : 'kenney';
       addOccluder(b);
       if (suburb) { // flush to the street it faces, and to the cross street on a corner
@@ -1666,15 +1747,12 @@ function updateSky(dt) {
   if (sky.live && !sky.backend) sky.hour = now.getHours() + now.getMinutes() / 60;
   else if (sky.fast) sky.hour = (sky.hour + dt * (24 / 120)) % 24; // a whole day in two minutes
   if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
-    const kinds = ['clear', 'clear', 'rain', 'storm', 'snow'];
-    if (TILES) { // real towns: weather follows a shared wall-clock schedule, so everyone sees the same sky
-      const w = kinds[(Math.imul(Math.floor(Date.now() / 110000), 2654435761) >>> 0) % kinds.length];
-      if (w !== sky.weather) setWeather(w, false);
-      sky.nextWeatherAt = performance.now() + 5000;
-    } else {
-      if (sky.nextWeatherAt) setWeather(kinds[Math.floor(Math.random() * 5)], false);
-      sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
+    setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
+    if (!sky.nextWeatherAt) { // first pick on load: start already in it instead of easing in
+      sky.cloud = WEATHER[sky.weather].cloud;
+      sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
     }
+    sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
   }
   const w = WEATHER[sky.weather];
   sky.cloud += (w.cloud - sky.cloud) * Math.min(1, dt * 0.6);
@@ -1850,7 +1928,7 @@ const allModels = [
   ...FRIENDS.map((f) => `${CH}${f.model}.glb`), ...FRIENDS.map((f) => f.home.model),
   ...Object.values(ROAD), ...Object.values(GROUND), ...PARK_TREES, ...Object.values(PROPS), ...Object.values(NATURE),
   ...ROOF_PROPS, HELIPAD, ...VEHICLES, STADIUM.model,
-  ...Object.values(STREET), ...EXTRA_MODELS.map(([, , m]) => m),
+  ...Object.values(STREET), ...PARASOLS, ...EXTRA_MODELS.map(([, , m]) => m),
 ];
 logFeed('Loading city…');
 await loadAll(allModels);
