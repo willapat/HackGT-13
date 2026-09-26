@@ -11,7 +11,7 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const VIEWS = ['loading', 'error', 'auth', 'username', 'home', 'settings', 'help'];
 const SIGNED_IN_VIEWS = new Set(['home', 'settings', 'help']);
-const PANES = ['profile', 'character', 'towns', 'account', 'appearance', 'privacy'];
+const PANES = ['profile', 'character', 'towns', 'calendar', 'account', 'appearance', 'privacy'];
 
 let sb = null;
 let me = null; // current profile row
@@ -80,6 +80,7 @@ async function boot() {
     }
   });
   const { data: { session } } = await sb.auth.getSession();
+  if (session && calendarPane.returning) await calendarPane.finishConnect(session);
   if (session) await afterSignIn();
   else showAuth();
 }
@@ -519,6 +520,7 @@ function showSettings(pane) {
     if (pane === 'appearance') appearance.load();
     if (pane === 'privacy') privacy.load();
     if (pane === 'towns') townsPane.load();
+    if (pane === 'calendar') calendarPane.load();
   }
   currentPane = pane;
   for (const el of $$('.pane')) el.hidden = el.dataset.pane !== pane;
@@ -903,6 +905,87 @@ const appearance = (() => {
   }
   for (const b of $$('[data-theme-choice]')) b.onclick = () => { setTheme(b.dataset.themeChoice); load(); };
   return { load };
+})();
+
+// Calendar: connect Google Calendar (free/busy only). Google sends people back to ?calendar=google with a
+// refresh token in the session exactly once; it goes straight to the backend, which does all the syncing.
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.freebusy';
+const calendarPane = (() => {
+  // Read before supabase-js tidies the URL: are we coming back from Google, and did it fail?
+  const query = new URLSearchParams(location.search), fragment = new URLSearchParams(location.hash.slice(1));
+  const returning = query.get('calendar') === 'google';
+  const googleError = returning && (query.get('error_description') || fragment.get('error_description'));
+
+  const ago = (iso) => {
+    const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
+  };
+
+  function render(s) {
+    const on = Boolean(s?.connected);
+    $('#cal-connect').hidden = on || !s;
+    $('#cal-sync').hidden = !on;
+    $('#cal-disconnect').hidden = !on;
+    $('#cal-status').textContent = !s ? 'Checking…' : !on ? 'Not connected'
+      : `Connected${s.last_synced_at ? ` · synced ${ago(s.last_synced_at)}` : ''} · ${s.upcoming_busy_blocks} busy ${s.upcoming_busy_blocks === 1 ? 'block' : 'blocks'} coming up`;
+    $('#cal-error').hidden = !s?.last_error;
+    $('#cal-error').textContent = s?.last_error || '';
+  }
+
+  async function load() {
+    render(null);
+    try { render(await api('/me/calendar')); } catch (err) { $('#cal-status').textContent = 'Not available'; toast(err.message, 'error'); }
+  }
+
+  async function finishConnect(session) {
+    history.replaceState(null, '', `${location.pathname}#/settings/calendar`);
+    if (googleError) return toast(`Google Calendar wasn't connected: ${googleError}`, 'error');
+    if (!session.provider_refresh_token) return toast("Google didn't grant ongoing calendar access. Try connecting again.", 'error');
+    try {
+      await api('/me/calendar/google', { method: 'POST', body: { refresh_token: session.provider_refresh_token, scopes: GOOGLE_SCOPES } });
+      toast('Google Calendar connected');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  $('#cal-connect').onclick = async () => {
+    busy($('#cal-connect'), true, 'Opening Google…');
+    const { data: { user } } = await sb.auth.getUser();
+    const options = {
+      redirectTo: `${location.origin}${location.pathname}?calendar=google`,
+      scopes: GOOGLE_SCOPES,
+      queryParams: { access_type: 'offline', prompt: 'consent' }, // ask for a refresh token every time
+    };
+    // First time: link Google to this account. Already linked (e.g. reconnecting): sign in with it again.
+    const linked = user?.identities?.some((i) => i.provider === 'google');
+    const { error } = linked
+      ? await sb.auth.signInWithOAuth({ provider: 'google', options })
+      : await sb.auth.linkIdentity({ provider: 'google', options });
+    if (error) {
+      toast(error.message, 'error');
+      busy($('#cal-connect'), false, 'Connect Google Calendar');
+    }
+  };
+
+  $('#cal-sync').onclick = async () => {
+    busy($('#cal-sync'), true, 'Syncing…');
+    try { render(await api('/me/calendar/sync', { method: 'POST' })); toast('Calendar synced'); } catch (err) { toast(err.message, 'error'); load(); }
+    busy($('#cal-sync'), false, 'Sync now');
+  };
+
+  $('#cal-disconnect').onclick = async () => {
+    const yes = await confirmDialog({
+      title: 'Disconnect Google Calendar?',
+      body: 'Tiny Town stops reading your busy times and removes the ones it copied. Google access is revoked too.',
+      confirmLabel: 'Disconnect', danger: true,
+    });
+    if (!yes) return;
+    try { await api('/me/calendar', { method: 'DELETE' }); toast('Google Calendar disconnected'); } catch (err) { toast(err.message, 'error'); }
+    load();
+  };
+
+  return { load, finishConnect, returning };
 })();
 
 // Privacy & data: download, delete account (and leaving a town, used by the Towns pane)

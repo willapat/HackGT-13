@@ -6,21 +6,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.loops.agent_loop import agent_loop
 from backend.loops.brain_loop import brain_loop
-from backend.routes import demo, events, friends, invites, me, signals, towns
+from backend.loops.calendar_loop import calendar_loop
+from backend.routes import calendar, demo, events, friends, invites, me, signals, towns
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
 
-    if os.getenv("DISABLE_LOOPS") == "1":
-        yield
-        return
-    brain_task = asyncio.create_task(brain_loop())
-    agent_task = asyncio.create_task(agent_loop())
+    tasks = []
+    # Calendar sync isn't AI, so it runs even with DISABLE_LOOPS=1 (DISABLE_CALENDAR_SYNC=1 turns it off).
+    if os.getenv("DISABLE_CALENDAR_SYNC") != "1":
+        tasks.append(asyncio.create_task(calendar_loop()))
+    if os.getenv("DISABLE_LOOPS") != "1":
+        tasks += [asyncio.create_task(brain_loop()), asyncio.create_task(agent_loop())]
     yield
-    brain_task.cancel()
-    agent_task.cancel()
+    for task in tasks:
+        task.cancel()
 
 
 app = FastAPI(title="Tiny Town", lifespan=lifespan)
@@ -30,7 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (me, friends, invites, signals, towns, events, demo):
+for module in (me, calendar, friends, invites, signals, towns, events, demo):
     app.include_router(module.router)
 
 

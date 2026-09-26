@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     MIN_COMMITMENT_SECONDS: int = 30
     # Optional ISO time the town treats as "now" at process start (then advances). Empty = real clock.
     TOWN_CLOCK: str = ""
+    # Google Calendar sync: the same OAuth client as Supabase's Google provider (needed to refresh tokens).
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    CALENDAR_SYNC_INTERVAL_SECONDS: float = 300
+    CALENDAR_SYNC_DAYS: int = 7
 
 
 @lru_cache

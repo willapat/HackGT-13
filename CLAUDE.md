@@ -55,6 +55,7 @@ Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more onl
 - `event_participants`: who is going to that calendar item.
 - `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
 - `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
+- `calendar_connections`: one per person who connected Google Calendar (refresh token, last sync/error). Backend-only: RLS on, no policies. Synced busy blocks land in `events` (`type=personal`, title "Busy", at their house, one copy per town) marked `imported_from='google'` / `imported_for=<user>` so each sync replaces them.
 - `friend_requests`: account-level friends, one row per pair either direction. `accepted` = friends; unfriending deletes the row.
 - `town_invites`: town creator invites a friend; accepting adds a `town_members` row. Invite codes still work too.
 
@@ -76,6 +77,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - `POST/GET /signals` (own only; `value.visibility` optional)
 - `POST /towns {name, tiles, map, me: {name, color}}`, `GET /towns/lookup?invite_code=`, `POST /towns/join {invite_code, me}`, `GET /towns/{id}/identities`, `PATCH /towns/{id}/members/me/identity {name?, color?}`, `GET/PATCH /towns/{id}` (snapshot: town, members+profiles, agents; PATCH creator only), `PATCH/DELETE /towns/{id}/members/me` (place house / leave), `POST /towns/{id}/members/me/move {building_id, from_x, from_y}` (walk your character; pauses its AI for 10 min), `GET/POST /towns/{id}/events` (list / share a calendar item: class, gym, dinner), `GET /towns/{id}/activity` (agent_actions)
 - `GET /events/{id}`, `POST /events/{id}/respond {status}`, `POST /events/{id}/approve`
+- `GET /me/calendar` (status), `POST /me/calendar/google {refresh_token}` (save + sync now), `POST /me/calendar/sync`, `DELETE /me/calendar` (disconnect, remove imports, revoke at Google)
 
 ## Demo Plan
 
@@ -97,6 +99,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Google Calendar sync, free/busy only (`calendar.freebusy` scope; no titles or places read). Account app Settings → Calendar links Google via Supabase (`linkIdentity`, or `signInWithOAuth` if already linked) with `access_type=offline`, and posts the one-time `provider_refresh_token` to the backend. `backend/loops/calendar_loop.py` re-syncs everyone every `CALENDAR_SYNC_INTERVAL_SECONDS` (300) for the next `CALENDAR_SYNC_DAYS` (7); it runs even with `DISABLE_LOOPS=1` (`DISABLE_CALENDAR_SYNC=1` stops it). Polling, not Google push notifications, so no public HTTPS URL is needed. Needs `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env` (same OAuth client as Supabase's Google provider) and migration `20260926000009`.
 - 2026-09-26: Split the web code: 3D town moved out of `frontend/` into top-level `town/` (page at `/town/?town=<id>`, was `frontend/town.html`), with the old 1,900-line `main.js` split into feature modules in `town/js/`. `frontend/` is the account app only (`app/`, `shared/`). Both are served from the repo root by `serve.py`, which serves only those two folders. Older entries below mention `frontend/main.js`; that code now lives in `town/js/`.
 
 - 2026-09-26: General account UI in `frontend/index.html` + `app.js` (hash routes `#/`, `#/settings/<profile|character|account|appearance|privacy>`, `#/help`): app bar with account menu, profile (name, username, interests), character (look, rotatable 3D preview in `character-preview.js`), towns (per-town name + color via a color-wheel dialog in `wheel.js`, leave), join by invite code and accept invites on Home, account (email/password via Supabase auth, sign out everywhere), theme (light/dark/system, localStorage), privacy (what's shared, JSON data export, delete account). Shared bits in `ui.js` (toasts, confirm dialog, theme) and `colors.js`. No app-interactivity UI (signals, quests) yet.

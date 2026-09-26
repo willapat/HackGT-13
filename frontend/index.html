@@ -164,6 +164,7 @@
             <a href="#/settings/profile" data-pane="profile">Profile</a>
             <a href="#/settings/character" data-pane="character">Your character</a>
             <a href="#/settings/towns" data-pane="towns">Towns</a>
+            <a href="#/settings/calendar" data-pane="calendar">Calendar</a>
             <a href="#/settings/account" data-pane="account">Account</a>
             <a href="#/settings/appearance" data-pane="appearance">Appearance</a>
             <a href="#/settings/privacy" data-pane="privacy">Privacy &amp; data</a>
@@ -233,6 +234,23 @@
                 <p class="sub">In each town you pick the name you go by and your color (it paints your roof, car, mailbox, flag and name tag). Nobody else in that town can use the same name or a color too close to yours.</p>
                 <ul class="people" id="settings-towns"></ul>
                 <p class="empty" id="settings-no-towns">You're not in any towns yet.</p>
+              </div>
+            </div>
+
+            <!-- Calendar -->
+            <div class="pane" data-pane="calendar" hidden>
+              <div class="card">
+                <h2>Google Calendar</h2>
+                <p class="sub">Tiny Town only sees <b>when</b> you're busy, never what or where. While you're busy your character stays home, and suggested plans avoid those times. Your calendar is checked every few minutes.</p>
+                <div class="kv">
+                  <div><div class="k">Status</div><div class="v" id="cal-status">Checking…</div></div>
+                </div>
+                <div class="actions-row" style="justify-content:flex-start">
+                  <button class="primary" id="cal-connect" hidden>Connect Google Calendar</button>
+                  <button id="cal-sync" hidden>Sync now</button>
+                  <button class="danger" id="cal-disconnect" hidden>Disconnect</button>
+                </div>
+                <p class="msg error" id="cal-error" hidden></p>
               </div>
             </div>
 
