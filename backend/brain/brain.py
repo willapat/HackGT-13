@@ -1,7 +1,7 @@
 """Town Brain: one pass over a town. Writes only after validation + visibility filtering.
 
-Writes: brain_runs (input ids / filtered output / error), town_members mood/activity/state,
-events (news and quests) and event_participants.
+Writes: brain_runs (input ids / filtered output / error) and town_members mood/activity/state.
+Events are user calendars, so this loop does not insert news or quests there.
 """
 
 from backend.agent.validate import parse_raw_json, validate_brain_output
@@ -50,13 +50,6 @@ def persist_brain_output(db, town_id: str, output: BrainOutput, members: list[di
             {"mood": s.mood.value, "activity": s.activity, "state": {**prev_state.get(s.user_id, {}), **s.props},
              "updated_at": now_iso()}
         ).eq("town_id", town_id).eq("user_id", s.user_id).execute()
-    for item in output.news:
-        db.table("events").insert(
-            {"town_id": town_id, "type": EventType.news.value, "title": item.title, "text": item.text,
-             "status": EventStatus.active.value}
-        ).execute()
-    for quest in output.quest_candidates:
-        create_quest(db, town_id, quest)
 
 
 def run_brain_for_town(town_id: str) -> BrainOutput | None:
@@ -87,7 +80,7 @@ def run_brain_for_town(town_id: str) -> BrainOutput | None:
             settings.BRAIN_MODEL,
             build_brain_system_prompt(),
             build_brain_user_prompt(town_id, signals, facts, members, candidates),
-            max_tokens=4096,
+            max_tokens=8192,
         )
         validated = validate_brain_output(parse_raw_json(raw))
         if validated is None:

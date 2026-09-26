@@ -18,7 +18,7 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Architecture
 
-1. **Town brain**: `backend/loops/brain_loop.py` finds towns with signals newer than their last `brain_runs` row (`db.towns_with_unprocessed_signals`), then `run_brain_for_town` calls Gemini Flash via OpenRouter. Output is Pydantic-validated and visibility-filtered, then written to `town_members` (mood/activity/state), `events` (news + quests) and `brain_runs.output` (facts).
+1. **Town brain**: `backend/loops/brain_loop.py` finds towns with signals newer than their last `brain_runs` row (`db.towns_with_unprocessed_signals`), then `run_brain_for_town` calls Gemini Flash via OpenRouter. Output is Pydantic-validated and visibility-filtered, then written to `town_members` (mood/activity/state) and `brain_runs.output` (facts + news). `events` are user calendars, not brain output.
 2. **Character agents**: `agent_loop` claims due `agents` rows (`db.claim_due_agents`, conditional update) and Gemini Flash-Lite (OpenRouter) picks from the fixed `agent_action` menu. A character's location is `agents.target.building_id`. Chat bubbles go in `agent_actions.details.lines`. Failures become `idle`.
 3. **Plan drafting (stub, no model yet)**: when every participant accepts, `events.status` goes `suggested` → `scheduled` and `GET /events/{id}` includes a drafted `plan`. A participant approves it via `POST /events/{id}/approve` → `confirmed`. The draft is recomputed on read; persisting it needs a migration.
 
@@ -28,7 +28,7 @@ When choosing between features, pick whichever does more for real-world connecti
 - **Humans approve anything that leaves the town.** Agents never send messages as the user in real channels.
 - **Fixed action menu.** New actions get added to the menu deliberately.
 - **Pitch honestly.** Only call something an "agent" if a model is actually making decisions.
-- **LLM output never hits Postgres raw.** Brain and agents go through `backend/agent/validate.py` (Brain also `backend/brain/visibility.py`). Those loops are the only writers to `brain_runs`, town-member AI fields (`mood`/`activity`/`state`), `agents.action`/`target`, and `agent_actions`. The one exception is a person moving their own character via `POST /towns/{id}/members/me/move` (validated, marked `target.by = "user"`).
+- **LLM output never hits Postgres raw.** Brain and agents go through `backend/agent/validate.py` (Brain also `backend/brain/visibility.py`). Those loops are the only writers to `brain_runs`, town-member AI fields (`mood`/`activity`/`state`), `agents.action`/`target`, and `agent_actions`. Exceptions: a person moving their own character via `POST /towns/{id}/members/me/move` (`target.by = "user"`), and calendar travel (`backend/calendar_drive.py`) which follows `events` times. The brain does not write `events`.
 - **`brain_runs` is readable by every town member.** Store only signal/member ids in `input` and only fully visible facts in `output`.
 
 ## Tech Stack
@@ -48,14 +48,14 @@ Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more onl
 - `friendships`: in-town agent relationship, one row per pair (`user_a < user_b`) with `path_score`. Not the same as account friends.
 - `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
 - `brain_runs`: each town hall AI run's `input` and `output`.
-- `events`: quests, storylines, town events, news.
-- `event_participants`: per-person `suggested`/`accepted`/`declined`. The approval gate.
+- `events`: things people share from their real life (class, work, gym, dinner) with `start_at`/`end_at`/`kind`/`building_id`/`travel_minutes`. Type `personal`. News/quests are no longer stored here.
+- `event_participants`: who is going to that calendar item.
 - `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
 - `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
 - `friend_requests`: account-level friends, one row per pair either direction. `accepted` = friends; unfriending deletes the row.
 - `town_invites`: town creator invites a friend; accepting adds a `town_members` row. Invite codes still work too.
 
-Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reverts them (and the `claim_due_agents` / `towns_with_unprocessed_signals` functions, now done in Python in `backend/db.py`). Where the old concepts live now: facts → `brain_runs.output.facts` (id `<run_id>:<i>`), news → `events` with `type = 'news'`, conversations → `agent_actions.details.lines`, consent → posting a signal, per-person visibility → `signals.value.visibility` (`full`/`vague`/`hidden`). No gift inventory.
+Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reverts them (and the `claim_due_agents` / `towns_with_unprocessed_signals` functions, now done in Python in `backend/db.py`). Where the old concepts live now: facts → `brain_runs.output.facts` (id `<run_id>:<i>`), news → `brain_runs.output.news` (not the `events` table), conversations → `agent_actions.details.lines`, consent → posting a signal, per-person visibility → `signals.value.visibility` (`full`/`vague`/`hidden`). No gift inventory.
 
 **Conventions**
 - **Assets are not in the database.** Files live in the frontend with a code manifest; the DB stores manifest keys only. Building ids (`gym`, `cafe`, `house:{user_id}`) come from the town's `tiles` + members' `house_x/house_y` (`town_map.buildings`) and match the `PLACES` keys in `frontend/main.js`.
@@ -71,12 +71,12 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - `GET /users/search?username=` (exact match), `GET /friends`, `DELETE /friends/{user_id}`, `GET/POST /friends/requests`, `POST /friends/requests/{id}/respond` (requesting someone who already asked you accepts)
 - `GET/POST /towns/{id}/invites` (POST: creator only, friends only), `POST /invites/{id}/respond`
 - `POST/GET /signals` (own only; `value.visibility` optional)
-- `POST /towns`, `POST /towns/join {invite_code}`, `GET/PATCH /towns/{id}` (snapshot: town, members+profiles, agents; PATCH creator only), `PATCH/DELETE /towns/{id}/members/me` (place house / leave), `POST /towns/{id}/members/me/move {building_id, from_x, from_y}` (walk your character; pauses its AI for 10 min), `GET/POST /towns/{id}/events` (list with participants / propose a quest), `GET /towns/{id}/activity` (agent_actions)
+- `POST /towns`, `POST /towns/join {invite_code}`, `GET/PATCH /towns/{id}` (snapshot: town, members+profiles, agents; PATCH creator only), `PATCH/DELETE /towns/{id}/members/me` (place house / leave), `POST /towns/{id}/members/me/move {building_id, from_x, from_y}` (walk your character; pauses its AI for 10 min), `GET/POST /towns/{id}/events` (list / share a calendar item: class, gym, dinner), `GET /towns/{id}/activity` (agent_actions)
 - `GET /events/{id}`, `POST /events/{id}/respond {status}`, `POST /events/{id}/approve`
 
 ## Demo Plan
 
-`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. The 3D frontend (`frontend/realtime.js`) POSTs that endpoint with a 3s timeout, then falls back to scripted `trigger()` in `frontend/main.js`. Live state is polled from `GET /demo/snapshot` (no Supabase login required). Set `DEMO_TOWN_ID`; any members work. The backend casts them into the five 3D character slots (`maya`/`jordan`/`sam`/`priya`/`leo`). A matching display name wins; otherwise slots fill in join order, reusing members if there are fewer than five. Snapshot and trigger return `characters` (user_id → slot), and the frontend relabels those characters with real names and hides unused ones. The scripted fallback still uses the original five.
+`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. The 3D frontend (`frontend/realtime.js`) POSTs that endpoint with a 3s timeout, then falls back to scripted `trigger()` in `frontend/main.js`. Live state is polled from `GET /demo/snapshot` (no Supabase login required). Set `DEMO_TOWN_ID`; any members work. The backend casts them into the five 3D character slots (`maya`/`jordan`/`sam`/`priya`/`leo`). A matching display name wins; otherwise slots fill in join order, reusing members if there are fewer than five. Snapshot and trigger return `characters` (user_id → slot), and the frontend relabels those characters with real names and hides unused ones. The scripted fallback still uses the original five. User calendars live in `events` (`type=personal`, with `start_at`/`end_at`). Seed five people (Ana, Ben, Sam, Priya, Leo) and three days of class/work/dinner with `py -3 -m backend.scripts.seed_demo_schedules`. Snapshot includes `schedules`. Plan drafts treat those as busy time.
 
 ## Status
 
@@ -90,15 +90,18 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - [x] Quest respond + approval flow
 - [x] Plan drafting (stub calendar/places, no model)
 - [x] Demo signal triggers + 3D frontend live poll (`/demo/snapshot`) + scripted fallback
+- [x] Demo calendars: five people, three days of class/work/dinner as `events` (`type=personal`)
 
 ## Decisions Log
 
+- 2026-09-26: The 3D slider owns town time while you drag. `POST /demo/clock` sets the shared clock (`mode=scrub`) and `snap_town_to_clock` moves agents to that hour's calendar place immediately (no LLM). Snapshot `mode=live` does not steal the slider back. Live / Fast day return control to the running clock.
 - 2026-09-26: Town map lives in `towns.tiles` (no migration). Users can walk their own character to a building; clients animate from start point + time. Frontend still draws the hard-coded map; it should build from `tiles` (snapshot now returns `tiles`, agent `x`/`y`, member houses).
 - 2026-09-26: Known gap: `backend/seed_demo_map.py` still mirrors the old 12x12 city (roads 2/6/10, old friend house tiles). The frontend now draws a 17x17 town (roads 2/6/10/14, friend houses on their own outer blocks, `FRIENDS[].home.house`). Places kept their tiles, so building-id routing works; grid coordinates (house_x/y, agent x/y) need the seed updated before the frontend builds from `tiles`.
 - 2026-09-26: Day/night + weather in `frontend/main.js` (`sky`, `updateSky`): time follows the real local clock (slider, "Fast day", `?hour=`), weather clear/rain/storm/snow drifts on its own (buttons, `?weather=`). At night street lamps glow warm and ~60% of windows light up; windows are found per wall triangle by texture color (Kenney glass = light blue, SimplePoly = flat dark grey). Browser pinch-zoom is blocked so only the camera zooms.
 - 2026-09-26: Town is 17x17 (roads 2/6/10/14) around a central park with a pond, plus a winding river with bridges in a green belt in front. Outer ring of blocks is suburbs (2-3 houses a block); inner blocks zone by distance (Kenney skyscrapers only in the core, SimplePoly stretched at most 2x). Buildings only on road-facing lots, facing the road; suburb houses take every block corner first and sit flush to the street(s) (`seat()`); tiles with greenery are grass. Each friend owns an outer block: house with its roof in their color (`paintRoof()`) set back on a driveway, colored car/fence/mailbox/flag, "Name's house" label. Friend colors avoid scenery colors (no green/blue/grey/brown). Stadium fills a 3x3 block.
 - 2026-09-26: Town rebuilt on SimplePoly roads/greenery; buildings mix SimplePoly and Kenney City Kit Commercial/Suburban, interleaved per zone (Kenney roads kit removed). Same 12x12 grid, roads and `PLACES`. Place models: library = books shop, gym = auto service, cafe = coffee shop, market = super market. Buildings are zoned by distance from the (6,6) crossroad (`ZONES` in `main.js`): Kenney skyscrapers + SimplePoly towers stretched up to 3x in the core, then mid-rises, shops, houses at the edge. Jordan and Sam live in apartment towers.
 - 2026-09-26: Added SimplePoly City (Unity Asset Store, Standard EULA) as 117 textured GLBs, converted without Unity via `frontend/tools/` (three FBXLoader + gltf-transform). Team chose to commit them to the public repo despite the EULA's redistribution limits.
+- 2026-09-26: `events` are user-shared calendar items (class/work/gym/dinner), not town-generated news/quests. Migration `20260926000005` adds `start_at`/`end_at`/`kind`/`building_id`. Seed writes those rows for Ana/Ben/Sam/Priya/Leo. Brain no longer inserts news/quests into `events`.
 - 2026-09-26: The demo no longer requires specific member names. Scenario targets are cast from whoever is in the demo town (`backend/routes/demo.py` `cast_roles`). Agents may cite active event ids as grounding, not just brain facts.
 - 2026-09-26: Account friends + town invites (migration `20260926000005`, idempotent). Find people by exact `username`. Only the town creator invites, only friends. Writes go through the API; frontend reads via RLS.
 - 2026-09-26: LLM calls go through OpenRouter with `OPENROUTER_API_KEY` (renamed from `GEMINI_MODEL_KEY`, which is still accepted as a fallback; not a Google AI Studio key; no `google-genai`). Default models `google/gemini-2.5-flash` and `google/gemini-2.5-flash-lite`. 3D demo buttons hit `POST /demo/trigger` and poll `GET /demo/snapshot`.

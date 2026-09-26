@@ -43,7 +43,8 @@ POSTGRES_AGENT_ACTION_VALUES = tuple(a.value for a in AgentAction)
 
 
 class EventType(str, Enum):
-    quest = "quest"
+    personal = "personal"  # user-shared calendar: class, work, gym, dinner
+    quest = "quest"  # leftover: suggested plans; new ones are not written
     storyline = "storyline"
     town_event = "town_event"
     news = "news"

@@ -1,7 +1,12 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, HTTPException
 
 from backend.config import settings
 from backend.db import get_client
+from backend.models.api import ClockIn
+from backend.calendar_drive import snap_town_to_clock
+from backend.schedules import clock_mode, events_for_users, local_now, set_town_clock
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -96,6 +101,20 @@ def scenario_signals(scenario: str, cast: dict[str, str]) -> list[dict]:
     raise HTTPException(status_code=404, detail="unknown scenario")
 
 
+def _clock_view() -> dict:
+    now = local_now()
+    return {
+        "town_time": now.isoformat(),
+        "hour": now.hour + now.minute / 60 + now.second / 3600,
+        "mode": clock_mode(),
+    }
+
+
+def _nudge_agents(db, town_id: str) -> None:
+    if town_id:
+        snap_town_to_clock(db, town_id, local_now())
+
+
 @router.get("/config")
 def demo_config():
     return {
@@ -103,7 +122,23 @@ def demo_config():
         "supabase_publishable_key": settings.SUPABASE_PUBLISHABLE_KEY,
         "demo_town_id": settings.DEMO_TOWN_ID,
         "backend_ok": True,
+        **_clock_view(),
     }
+
+
+@router.get("/clock")
+def get_clock():
+    return _clock_view()
+
+
+@router.post("/clock")
+def post_clock(body: ClockIn):
+    set_town_clock(hour=body.hour, live=body.live, fast=body.fast)
+    try:
+        _nudge_agents(get_client(), settings.DEMO_TOWN_ID)
+    except Exception as exc:
+        print(f"[clock] snap failed: {exc!r}", flush=True)
+    return _clock_view()
 
 
 @router.get("/trigger/{scenario}")
@@ -165,7 +200,7 @@ def demo_snapshot():
     )
     events = (
         db.table("events")
-        .select("id, type, title, text, status, created_at")
+        .select("id, type, title, text, status, kind, start_at, end_at, building_id, travel_minutes, created_at")
         .eq("town_id", tid)
         .order("created_at", desc=True)
         .limit(20)
@@ -174,12 +209,20 @@ def demo_snapshot():
         or []
     )
     tiles = (db.table("towns").select("tiles").eq("id", tid).limit(1).execute().data or [{}])[0].get("tiles") or []
+    names = {m["user_id"]: ((m.get("profiles") or {}).get("display_name") or "").strip() for m in members}
+    now = local_now()
+    schedules = events_for_users(db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3))
+    for ev in schedules:
+        ev["display_name"] = names.get(ev["user_id"]) or "Friend"
+        ev["with_names"] = [names.get(uid) or "Friend" for uid in ev["with"]]
     return {
         "town_id": tid,
+        **_clock_view(),
         "tiles": tiles,
         "members": members,
         "characters": primary_roles(cast_roles(_as_cast_members(members))) if members else {},
         "agents": agents,
         "agent_actions": actions,
         "events": events,
+        "schedules": schedules,
     }

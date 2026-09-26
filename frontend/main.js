@@ -1256,7 +1256,7 @@ const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent
 // drifts on its own every couple of minutes until a weather button pins it.
 
 const sky = {
-  hour: 12, live: true, fast: false,
+  hour: 12, live: true, fast: false, backend: false,
   weather: 'clear', autoWeather: true, nextWeatherAt: 0,
   cloud: 0, precip: 0, flash: 0, nextFlashAt: 0, night: 0,
 };
@@ -1391,7 +1391,7 @@ function setWeather(w, pinned = true) {
 
 function updateSky(dt) {
   const now = new Date();
-  if (sky.live) sky.hour = now.getHours() + now.getMinutes() / 60;
+  if (sky.live && !sky.backend) sky.hour = now.getHours() + now.getMinutes() / 60;
   else if (sky.fast) sky.hour = (sky.hour + dt * (24 / 120)) % 24; // a whole day in two minutes
   if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
     if (sky.nextWeatherAt) setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
@@ -1464,11 +1464,41 @@ function updateSky(dt) {
   }
 }
 
+function hourFromIso(iso) {
+  const m = String(iso || '').match(/T(\d{2}):(\d{2}):(\d{2})/);
+  return m ? +m[1] + +m[2] / 60 + +m[3] / 3600 : null;
+}
+
+function applyTownTime(iso, mode) {
+  const hour = hourFromIso(iso);
+  if (hour == null) return;
+  sky.backend = true;
+  if (document.activeElement === document.querySelector('#time')) return;
+  // The slider owns the clock until Live / Fast is clicked. Don't snap back to "live".
+  if (!sky.live && !sky.fast && mode === 'live') return;
+  sky.hour = hour;
+  if (mode === 'live') { sky.live = true; sky.fast = false; }
+  if (mode === 'fast') { sky.live = false; sky.fast = true; }
+  if (mode === 'scrub') { sky.live = false; sky.fast = false; }
+}
+
 function wireSkyControls() {
   const slider = document.querySelector('#time');
-  slider.oninput = () => { sky.live = false; sky.fast = false; sky.hour = +slider.value; };
-  document.querySelector('#time-live').onclick = () => { sky.live = true; sky.fast = false; };
-  document.querySelector('#time-fast').onclick = () => { sky.live = false; sky.fast = !sky.fast; };
+  let clockTimer = null;
+  const sendClock = (body) => {
+    if (!townApi.pushClock) return;
+    townApi.pushClock(body).catch(() => {});
+  };
+  slider.oninput = () => {
+    sky.live = false;
+    sky.fast = false;
+    sky.hour = +slider.value;
+    clearTimeout(clockTimer);
+    clockTimer = setTimeout(() => sendClock({ hour: sky.hour, live: false, fast: false }), 80);
+  };
+  slider.onchange = () => sendClock({ hour: sky.hour, live: false, fast: false });
+  document.querySelector('#time-live').onclick = () => { sky.live = true; sky.fast = false; sendClock({ live: true }); };
+  document.querySelector('#time-fast').onclick = () => { sky.live = false; sky.fast = true; sendClock({ fast: true }); };
   document.querySelectorAll('[data-weather]').forEach((b) => {
     b.onclick = () => {
       if (b.dataset.weather === 'auto') { sky.autoWeather = true; sky.nextWeatherAt = 1; setWeather(sky.weather, false); return; }
@@ -1505,9 +1535,10 @@ renderResidents();
 logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-  PLACES, FRIENDS, effects, trigger, liveMode: false,
+  PLACES, FRIENDS, effects, trigger, applyTownTime, liveMode: false,
 });
-const { triggerViaBackend } = startTownBackend(townApi);
+const { triggerViaBackend, pushClock } = startTownBackend(townApi);
+townApi.pushClock = pushClock;
 document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => triggerViaBackend(b.dataset.trigger); });
 const params = new URLSearchParams(location.search);
 if (friends[params.get('follow')]) startFollow(friends[params.get('follow')]);

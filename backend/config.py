@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     AGENT_LOOP_INTERVAL_SECONDS: float = 2
     DEMO_TOWN_ID: str = ""
     MIN_COMMITMENT_SECONDS: int = 30
+    # Optional ISO time the town treats as "now" at process start (then advances). Empty = real clock.
+    TOWN_CLOCK: str = ""
 
 
 @lru_cache

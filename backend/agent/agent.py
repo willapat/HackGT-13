@@ -14,6 +14,8 @@ from backend.config import settings
 from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts
 from backend.interactions.path_score import record_interaction
 from backend.llm import complete
+from backend.calendar_drive import current_trip, next_check_iso
+from backend.schedules import label, local_now
 from backend.models.agents import (
     ActiveEventSummary,
     AgentDecisionInput,
@@ -65,14 +67,20 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
     tiles = (db.table("towns").select("tiles").eq("id", town_id).limit(1).execute().data or [{}])[0].get("tiles")
     names = {m["user_id"]: (m.get("profiles") or {}).get("display_name") or "Friend" for m in members}
     events = (
-        db.table("events").select("id, title, status").eq("town_id", town_id).eq("type", "quest")
-        .in_("status", [EventStatus.suggested.value, EventStatus.scheduled.value, EventStatus.confirmed.value])
+        db.table("events")
+        .select("id, title, status, kind, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")
+        .eq("town_id", town_id).eq("type", "personal").eq("status", EventStatus.active.value)
         .execute().data or []
     )
+    mine = [
+        e for e in events
+        if user_id in {p["user_id"] for p in (e.get("event_participants") or [])}
+    ]
     ctx = AgentDecisionInput(
         character_id=user_id,
         display_name=names.get(user_id, "Friend"),
         town_id=town_id,
+        current_time=label(local_now()),
         current_location_building_id=location(me),
         current_action=me.get("action") or AgentAction.idle.value,
         nearby_characters=[
@@ -91,7 +99,17 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
             RelevantFact(id=f["id"], user_id=f["user_id"], category=f["category"], fact=f["fact"])
             for f in recent_facts(db, town_id)[:40]
         ],
-        active_events=[ActiveEventSummary(**e) for e in events],
+        active_events=[
+            ActiveEventSummary(
+                id=e["id"],
+                title=e["title"],
+                status=e["status"],
+                kind=e.get("kind"),
+                start=e.get("start_at"),
+                end=e.get("end_at"),
+            )
+            for e in mine
+        ],
         available_actions=[a.value for a in AgentAction],
         available_buildings=buildings(tiles, members),
     )
@@ -149,6 +167,40 @@ def commit_decision(
         record_interaction(db, user_id, decision.target_user_id, InteractionVia.in_town.value)
 
 
+def follow_calendar(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict) -> AgentDecisionOutput | None:
+    """If this person has a calendar block now, walk there / stay there. Not an LLM call."""
+    now = local_now()
+    rows = (
+        db.table("events")
+        .select("id, title, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")
+        .eq("town_id", town_id).eq("type", "personal").eq("status", EventStatus.active.value)
+        .execute().data or []
+    )
+    mine = [e for e in rows if user_id in {p["user_id"] for p in (e.get("event_participants") or [])}]
+    trip = current_trip(mine, user_id, now)
+    if trip is None:
+        return None
+    dest = trip["building_id"]
+    if location(me) == dest and (me.get("action") or AgentAction.idle.value) == trip["action"]:
+        db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
+            "user_id", user_id
+        ).execute()
+        return None
+    title = trip["event"].get("title") or "an event"
+    if trip["phase"] == "walking":
+        reason = f"Leaving for {title} ({trip['travel_minutes']} min walk, starts {label(trip['start_at'])})."
+    else:
+        reason = f"At {title} until {label(trip['end_at'])}."
+    decision = AgentDecisionOutput(
+        action=trip["action"], target_building_id=dest, reason=reason, fact_ids=[trip["event"]["id"]]
+    )
+    commit_decision(db, town_id, user_id, decision, ctx, [])
+    db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
+        "user_id", user_id
+    ).execute()
+    return decision
+
+
 def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | None:
     db = get_client()
     try:
@@ -156,6 +208,9 @@ def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | No
         if snap is None:
             return None
         ctx, me = snap
+        trip = follow_calendar(db, town_id, user_id, ctx, me)
+        if trip:
+            return trip
         if still_committed(me):
             db.table("agents").update({"next_decision_at": jittered_next_decision()}).eq("town_id", town_id).eq(
                 "user_id", user_id

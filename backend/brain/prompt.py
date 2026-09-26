@@ -24,6 +24,12 @@ HARD RULES, NEVER VIOLATE THESE:
 What to output:
 - facts: short, neutral facts derived from the NEW signals only (known_facts are
   already stored; don't repeat them). Cite source_signal_ids.
+  Calendar signals (source "calendar", type "calendar_event") become one fact
+  each: category "busy" for class/work/appointment, "plan" for time with
+  friends. Keep the day, the time range, the title and the place, e.g.
+  "Linear Algebra class Mon Sep 28, 2:00-3:15pm at the library". If "with"
+  lists members, name them ("dinner with Ben"). Don't add details the event
+  doesn't have, and don't turn someone's schedule into news.
 - member_states: only for members whose new signals change what the town shows.
   mood is the weather over their house (sunny = good news, rainy/stormy = hard
   week, rainbow = something to celebrate, cloudy = neutral). activity is a short

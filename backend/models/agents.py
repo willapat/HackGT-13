@@ -20,12 +20,16 @@ class ActiveEventSummary(BaseModel):
     id: str
     title: str
     status: str
+    kind: str | None = None
+    start: str | None = None
+    end: str | None = None
 
 
 class AgentDecisionInput(BaseModel):
     character_id: str
     display_name: str
     town_id: str
+    current_time: str | None = None  # town-local, e.g. "Sat Sep 26, 2:05pm"
     current_location_building_id: str | None = None
     current_action: str
     nearby_characters: list[NearbyCharacter]

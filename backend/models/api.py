@@ -49,10 +49,25 @@ class SignalIn(BaseModel):
     value: dict  # may include "visibility": "full" | "vague" | "hidden"
 
 
+class ClockIn(BaseModel):
+    """Drive the shared town clock from the 3D time slider."""
+
+    hour: float | None = Field(default=None, ge=0, le=24)
+    live: bool = False
+    fast: bool = False
+
+
 class EventCreate(BaseModel):
+    """A calendar item the user is sharing: class, work, gym, dinner, etc."""
+
     title: str = Field(min_length=1, max_length=120)
     text: str | None = Field(default=None, max_length=1000)
-    participant_ids: list[UUID] = Field(min_length=1, max_length=10)  # townmates to invite, besides you
+    kind: str = Field(default="activity", max_length=40)  # class, work, social, activity, appointment
+    start: str  # ISO timestamp
+    end: str
+    building_id: str | None = None
+    travel_minutes: int | None = Field(default=None, ge=1, le=120)
+    participant_ids: list[UUID] = Field(default_factory=list, max_length=10)  # other people going, besides you
 
 
 class Respond(BaseModel):

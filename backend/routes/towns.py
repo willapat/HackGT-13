@@ -6,6 +6,7 @@ from backend.auth import current_user_id, require_member
 from backend.db import get_client, iso_in, now_iso
 from backend.models.api import EventCreate, HouseUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
+from backend.calendar_drive import estimate_travel_minutes
 from backend.town_map import buildings, house_building_id, in_bounds
 
 router = APIRouter(prefix="/towns", tags=["towns"])
@@ -126,12 +127,12 @@ def leave_town(town_id: UUID, uid: str = Depends(current_user_id)):
 @router.get("/{town_id}/events")
 def list_events(
     town_id: UUID,
-    event_type: str | None = Query(None, alias="type", description="quest, storyline, town_event, news"),
+    event_type: str | None = Query(None, alias="type", description="personal, quest, news, ..."),
     status: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     uid: str = Depends(current_user_id),
 ):
-    """Quests, news, etc., newest first, each with its participants."""
+    """Calendar items people shared, newest first, each with who is going."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
     q = db.table("events").select("*, event_participants(user_id, status)").eq("town_id", tid)
@@ -144,24 +145,30 @@ def list_events(
 
 @router.post("/{town_id}/events", status_code=201)
 def propose_event(town_id: UUID, body: EventCreate, uid: str = Depends(current_user_id)):
-    """A person suggests a plan to townmates. The proposer counts as accepted; others must accept."""
+    """Share something on your calendar (class, work, gym, dinner). You are going; others listed are going too."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    invitees = {str(p) for p in body.participant_ids} - {uid}
-    if not invitees:
-        raise HTTPException(status_code=422, detail="invite at least one townmate")
+    others = {str(p) for p in body.participant_ids} - {uid}
     members = {m["user_id"] for m in db.table("town_members").select("user_id").eq("town_id", tid).execute().data or []}
-    if not invitees <= members:
+    if not others <= members:
         raise HTTPException(status_code=422, detail="every participant must be in this town")
     event = (
         db.table("events").insert(
-            {"town_id": tid, "type": EventType.quest.value, "title": body.title.strip(), "text": body.text,
-             "status": EventStatus.suggested.value}
+            {
+                "town_id": tid,
+                "type": EventType.personal.value,
+                "title": body.title.strip(),
+                "text": body.text,
+                "kind": body.kind,
+                "start_at": body.start,
+                "end_at": body.end,
+                "building_id": body.building_id,
+                "travel_minutes": body.travel_minutes or estimate_travel_minutes(body.building_id, body.text),
+                "status": EventStatus.active.value,
+            }
         ).execute().data[0]
     )
-    participants = [{"event_id": event["id"], "user_id": uid, "status": ParticipantStatus.accepted.value}] + [
-        {"event_id": event["id"], "user_id": i, "status": ParticipantStatus.suggested.value} for i in invitees
-    ]
+    participants = [{"event_id": event["id"], "user_id": u, "status": ParticipantStatus.accepted.value} for u in [uid, *others]]
     db.table("event_participants").insert(participants).execute()
     return {**event, "event_participants": [{"user_id": p["user_id"], "status": p["status"]} for p in participants]}
 

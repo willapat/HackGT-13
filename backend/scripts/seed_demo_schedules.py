@@ -1,0 +1,202 @@
+"""Seed five demo people with three days of calendars in DEMO_TOWN_ID.
+
+    py -3 -m backend.scripts.seed_demo_schedules
+
+Safe to re-run: reuses members by display name, creates missing ones as demo accounts, and replaces only
+the calendar signals it wrote before (value.seed = SEED_TAG). Day 0 is today in town time.
+The brain loop picks the new signals up on its next pass.
+"""
+
+import secrets
+from datetime import datetime, timedelta
+
+from backend.config import settings
+from backend.db import get_client
+from backend.models.enums import EventStatus, EventType, ParticipantStatus
+from backend.calendar_drive import estimate_travel_minutes
+from backend.schedules import CALENDAR_SOURCE, CALENDAR_TYPE, local_now
+
+SEED_TAG = "demo_schedule"
+EMAIL_DOMAIN = "tinytown-demo.example.com"
+
+PEOPLE = {
+    "Ana": ["climbing", "coffee"],
+    "Ben": ["running", "climbing"],
+    "Sam": ["climbing", "video games"],
+    "Priya": ["cooking", "climbing"],
+    "Leo": ["music", "cooking"],
+}
+
+# (day, person, start, end, title, kind, building_id, place, with)
+SCHEDULE = [
+    # Day 0
+    (0, "Ana", "10:00", "14:00", "Shift at Bean There Café", "work", "cafe", None, []),
+    (0, "Ana", "16:00", "18:00", "Bouldering session", "activity", "gym", None, []),
+    (0, "Ben", "11:00", "13:00", "CS study group", "class", "library", None, []),
+    (0, "Ben", "19:00", "21:00", "Dinner with Leo", "social", "downtown", None, ["Leo"]),
+    (0, "Sam", "09:00", "12:00", "Shift at the market", "work", "market", None, []),
+    (0, "Sam", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
+    (0, "Priya", "13:00", "14:00", "Appointment", "appointment", None, None, []),
+    (0, "Priya", "17:00", "19:00", "Cooking night at home", "activity", None, "home", []),
+    (0, "Leo", "12:00", "17:00", "Shift at the market", "work", "market", None, []),
+    (0, "Leo", "19:00", "21:00", "Dinner with Ben", "social", "downtown", None, ["Ben"]),
+    # Day 1
+    (1, "Ana", "11:00", "12:30", "Brunch with Priya", "social", "cafe", None, ["Priya"]),
+    (1, "Ana", "15:00", "17:00", "Study for Linear Algebra", "class", "library", None, []),
+    (1, "Ben", "09:00", "10:30", "Morning run", "activity", "park", None, []),
+    (1, "Ben", "14:00", "18:00", "Shift downtown", "work", "downtown", None, []),
+    (1, "Sam", "14:00", "16:00", "Study for Linear Algebra", "class", "library", None, []),
+    (1, "Sam", "19:00", "21:00", "Game night", "activity", None, "home", []),
+    (1, "Priya", "11:00", "12:30", "Brunch with Ana", "social", "cafe", None, ["Ana"]),
+    (1, "Priya", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
+    (1, "Leo", "10:00", "12:00", "Band practice", "activity", "downtown", None, []),
+    (1, "Leo", "15:00", "16:30", "Groceries at the market", "activity", "market", None, []),
+    # Day 2
+    (2, "Ana", "09:30", "10:45", "Intro to Psychology", "class", None, "campus", []),
+    (2, "Ana", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
+    (2, "Ana", "17:00", "21:00", "Shift at Bean There Café", "work", "cafe", None, []),
+    (2, "Ben", "09:00", "17:00", "Internship", "work", "downtown", None, []),
+    (2, "Sam", "11:00", "12:15", "Data Structures", "class", None, "campus", []),
+    (2, "Sam", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
+    (2, "Sam", "18:30", "20:00", "Dinner with Priya", "social", "cafe", None, ["Priya"]),
+    (2, "Priya", "10:00", "14:00", "Research lab", "work", None, "campus", []),
+    (2, "Priya", "18:30", "20:00", "Dinner with Sam", "social", "cafe", None, ["Sam"]),
+    (2, "Leo", "13:00", "14:15", "Music Theory", "class", None, "campus", []),
+    (2, "Leo", "16:00", "18:00", "Workout", "activity", "gym", None, []),
+]
+
+
+def _at(day: datetime, hhmm: str) -> str:
+    h, m = map(int, hhmm.split(":"))
+    return day.replace(hour=h, minute=m).isoformat()
+
+
+def build_signals(ids: dict[str, str], today: datetime) -> list[dict]:
+    """ids: display name -> user_id. today: midnight, town time."""
+    rows = []
+    for day, person, start, end, title, kind, building_id, place, with_ in SCHEDULE:
+        date = today + timedelta(days=day)
+        value = {"title": title, "kind": kind, "start": _at(date, start), "end": _at(date, end), "seed": SEED_TAG}
+        if building_id:
+            value["building_id"] = building_id
+        if place:
+            value["place"] = place
+        if with_:
+            value["with"] = [ids[n] for n in with_]
+        rows.append({"user_id": ids[person], "source": CALENDAR_SOURCE, "type": CALENDAR_TYPE, "value": value})
+    return rows
+
+
+def _shared_title(title: str, with_: list[str]) -> str:
+    if not with_:
+        return title
+    lower = title.lower()
+    if lower.startswith("dinner with"):
+        return "Dinner"
+    if lower.startswith("brunch with"):
+        return "Brunch"
+    return title
+
+
+def build_personal_events(ids: dict[str, str], today: datetime, town_id: str) -> list[dict]:
+    """One event per unique block. Shared dinners/brunches become a single row with both people."""
+    seen: set[tuple] = set()
+    rows = []
+    for day, person, start, end, title, kind, building_id, place, with_ in SCHEDULE:
+        names = tuple(sorted([person, *with_]))
+        key = (day, start, end, names)
+        if key in seen:
+            continue
+        seen.add(key)
+        date = today + timedelta(days=day)
+        rows.append({
+            "town_id": town_id,
+            "type": EventType.personal.value,
+            "title": _shared_title(title, with_),
+            "text": place,
+            "kind": kind,
+            "start_at": _at(date, start),
+            "end_at": _at(date, end),
+            "building_id": building_id,
+            "travel_minutes": estimate_travel_minutes(building_id, place),
+            "status": EventStatus.active.value,
+            "_people": [ids[n] for n in names],
+        })
+    return rows
+
+
+def _find_auth_user(db, email: str) -> str | None:
+    page = 1
+    while True:
+        users = db.auth.admin.list_users(page=page, per_page=200)
+        for u in users:
+            if (u.email or "").lower() == email:
+                return u.id
+        if len(users) < 200:
+            return None
+        page += 1
+
+
+def ensure_members(db, town_id: str) -> dict[str, str]:
+    rows = (
+        db.table("town_members").select("user_id, profiles(display_name)").eq("town_id", town_id)
+        .execute().data or []
+    )
+    by_name = {((r.get("profiles") or {}).get("display_name") or "").strip().lower(): r["user_id"] for r in rows}
+    ids = {}
+    for name, interests in PEOPLE.items():
+        uid = by_name.get(name.lower())
+        if not uid:
+            email = f"{name.lower()}@{EMAIL_DOMAIN}"
+            uid = _find_auth_user(db, email)
+            if not uid:
+                user = db.auth.admin.create_user(
+                    {"email": email, "password": secrets.token_urlsafe(24), "email_confirm": True,
+                     "user_metadata": {"name": name}}
+                ).user
+                uid = user.id
+                print(f"created demo account {name} ({email})")
+            db.table("profiles").update({"display_name": name}).eq("id", uid).execute()
+            db.table("town_members").upsert({"town_id": town_id, "user_id": uid}, on_conflict="town_id,user_id").execute()
+            print(f"added {name} to the town")
+        profile = db.table("profiles").select("interests").eq("id", uid).limit(1).execute().data or [{}]
+        merged = list(dict.fromkeys([*(profile[0].get("interests") or []), *interests]))
+        db.table("profiles").update({"interests": merged}).eq("id", uid).execute()
+        ids[name] = uid
+    return ids
+
+
+def main() -> None:
+    town_id = settings.DEMO_TOWN_ID
+    if not town_id:
+        raise SystemExit("DEMO_TOWN_ID is not set")
+    db = get_client()
+    ids = ensure_members(db, town_id)
+    removed = (
+        db.table("signals").delete().in_("user_id", list(ids.values()))
+        .eq("source", CALENDAR_SOURCE).eq("type", CALENDAR_TYPE).eq("value->>seed", SEED_TAG)
+        .execute().data or []
+    )
+    today = local_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = build_signals(ids, today)
+    db.table("signals").insert(rows).execute()
+    old_events = db.table("events").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute().data or []
+    personal = build_personal_events(ids, today, town_id)
+    created = 0
+    for ev in personal:
+        people = ev.pop("_people")
+        rec = db.table("events").insert(ev).execute().data or []
+        if not rec:
+            continue
+        db.table("event_participants").insert(
+            [{"event_id": rec[0]["id"], "user_id": uid, "status": ParticipantStatus.accepted.value} for uid in people]
+        ).execute()
+        created += 1
+    last = today + timedelta(days=max(r[0] for r in SCHEDULE))
+    print(f"replaced {len(removed)} old calendar signals with {len(rows)} for {', '.join(ids)}")
+    print(f"cleared {len(old_events)} events; wrote {created} personal events")
+    print(f"schedule covers {today:%a %b %d} - {last:%a %b %d}")
+
+
+if __name__ == "__main__":
+    main()

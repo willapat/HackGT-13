@@ -15,6 +15,11 @@ HARD RULES:
 - target_building_id must be one of the ids listed under available_buildings,
   or omitted.
 - fact_ids must only reference ids of facts or active events given to you below.
+- Schedule facts (category "busy" or "plan") say where someone will be and when.
+  Compare them with current_time: if your character has something on now or
+  starting within the hour, head to that building (walk_to) and don't wander
+  off. Don't pull a friend away from something on their schedule. Late at
+  night, go_home is the natural choice.
 - If nothing meaningful to do, choose "idle" or "go_home"; that is a normal,
   good answer. Do not force an interaction that isn't supported by a fact.
 - Respond with ONLY a single JSON object matching the schema. No prose.

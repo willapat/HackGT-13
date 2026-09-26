@@ -96,11 +96,11 @@ export function startTownBackend(api) {
     lastBuilding[f.id] = sig;
     f.busy = true;
     f.nextThink = Infinity;
-    if (row.action === 'go_home' || row.action === 'idle' && !dest) {
+    if (row.action === 'go_home' || (row.action === 'idle' && !dest)) {
       walkTo(f, f.home).then((ok) => { if (ok && row.action === 'go_home') f.obj.visible = false; });
       return;
     }
-    if (dest && (row.action === 'walk_to' || row.action === 'visit' || row.action === 'knock' || row.action === 'go_home')) {
+    if (dest && (row.action === 'walk_to' || row.action === 'visit' || row.action === 'knock' || row.action === 'idle')) {
       f.obj.visible = true;
       logFeed(`${f.name} ${row.action.replaceAll('_', ' ')} → ${dest.name || 'home'}.`);
       walkTo(f, dest);
@@ -140,6 +140,7 @@ export function startTownBackend(api) {
     const res = await fetch(`${backendUrl()}/demo/snapshot`);
     if (!res.ok) throw new Error(`snapshot ${res.status}`);
     const data = await res.json();
+    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode);
     applyCharacters(data.characters, data.members);
     for (const m of data.members || []) applyMember(m);
     for (const a of data.agents || []) applyAgent(a);
@@ -191,12 +192,27 @@ export function startTownBackend(api) {
     }
   }
 
+  async function pushClock(body) {
+    const res = await fetch(`${backendUrl()}/demo/clock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`clock ${res.status}`);
+    const data = await res.json();
+    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode);
+    pullSnapshot().catch(() => {});
+    return data;
+  }
+
   fetch(`${backendUrl()}/demo/config`)
     .then((r) => r.json())
     .then((cfg) => {
       if (cfg.backend_ok) logFeed('Backend connected. Demo buttons will try the live pipeline first.');
+      if (api.applyTownTime) api.applyTownTime(cfg.town_time, cfg.mode);
+      enterLiveMode();
     })
     .catch(() => logFeed('Backend offline. Demo buttons use the scripted fallback.'));
 
-  return { triggerViaBackend, enterLiveMode };
+  return { triggerViaBackend, enterLiveMode, pushClock };
 }

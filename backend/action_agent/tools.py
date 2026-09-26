@@ -1,23 +1,19 @@
 # Calendar/places "tools" for the action agent.
-# STUBS for the hackathon demo — no real Google Calendar / Maps calls.
-# Swap the bodies for real integrations later; keep the function names.
+# Calendar: participants' shared calendar signals (backend/schedules.py). Places: still a keyword stub.
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
+
+from backend.db import get_client
+from backend.schedules import busy_blocks, free_slots, local_now
+
+SEARCH_DAYS = 3
 
 
 def find_time_slots(participant_user_ids: list[str], count: int = 3) -> list[dict]:
-    """Pretend-calendar: next Saturday/Sunday afternoon slots. Not a real calendar."""
-    now = datetime.now(timezone.utc)
-    days_until_sat = (5 - now.weekday()) % 7
-    saturday = (now + timedelta(days=days_until_sat or 7)).replace(hour=14, minute=0, second=0, microsecond=0)
-    sunday = saturday + timedelta(days=1)
-    slots = [
-        {"start": saturday.isoformat(), "label": "Saturday 2:00pm"},
-        {"start": (saturday + timedelta(hours=4)).isoformat(), "label": "Saturday 6:00pm"},
-        {"start": sunday.isoformat(), "label": "Sunday 2:00pm"},
-    ]
-    _ = participant_user_ids
-    return slots[:count]
+    """Two-hour windows in the next few days when no participant's shared calendar is busy."""
+    now = local_now()
+    busy = busy_blocks(get_client(), participant_user_ids, now, now + timedelta(days=SEARCH_DAYS))
+    return free_slots(busy, now, days=SEARCH_DAYS, count=count)
 
 
 PLACES = {
