@@ -38,25 +38,26 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Database
 
-Schema lives in [supabase/migrations/](supabase/migrations/); starter interests in [supabase/seed.sql](supabase/seed.sql). Schema changes go in a **new** migration file, never by editing an applied one. Apply with `supabase db push --db-url "$SUPABASE_DB_URL"` (after `source .env`); add `--dry-run` first to preview. Update this section when tables change.
+Hackathon-simple on purpose: add tables only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. Apply with `supabase db push --db-url "$SUPABASE_DB_URL"` (after `source .env`); add `--dry-run` first to preview. Update this section when tables change.
 
-**Tables by area**
-- People: `profiles` (1:1 with `auth.users`, auto-created on signup; holds avatar + notification prefs as JSON), `interests`, `user_interests`, `consents`, `integrations` (encrypted OAuth tokens), `visibility_rules` (per-town sharing overrides).
-- Towns: `towns` (creator auto-added as owner), `town_members`, `town_invites`.
-- Map: `town_layouts` (size, seed, theme), `tiles`, `buildings`, `houses`.
-- Relationships: `friendships` (one row per pair, `user_a < user_b`), `path_score_history`.
-- Town brain: `signals` (raw, expire after 7 days), `facts` (brain's conclusions, with `source_signal_ids`), `brain_runs`, `member_state` (what the town shows per person), `news`.
-- Agents: `agent_state` (saved at decision points), `agent_actions` (decision log), `agent_conversations` (chat bubbles), `inventory`.
-- Events: `events`, `event_participants` (the approval gate), `action_tasks` (action agent work), `interactions` (`via` = in_town / real_life), `notifications`.
+**Tables**
+- `profiles`: one per user, auto-created on signup. Avatar (JSON of asset keys) and `interests` (text array).
+- `towns`: name, `invite_code`, and `tiles`, a 2D JSON array of asset manifest keys indexed `tiles[y][x]` (e.g. `[["grass","road"],["cafe","grass"]]`). Buildings are just tiles.
+- `town_members`: who's in which town, their house position, and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
+- `friendships`: one row per pair (`user_a < user_b`) with `path_score`.
+- `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
+- `brain_runs`: each town hall AI run's `input` and `output`.
+- `events`: quests, storylines, town events, news.
+- `event_participants`: per-person `suggested`/`accepted`/`declined`. The approval gate.
+- `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
+- `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
 
 **Conventions**
-- **Assets are not in the database.** Model/sprite files live in the frontend (`public/assets/`) with a code manifest; DB columns like `buildings.type`, `tiles.tile_type`, `houses.style` store manifest keys only. Supabase Storage is only for user uploads or runtime-generated files.
-- **Agents read `facts`, never `signals`.** Every agent decision logs the `fact_ids` it used.
-- **Brain applies visibility.** `member_state` and `agent_conversations` are visible to the whole town, so the brain must apply `visibility_rules` and only use `full`-visibility facts when writing them.
-- **Live movement is client-side.** Don't write positions per frame; `agent_state` updates only when an agent decides.
-- **Security (RLS is on for every table).** Clients (publishable key) can read their town's shared state and edit only their own stuff. The backend uses the secret key (bypasses RLS) for everything the brain/agents write. Keys live in `.env` (gitignored); see `.env.example`. `integrations`, `brain_runs`, `agent_actions` are backend-only. Users can see and delete their own `signals`/`facts`. Joining a town via invite code goes through the backend.
-- Realtime is enabled on `member_state`, `agent_state`, `agent_conversations`, `events`, `event_participants`, `news`, `notifications`.
-- Schedule `purge_expired_signals()` (pg_cron or backend job) to delete expired signals/facts.
+- **Assets are not in the database.** Files live in the frontend (`public/assets/`) with a code manifest; the DB stores manifest keys only.
+- **Agents act on the town hall AI's output**, not on raw signals.
+- **Live movement is client-side.** `agents` rows update only when an agent decides, not per frame.
+- **Access:** the backend uses the secret key (bypasses RLS) for all AI/agent writes. The frontend (publishable key) can read everything in towns it belongs to, edit its own profile, add its own signals, and accept/decline its own events. Join a town with `supabase.rpc('join_town', { code })`; creating a town auto-adds the creator. Keys live in `.env` (gitignored); see `.env.example`.
+- Realtime is on for `town_members`, `agents`, `agent_actions`, `events`, `event_participants`.
 - The agent action menu is the `agent_action` enum; adding an action means a migration.
 
 ## Demo Plan
@@ -68,9 +69,7 @@ Have triggerable signals ready (a friend "gets" good news; two friends both ment
 - [ ] Repo scaffolding / stack chosen
 - [ ] Town rendering + camera
 - [x] Database schema (Supabase migration + RLS)
-- [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2), migration + seed applied and verified
-- [ ] Schedule `purge_expired_signals()`
-- [ ] Backend function to join a town via invite code
+- [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2), condensed schema applied and verified
 - [ ] Town brain pipeline
 - [ ] Character agent loop + action menu
 - [ ] Quest UI + approval flow
@@ -81,4 +80,4 @@ Have triggerable signals ready (a friend "gets" good news; two friends both ment
 
 - 2026-09-25: Characters get real agents with initiative, grounded by the town brain's state and a fixed action menu (not pure rule-driven, not free-running per-character LLMs).
 - 2026-09-25: Supabase for the database. Asset files ship with the frontend; the DB stores only manifest keys and layouts, so towns (including generated ones) are data, not files.
-- 2026-09-25: Brain writes `facts` with provenance to raw signals; agents may only use facts. Raw signals expire after 7 days.
+- 2026-09-25: Condensed schema to 10 tables for the hackathon; towns store tiles as one 2D array. Dropped visibility/consent/integration tables until needed.
