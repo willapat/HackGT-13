@@ -1,5 +1,6 @@
 // Your own spot in a real town: a bubble over your character, a mood on your house, and mailboxes.
-// Bubble and mood are saved for everyone (PUT /towns/{id}/members/me/bubble|mood; townsync.js draws other people's).
+// Bubble and mood are saved for everyone (PUT /towns/{id}/members/me/bubble|mood; townsync.js draws other people's) and
+// run out after 3 hours, like a free/busy status (backend/house.py); the panel shows how long each has left.
 // Clicking a townmate's mailbox leaves them a note; yours lists what people left you (backend/routes/mailbox.py).
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
@@ -13,11 +14,17 @@ import { OPEN_ZOOM } from './stage.js';
 const QUICK = ['👋', '😂', '🎉', '☕', '❤️', '😴'];
 const MAIL_POLL_MS = 20000;
 let meId = null, mailOwner = null, anchor = null, unread = 0, flag = null;
+let bubble = null, mood = null; // your own {text|kind, until} while they last
 
 const me = () => friends[meId];
 const ago = (iso) => {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
   return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
+};
+const live = (x) => (x && Date.parse(x.until) > Date.now() ? x : null);
+const left = (x) => {
+  const mins = Math.max(1, Math.ceil((Date.parse(x.until) - Date.now()) / 60e3));
+  return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
 };
 const el = (tag, cls, text) => Object.assign(document.createElement(tag), cls ? { className: cls } : {}, text != null ? { textContent: text } : {});
 
@@ -26,11 +33,11 @@ const el = (tag, cls, text) => Object.assign(document.createElement(tag), cls ? 
 async function setBubble(text) {
   const f = me();
   try {
-    if (text) await api(`/towns/${TOWN_ID}/members/me/bubble`, { method: 'PUT', body: { text } });
-    else await api(`/towns/${TOWN_ID}/members/me/bubble`, { method: 'DELETE' });
-    setPinned(f, text || null);
+    const row = await api(`/towns/${TOWN_ID}/members/me/bubble`, text ? { method: 'PUT', body: { text } } : { method: 'DELETE' });
+    bubble = live(row?.bubble);
+    setPinned(f, bubble?.text || null);
     $('#say-text').value = '';
-    $('#say-clear').hidden = !text;
+    renderMine();
   } catch (e) {
     logFeed(`Couldn't ${text ? 'post' : 'clear'} your bubble: ${e.message}`);
   }
@@ -38,18 +45,23 @@ async function setBubble(text) {
 
 // ---- House mood ----
 
-function renderMoodButton(kind) {
-  const m = HOUSE_MOODS[kind];
-  $('#mood-now').textContent = m ? `${m.emoji} ${m.label}` : 'Mood';
+// What you have up right now and how long it has left; whatever ran out comes down
+function renderMine() {
+  if (bubble && !live(bubble)) { bubble = null; setPinned(me(), null); }
+  if (mood && !live(mood)) { mood = null; setHouseMood(me(), null); }
+  const m = HOUSE_MOODS[mood?.kind];
+  $('#mood-now').textContent = m ? `${m.emoji} ${m.label} · ${left(mood)}` : 'Mood';
+  $('#say-clear').hidden = !bubble;
+  $('#say-clear').textContent = bubble ? `${left(bubble)} ✕` : '✕';
 }
 
 async function setMood(kind) {
   $('#moods').hidden = true;
   try {
-    if (kind) await api(`/towns/${TOWN_ID}/members/me/mood`, { method: 'PUT', body: { mood: kind } });
-    else await api(`/towns/${TOWN_ID}/members/me/mood`, { method: 'DELETE' });
-    setHouseMood(me(), kind);
-    renderMoodButton(kind);
+    const row = await api(`/towns/${TOWN_ID}/members/me/mood`, kind ? { method: 'PUT', body: { mood: kind } } : { method: 'DELETE' });
+    mood = live(row?.home?.mood);
+    setHouseMood(me(), mood?.kind || null);
+    renderMine();
     if (kind) focusOn(pos(...me().home.house)); // show them what it looks like
   } catch (e) {
     logFeed(`Couldn't set your mood: ${e.message}`);
@@ -82,6 +94,7 @@ function renderUnread() {
   if (!f?.mailboxAt) return;
   if (unread && !flag) flag = addLabel('lbl mailflag', '', () => f.mailboxAt);
   if (!unread && flag) { flag.remove(); flag = null; }
+  f.mailFlag = Boolean(flag); // hides the little ✉ over your mailbox (city.js) while the badge is up
   if (flag) {
     flag.el.textContent = `📬 ${unread}`;
     flag.el.onclick = () => openMailbox(meId);
@@ -221,9 +234,10 @@ export async function startMine() {
   const f = me();
   if (!f) return; // no house here yet: nothing of yours to decorate
   const mine = TOWN.members.find((m) => m.user_id === meId);
-  const live = (x) => (x && Date.parse(x.until) > Date.now() ? x : null);
-  renderMoodButton(live(mine?.home?.mood)?.kind);
-  $('#say-clear').hidden = !live(mine?.bubble);
+  bubble = live(mine?.bubble);
+  mood = live(mine?.home?.mood);
+  renderMine();
+  setInterval(renderMine, 30000);
   for (const q of QUICK) {
     const b = el('button', 'quick-emoji', q);
     b.type = 'button';

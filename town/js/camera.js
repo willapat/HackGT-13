@@ -16,7 +16,10 @@ const FOLLOW_REST_MS = 2500; // after this long without input, the camera eases 
 let lastFollowInput = 0;
 
 let focusGoal = null;
-controls.addEventListener('start', () => { focusGoal = null; }); // a drag always wins over an auto-pan
+// The opening view (stage.js has set it by now); Recenter eases back to it
+const START = { target: controls.target.clone(), position: camera.position.clone(), zoom: camera.zoom };
+let recentering = false;
+controls.addEventListener('start', () => { focusGoal = null; recentering = false; }); // a drag always wins over an auto-pan
 export function focusOn(p) { if (!following) focusGoal = p.clone().setY(0); }
 export function focusFriend(id) {
   const f = friends[id];
@@ -49,6 +52,13 @@ function stopFollow() {
   $('#follow').hidden = true;
 }
 $('#follow-exit').onclick = stopFollow;
+
+export function recenter() {
+  stopFollow();
+  focusGoal = null;
+  recentering = true;
+}
+$('#recenter').onclick = recenter;
 
 // While following: drag / one finger to orbit around the person, scroll / pinch to zoom
 const followControls = new OrbitControls(followCam, renderer.domElement);
@@ -86,6 +96,19 @@ function followOffset(f) {
 
 // Each frame: ease toward an auto-pan goal, or carry the follow camera along with the person
 export function updateCamera(dt, now) {
+  if (recentering) {
+    const k = 1 - Math.exp(-dt * 6);
+    controls.target.lerp(START.target, k);
+    camera.position.lerp(START.position, k);
+    camera.zoom += (START.zoom - camera.zoom) * k;
+    if (camera.position.distanceTo(START.position) < 0.01 && Math.abs(camera.zoom - START.zoom) < 0.001) {
+      controls.target.copy(START.target);
+      camera.position.copy(START.position);
+      camera.zoom = START.zoom;
+      recentering = false;
+    }
+    camera.updateProjectionMatrix();
+  }
   if (focusGoal) {
     const delta = focusGoal.clone().sub(controls.target).multiplyScalar(Math.min(1, dt * 4));
     controls.target.add(delta);

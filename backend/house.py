@@ -7,8 +7,8 @@ from backend.db import parse_ts
 
 # House moods: the 3D town draws each one over the house (town/js/effects.js HOUSE_MOODS). Keep the two lists in step.
 MOODS = ("party", "sunny", "rainy", "stormy", "love", "sleepy", "music", "cozy", "proud", "busy", "chill", "studying")
-MOOD_HOURS = 24
-BUBBLE_HOURS = 6
+MOOD_HOURS = 3  # like a free/busy status (frontend/app/app.js STATUS_HOURS)
+BUBBLE_HOURS = 3
 BUBBLE_MAX = 60
 
 

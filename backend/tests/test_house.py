@@ -3,16 +3,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from backend.house import BUBBLE_MAX, active, clean_text, entry
+from backend.house import BUBBLE_HOURS, BUBBLE_MAX, MOOD_HOURS, active, clean_text, entry
 from backend.models.api import BubbleIn, MailIn, MoodIn
 
 NOW = datetime(2026, 9, 26, 12, tzinfo=timezone.utc)
 
 
 def test_bubbles_and_moods_run_out():
-    b = entry("text", "👋", 6, NOW)
-    assert b["text"] == "👋" and active(b, NOW + timedelta(hours=5)) == b
-    assert active(b, NOW + timedelta(hours=6, seconds=1)) is None
+    assert BUBBLE_HOURS == MOOD_HOURS == 3  # the same 3 hours as a free/busy status
+    b = entry("text", "👋", BUBBLE_HOURS, NOW)
+    assert b["text"] == "👋" and active(b, NOW + timedelta(hours=2)) == b
+    assert active(b, NOW + timedelta(hours=3, seconds=1)) is None
     assert active(None, NOW) is None and active({"text": "x"}, NOW) is None and active({"until": "junk"}, NOW) is None
 
 

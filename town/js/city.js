@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CURBSIDE, GROUND, HELIPAD, HOUSES, METER, NATURE, PARASOLS, PARK_TREES, PROPS, ROAD, ROOF_PROPS, SP, STREET, VEHICLES, ZONES } from './assets.js';
 import { addLabel } from './hud.js';
-import { BG_COLOR, BG_ROOFS, CENTER, DRAWN, EXTRA_MODELS, FARM, FRIENDS, inkOn, inPark, isRoad, key, N, PLACES, pos, ROADS, STADIUM, tileAt, TILES, tilesOf, TREES } from './layout.js';
+import { BG_COLOR, BG_ROOFS, CENTER, DRAWN, EXTRA_MODELS, FARM, FRIENDS, inkOn, inPark, isRoad, key, N, PLACES, pos, ROADS, STADIUM, tileAt, TILES, tilesOf, TOWN, TREES } from './layout.js';
 import { place } from './models.js';
 import { LAMPS, sky } from './sky.js';
 import { animated, scene, water } from './stage.js';
@@ -535,13 +535,19 @@ export function buildCity() {
     const side = { c: -dr * 0.34, r: dc * 0.34 };
     const box = tint(place(STREET.mailbox_01_white, h.c + dc * 0.4 + side.c, h.r + dr * 0.4 + side.r, { scale: METER, rotY: Math.atan2(dc, dr) }), f.color, 0.8);
     // Click a mailbox to leave its owner a note, or to read your own (mail.js). The model is tiny, so it gets a
-    // bigger invisible hit area; a badge floats over it when you have unread mail.
+    // bigger invisible hit area and a tiny ✉ in the owner's color above it; your unread badge replaces your own ✉.
     const boxHit = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.5, 10), new THREE.MeshBasicMaterial({ visible: false }));
     boxHit.position.copy(box.position).setY(0.2);
     boxHit.userData.mailboxOf = f.id;
     scene.add(boxHit);
     clickable.push(boxHit);
     f.mailboxAt = box.position.clone().setY(0.42);
+    if (TOWN) { // real towns only: the demo town has no mail
+      const pin = addLabel('lbl mailpin', '✉', () => f.mailboxAt, () => !f.mailFlag);
+      Object.assign(pin.el.style, { background: f.color, color: inkOn(f.color) });
+      pin.el.title = `${f.name}'s mailbox`;
+      pin.el.onclick = () => dispatchEvent(new CustomEvent('town:mailbox', { detail: f.id }));
+    }
     // Flag on a pole in the front yard; the cloth hangs from a pivot at the pole top so it stays attached
     const flagAt = pos(h.c - dc * 0.3 - side.c, h.r - dr * 0.3 - side.r);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9), new THREE.MeshLambertMaterial({ color: '#eeeeee' }));
