@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Luma</title>
+  <link rel="icon" type="image/svg+xml" href="app/logo.svg" />
   <script>
     // Apply the saved theme before first paint so dark mode doesn't flash light
     try {
@@ -20,7 +21,7 @@
   <!-- Top bar, shown once signed in -->
   <header class="appbar" id="appbar" hidden>
     <a class="logo" href="#/" aria-label="Luma home">
-      <span class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg></span>
+      <img class="mark" src="app/logo.svg" alt="" />
       <span class="wordmark">Luma</span>
     </a>
     <nav class="navtabs" aria-label="Main">
@@ -50,7 +51,7 @@
   <div class="page">
     <main class="shell" id="shell">
       <header class="brand" id="brand">
-        <span class="mark lg"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg></span>
+        <img class="mark lg" src="app/logo.svg" alt="" />
         <h1 class="wordmark">Luma</h1>
         <p>A little city full of your real friends</p>
       </header>

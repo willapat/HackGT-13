@@ -67,11 +67,9 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 svg.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
-/* Brand mark: a rounded tile with the gradient and a little house */
-.mark { width: 36px; height: 36px; border-radius: 10px; background: var(--brand); display: grid; place-items: center; color: #fff; flex: none; }
-.mark svg.i { width: 20px; height: 20px; stroke-width: 2.2; }
+/* Brand mark (app/logo.svg): a street lamp whose post and lit sidewalk draw an L, two friends in its light */
+.mark { width: 36px; height: 36px; border-radius: 10px; flex: none; display: block; }
 .mark.lg { width: 64px; height: 64px; border-radius: 18px; box-shadow: 0 8px 24px rgba(90, 80, 255, 0.3); }
-.mark.lg svg.i { width: 34px; height: 34px; }
 .wordmark { font-weight: 800; letter-spacing: -0.03em; background: var(--brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
 /* ---- App bar (signed in) ---- */
