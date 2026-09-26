@@ -169,6 +169,11 @@ let following = null;
 let activeCam = camera;
 const FOLLOW_BACK = 1.3, FOLLOW_UP = 0.75;
 
+// A trackpad pinch arrives as ctrl+wheel. Over a panel or label the browser would pinch-zoom the
+// whole page instead (blurry, panels pushed off screen), so only the town's camera may zoom.
+addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+for (const t of ['gesturestart', 'gesturechange']) addEventListener(t, (e) => e.preventDefault(), { passive: false }); // Safari
+
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.minZoom = 0.6;
