@@ -14,7 +14,7 @@ const layoutKey = (d) => JSON.stringify([
     .map((m) => [m.user_id, m.house_x, m.house_y, m.home?.name ?? null, m.name ?? null, m.color ?? null])
     .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
 ]);
-const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
+const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownSync(townId, initial, t) {
   const applied = {}; // user_id -> agents.updated_at already drawn

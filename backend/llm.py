@@ -37,8 +37,8 @@ def complete(model: str, system: str, user: str, max_tokens: int) -> str:
     headers = {
         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://tinytown.local",
-        "X-Title": "Tiny Town",
+        "HTTP-Referer": "https://luma.local",
+        "X-Title": "Luma",
     }
     with httpx.Client(timeout=90.0) as client:
         resp = client.post(OPENROUTER_URL, json=payload, headers=headers)

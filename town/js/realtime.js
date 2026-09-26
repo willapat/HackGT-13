@@ -2,7 +2,7 @@
 // Polls GET /demo/snapshot (backend secret key) so the judge UI works without a logged-in Supabase user.
 // Demo buttons POST /demo/trigger/{scenario} with a 3s timeout, then fall back to the scripted trigger().
 
-const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
+const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownBackend(api) {
   const {

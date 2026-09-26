@@ -3,6 +3,7 @@
 One friend_requests row per pair: pending → accepted (friends) or declined. Unfriending deletes it.
 """
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,10 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.auth import current_user_id
 from backend.db import get_client, now_iso
 from backend.models.api import FriendRequestIn, Respond, Username
+from backend.person import build_person
+from backend.status import calendar_busy, effective_status
 
 router = APIRouter(tags=["friends"])
 
 PUBLIC_PROFILE = "id, username, display_name, avatar"
+PUBLIC_FIELDS = [f.strip() for f in PUBLIC_PROFILE.split(",")]
 
 
 def pair_row(db, a: str, b: str) -> dict | None:
@@ -31,9 +35,14 @@ def are_friends(db, a: str, b: str) -> bool:
 
 
 def _profiles(db, ids: list[str]) -> dict[str, dict]:
+    """Public fields plus bio and live free/busy status. Selects * so it works before and after those columns exist."""
     if not ids:
         return {}
-    return {p["id"]: p for p in db.table("profiles").select(PUBLIC_PROFILE).in_("id", ids).execute().data or []}
+    now = datetime.now(timezone.utc)
+    rows = db.table("profiles").select("*").in_("id", ids).execute().data or []
+    busy = calendar_busy(db, ids, now)
+    return {p["id"]: {**{k: p.get(k) for k in PUBLIC_FIELDS}, "bio": p.get("bio") or "",
+                      "active_status": effective_status(p, now, busy.get(p["id"]))} for p in rows}
 
 
 def _my_rows(db, uid: str, status: str) -> list[dict]:
@@ -117,3 +126,36 @@ def respond_request(request_id: UUID, body: Respond, uid: str = Depends(current_
         db.table("friend_requests").update({"status": body.status, "responded_at": now_iso()})
         .eq("id", str(request_id)).execute().data[0]
     )
+
+
+@router.get("/users/{user_id}/profile")
+def person_profile(user_id: UUID, uid: str = Depends(current_user_id)):
+    """Someone's profile as you're allowed to see it (see backend/person.py for what each relation gets)."""
+    db, target = get_client(), str(user_id)
+    rows = db.table("profiles").select("*").eq("id", target).limit(1).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="no such person")
+    mine = {m["town_id"]: (m.get("towns") or {}).get("name") or "Town"
+            for m in db.table("town_members").select("town_id, towns(name)").eq("user_id", uid).execute().data or []}
+    theirs = db.table("town_members").select("town_id, name, color").eq("user_id", target).execute().data or []
+    shared = [t for t in theirs if t["town_id"] in mine]
+    counts: dict[str, int] = {}
+    if shared:
+        for m in db.table("town_members").select("town_id").in_("town_id", [t["town_id"] for t in shared]).execute().data or []:
+            counts[m["town_id"]] = counts.get(m["town_id"], 0) + 1
+    shared_towns = [{"id": t["town_id"], "name": mine[t["town_id"]], "residents": counts.get(t["town_id"], 1),
+                     "their_name": t.get("name"), "their_color": t.get("color")} for t in shared]
+
+    def friend_ids(person: str) -> set[str]:
+        return {r["to_user"] if r["from_user"] == person else r["from_user"] for r in _my_rows(db, person, "accepted")}
+
+    mutual_ids = (friend_ids(uid) & friend_ids(target)) - {uid, target} if target != uid else set()
+    mutual = list(_profiles(db, sorted(mutual_ids)).values())
+    a, b = sorted((uid, target))
+    bond = db.table("friendships").select("*").eq("user_a", a).eq("user_b", b).limit(1).execute().data
+    me_row = db.table("profiles").select("interests").eq("id", uid).limit(1).execute().data
+    now = datetime.now(timezone.utc)
+    busy = calendar_busy(db, [target], now).get(target) if shared_towns or target == uid else None
+    return build_person(uid, rows[0], pair_row(db, uid, target), shared_towns,
+                        (me_row[0].get("interests") if me_row else None) or [], mutual, bond[0] if bond else None,
+                        now, busy=busy)

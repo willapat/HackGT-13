@@ -2,7 +2,7 @@ import json
 
 from backend.models.agents import AgentDecisionInput, AgentDecisionOutput
 
-AGENT_SYSTEM_TEMPLATE = """You control one character in Tiny Town: {display_name}. You decide what this
+AGENT_SYSTEM_TEMPLATE = """You control one character in Luma: {display_name}. You decide what this
 character does next, choosing ONLY from the fixed action list given to you.
 You may not invent a new action.
 

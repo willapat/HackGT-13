@@ -1,23 +1,31 @@
 /* The 3D town page (town.html): panels, labels and cards over the canvas. */
 :root {
-  --panel: rgba(255, 255, 255, 0.88);
-  --ink: #1f2430;
-  --muted: #667085;
-  --line: rgba(31, 36, 48, 0.1);
-  --accent: #3b6fe0;
+  /* Same tokens as the account app (frontend/app/app.css) */
+  --panel: rgba(255, 255, 255, 0.92);
+  --ink: #14171c;
+  --muted: #62676f;
+  --line: #e2e5e9;
+  --accent: #1a6dff;
+  --accent-hover: #0f5ee8;
+  --accent-soft: #e7f0ff;
+  --soft: #e8ebef;
+  --soft-hover: #dcdfe4;
+  --hover: rgba(20, 23, 28, 0.05);
+  --brand: linear-gradient(135deg, #1a6dff 0%, #7a5cff 52%, #ff6b7a 100%);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; touch-action: pan-x pan-y; background: #9fd3ec; color: var(--ink);
-  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
 #game { position: fixed; inset: 0; }
 
-.panel { position: fixed; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
-h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.panel { position: fixed; background: var(--panel); backdrop-filter: blur(12px); border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14), 0 2px 4px rgba(0, 0, 0, 0.06); }
+h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 
 #side { top: 16px; left: 16px; width: 290px; max-height: calc(100% - 32px); padding: 14px; display: flex;
   flex-direction: column; gap: 14px; }
-#side .title { font-size: 20px; font-weight: 700; }
+#side .title { font-size: 24px; font-weight: 800; letter-spacing: -0.03em; background: var(--brand); -webkit-background-clip: text;
+  background-clip: text; color: transparent; width: fit-content; }
 #side .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 #residents { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 #residents li { display: flex; gap: 8px; align-items: flex-start; }
@@ -25,9 +33,9 @@ h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: u
 .status { color: var(--muted); font-size: 12px; }
 #schedules { overflow-y: auto; min-height: 140px; flex: 1.4; display: grid; gap: 12px; align-content: start; font-size: 12.5px; }
 .sched-person h3 { margin: 0 0 2px; font-size: 13px; display: flex; gap: 6px; align-items: center; }
-.sched-day { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; margin: 8px 0 2px; font-weight: 700; }
+.sched-day { color: var(--muted); font-size: 12px; margin: 8px 0 2px; font-weight: 700; }
 .sched-item { padding: 4px 0; border-top: 1px solid var(--line); }
-.sched-item.now { background: #eef3ff; border-radius: 6px; padding: 4px 6px; border-top: none; }
+.sched-item.now { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); border-radius: 8px; padding: 5px 8px; border-top: none; }
 .sched-when { color: var(--muted); font-variant-numeric: tabular-nums; }
 .sched-where { color: var(--muted); font-size: 12px; }
 #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 0.7; display: grid;
@@ -37,9 +45,10 @@ h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: u
 .feedwrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 
 #triggers { top: 16px; right: 16px; padding: 12px; width: 250px; display: grid; gap: 6px; }
-#triggers button, .card button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
-  border-radius: 9px; padding: 7px 10px; text-align: left; cursor: pointer; }
-#triggers button:hover, .card button:hover { border-color: var(--accent); }
+#triggers button, .card button { font: inherit; font-weight: 600; border: none; background: var(--soft); color: var(--ink);
+  border-radius: 8px; padding: 8px 12px; text-align: left; cursor: pointer; transition: background 0.12s, transform 0.08s; }
+#triggers button:hover, .card button:hover { background: var(--soft-hover); }
+#triggers button:active, .card button:active { transform: scale(0.97); }
 #triggers .note { color: var(--muted); font-size: 11.5px; }
 #triggers h2 + .sky-row { margin-top: -2px; }
 .sky-row { display: flex; gap: 6px; align-items: center; }
@@ -48,33 +57,37 @@ h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: u
 #town-date { font-size: 12px; font-weight: 600; color: var(--ink); }
 .sky-row button { flex: 1; }
 .sky-row.weather button { padding: 4px 0; font-size: 15px; }
-#triggers button.on { border-color: var(--accent); background: #eef3ff; }
+#triggers button.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
 
 #cards { position: fixed; right: 16px; bottom: 16px; width: 320px; display: grid; gap: 10px; }
-.card { padding: 14px; border-left: 4px solid var(--accent); animation: pop 0.35s ease-out; position: static; }
-.card .kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.card { padding: 14px 16px; animation: pop 0.35s ease-out; position: static; }
+.card::before { content: ""; display: block; height: 4px; margin: -14px -16px 12px; border-radius: 12px 12px 0 0; background: var(--brand); }
+.card .kind { font-size: 13px; font-weight: 700; color: var(--accent); }
 .card .text { margin: 4px 0 10px; }
 .card .row { display: flex; gap: 6px; flex-wrap: wrap; }
-.card button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.card button.primary { background: var(--accent); color: #fff; }
+.card button.primary:hover { background: var(--accent-hover); }
 @keyframes pop { from { transform: translateY(12px); opacity: 0; } }
 
 #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
 .panel, #cards { z-index: 10; }
 .lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-weight: 700; font-size: 12px;
-  padding: 1px 6px; border-radius: 4px; }
-.lbl.place { background: rgba(255, 255, 255, 0.85); color: var(--ink); font-size: 13px; }
+  padding: 2px 8px; border-radius: 999px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.lbl.place { background: rgba(255, 255, 255, 0.92); color: var(--ink); font-size: 13px; }
 .lbl.friend { color: #fff; pointer-events: auto; cursor: pointer; }
-.bubble { position: absolute; transform: translate(-50%, -100%); background: #fff; color: var(--ink); padding: 5px 9px;
-  border-radius: 9px; font-size: 13px; max-width: 170px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+.bubble { position: absolute; transform: translate(-50%, -100%); background: #fff; color: var(--ink); padding: 6px 12px;
+  border-radius: 18px; font-size: 13px; max-width: 170px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   animation: pop 0.2s ease-out; }
 #follow { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 10px 8px 14px; display: flex; gap: 10px;
   align-items: center; }
 #follow[hidden] { display: none; }
 .follow-tip { color: var(--muted); font-size: 12px; }
 @media (max-width: 800px) { .follow-tip { display: none; } }
-#follow button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
-.back { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; }
-#hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--muted); }
+#follow button { font: inherit; font-weight: 600; border: none; background: var(--soft); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+#follow button:hover { background: var(--soft-hover); }
+.back { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; display: inline-block; padding: 4px 10px; margin: -4px 0 4px -10px; border-radius: 999px; }
+.back:hover { background: var(--accent-soft); }
+#hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 14px; font-size: 12px; color: var(--muted); border-radius: 999px; }
 
 @media (max-width: 800px) {
   #side { width: calc(100% - 32px); max-height: 38%; }

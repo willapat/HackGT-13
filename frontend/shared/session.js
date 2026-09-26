@@ -1,7 +1,7 @@
 // Shared by every page: where the backend is, the Supabase client (for login), and an authed fetch helper.
 // The Supabase URL and publishable key come from the backend's GET /demo/config, so no keys live in git.
 
-export const BACKEND = window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
+export const BACKEND = window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 let clientPromise = null;
 
@@ -11,7 +11,7 @@ export function getSupabase() {
     try {
       cfg = await fetch(`${BACKEND}/demo/config`).then((r) => r.json());
     } catch {
-      throw new Error(`Can't reach the Tiny Town backend at ${BACKEND}. Is it running?`);
+      throw new Error(`Can't reach the Luma backend at ${BACKEND}. Is it running?`);
     }
     if (!cfg.supabase_url || !cfg.supabase_publishable_key) {
       throw new Error('The backend is missing SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY in its .env.');
@@ -30,8 +30,8 @@ function errorText(data, status) {
   return `Request failed (${status})`;
 }
 
-// Call the backend as the signed-in user
-export async function api(path, { method = 'GET', body } = {}) {
+// Call the backend as the signed-in user. `body` goes as JSON; a Blob in `file` goes as-is (photo uploads).
+export async function api(path, { method = 'GET', body, file } = {}) {
   const sb = await getSupabase();
   const { data: { session } } = await sb.auth.getSession();
   let res;
@@ -40,12 +40,13 @@ export async function api(path, { method = 'GET', body } = {}) {
       method,
       headers: {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(file ? { 'Content-Type': file.type } : {}),
         ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: file || (body ? JSON.stringify(body) : undefined),
     });
   } catch {
-    throw new Error(`Can't reach the Tiny Town backend at ${BACKEND}. Is it running?`);
+    throw new Error(`Can't reach the Luma backend at ${BACKEND}. Is it running?`);
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
