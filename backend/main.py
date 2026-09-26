@@ -6,11 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.loops.agent_loop import agent_loop
 from backend.loops.brain_loop import brain_loop
-from backend.routes.demo import router as demo_router
-from backend.routes.events import router as events_router
-from backend.routes.interests import router as interests_router
-from backend.routes.signals import router as signals_router
-from backend.routes.towns import router as towns_router
+from backend.routes import demo, events, me, signals, towns
 
 
 @asynccontextmanager
@@ -34,11 +30,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(signals_router)
-app.include_router(towns_router)
-app.include_router(interests_router)
-app.include_router(events_router)
-app.include_router(demo_router)
+for module in (me, signals, towns, events, demo):
+    app.include_router(module.router)
 
 
 @app.get("/health")

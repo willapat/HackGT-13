@@ -1,26 +1,23 @@
-"""Python mirrors of every Postgres enum / constrained text the backend writes.
+"""Python mirrors of the Postgres enum and the text values the backend writes.
 
-`AgentAction` matches the live `agent_action` enum byte-for-byte. The architecture
-plan's `walk_to_building` name is accepted as an alias in validation, then written
-as `walk_to`. Other plan enums are text columns in the condensed schema; values
-here are the allowed set for validation.
+`AgentAction` matches the live `agent_action` enum byte-for-byte. The plan's
+`walk_to_building` name is accepted as an alias in validation, then written as `walk_to`.
 """
 
 from enum import Enum
 
 
-class InterestSource(str, Enum):
-    stated = "stated"
-    inferred = "inferred"
+class Visibility(str, Enum):
+    """Set per signal in `signals.value.visibility`. Missing means full."""
 
-
-class VisibilityLevel(str, Enum):
-    hidden = "hidden"
-    vague = "vague"
     full = "full"
+    vague = "vague"
+    hidden = "hidden"
 
 
-class WeatherKind(str, Enum):
+class Mood(str, Enum):
+    """`town_members.mood`: the weather over someone's house."""
+
     sunny = "sunny"
     cloudy = "cloudy"
     rainy = "rainy"
@@ -53,46 +50,19 @@ class EventType(str, Enum):
 
 
 class EventStatus(str, Enum):
-    suggested = "suggested"
-    active = "active"
-    scheduled = "scheduled"
-    completed = "completed"
-    expired = "expired"
-    cancelled = "cancelled"
-
-
-class EventCreator(str, Enum):
-    brain = "brain"
-    agent = "agent"
-    user = "user"
+    suggested = "suggested"  # waiting on participants
+    active = "active"  # news / storylines that are just shown
+    scheduled = "scheduled"  # everyone accepted; plan drafted, waiting on a human to approve it
+    confirmed = "confirmed"  # a participant approved the plan
+    cancelled = "cancelled"  # someone declined
 
 
 class ParticipantStatus(str, Enum):
     suggested = "suggested"
-    invited = "invited"
     accepted = "accepted"
     declined = "declined"
-
-
-class TaskStatus(str, Enum):
-    pending = "pending"
-    running = "running"
-    needs_approval = "needs_approval"
-    done = "done"
-    failed = "failed"
-
-
-class InteractionType(str, Enum):
-    knock = "knock"
-    gift = "gift"
-    visit = "visit"
-    chat = "chat"
-    hangout = "hangout"
 
 
 class InteractionVia(str, Enum):
     in_town = "in_town"
     real_life = "real_life"
-
-
-FACT_CATEGORIES = frozenset({"mood", "busy", "interest", "news", "plan"})

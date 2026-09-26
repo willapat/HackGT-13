@@ -1,54 +1,33 @@
-from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from fastapi import APIRouter, HTTPException
-
+from backend.auth import current_user_id
+from backend.brain.visibility import LEVELS
 from backend.db import get_client
-from backend.models.signals import SignalIn, SignalRecord
+from backend.models.api import SignalIn
 
-router = APIRouter()
+router = APIRouter(prefix="/signals", tags=["signals"])
 
 
-@router.post("/signals", response_model=SignalRecord)
-def create_signal(body: SignalIn):
-    db = get_client()
-    consent = (
-        db.table("consents")
-        .select("user_id, revoked_at")
-        .eq("user_id", body.user_id)
-        .eq("source", body.source)
-        .limit(1)
-        .execute()
-        .data
-        or []
+@router.post("", status_code=201)
+def create_signal(body: SignalIn, uid: str = Depends(current_user_id)):
+    """Share something with your towns. Posting it is the opt-in; the brain picks it up on its next pass."""
+    visibility = body.value.get("visibility")
+    if visibility is not None and visibility not in LEVELS:
+        raise HTTPException(status_code=422, detail=f"value.visibility must be one of {LEVELS}")
+    rows = (
+        get_client().table("signals")
+        .insert({"user_id": uid, "source": body.source, "type": body.type, "value": body.value})
+        .execute().data
     )
-    if not consent or consent[0].get("revoked_at"):
-        raise HTTPException(status_code=403, detail="no unrevoked consent for this source")
-    created = datetime.now(timezone.utc)
-    expires = created + timedelta(days=7)
-    row = (
-        db.table("signals")
-        .insert(
-            {
-                "user_id": body.user_id,
-                "source": body.source,
-                "type": body.type,
-                "value": body.value,
-                "expires_at": expires.isoformat(),
-            }
-        )
-        .execute()
-        .data
-        or []
-    )
-    if not row:
+    if not rows:
         raise HTTPException(status_code=500, detail="insert failed")
-    rec = row[0]
-    return SignalRecord(
-        id=rec["id"],
-        user_id=rec["user_id"],
-        source=rec["source"],
-        type=rec["type"],
-        value=rec["value"],
-        created_at=rec["created_at"],
-        expires_at=rec.get("expires_at"),
+    return rows[0]
+
+
+@router.get("")
+def list_signals(limit: int = Query(50, ge=1, le=200), uid: str = Depends(current_user_id)):
+    """Your own signals, newest first. Nobody else can read them."""
+    return (
+        get_client().table("signals").select("*").eq("user_id", uid)
+        .order("created_at", desc=True).limit(limit).execute().data or []
     )

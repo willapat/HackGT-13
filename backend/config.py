@@ -10,10 +10,10 @@ class Settings(BaseSettings):
     SUPABASE_PUBLISHABLE_KEY: str = ""
     SUPABASE_SECRET_KEY: str = ""
     SUPABASE_DB_URL: str = ""
-    ANTHROPIC_API_KEY: str = ""
-    BRAIN_MODEL: str = "claude-sonnet-4-6"
-    AGENT_MODEL: str = "claude-haiku-4-5-20251001"
-    ACTION_AGENT_MODEL: str = "claude-sonnet-4-6"
+    GEMINI_MODEL_KEY: str = ""
+    BRAIN_MODEL: str = "gemini-2.5-flash"
+    AGENT_MODEL: str = "gemini-2.5-flash-lite"
+    ACTION_AGENT_MODEL: str = "gemini-2.5-flash"
     BRAIN_LOOP_INTERVAL_SECONDS: float = 10
     AGENT_LOOP_INTERVAL_SECONDS: float = 2
     DEMO_TOWN_ID: str = ""

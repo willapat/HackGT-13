@@ -43,37 +43,13 @@ def next_path_score(current: float, via: str, last_interaction_at: str | None) -
     return clamp(current + delta), delta
 
 
-def apply_path_score_delta(db, user_a: str, user_b: str, via: str, reason: str) -> float:
+def record_interaction(db, user_a: str, user_b: str, via: str) -> float:
+    """Bump the pair's friendships row (created on first interaction). Returns the new score."""
     a, b = ordered_pair(user_a, user_b)
     rows = db.table("friendships").select("*").eq("user_a", a).eq("user_b", b).limit(1).execute().data or []
-    current = 0.5
-    last = None
-    if rows:
-        current = float(rows[0].get("path_score") or 0.5)
-        last = rows[0].get("last_interaction_at")
-        new_score, delta = next_path_score(current, via, last)
-        db.table("friendships").update(
-            {"path_score": new_score, "last_interaction_at": now_iso()}
-        ).eq("user_a", a).eq("user_b", b).execute()
-    else:
-        new_score, delta = next_path_score(current, via, last)
-        db.table("friendships").insert(
-            {"user_a": a, "user_b": b, "path_score": new_score, "last_interaction_at": now_iso()}
-        ).execute()
-    db.table("path_score_history").insert(
-        {"user_a": a, "user_b": b, "delta": delta, "reason": reason}
+    current = float(rows[0]["path_score"]) if rows else 0.5
+    new_score, _ = next_path_score(current, via, rows[0].get("last_interaction_at") if rows else None)
+    db.table("friendships").upsert(
+        {"user_a": a, "user_b": b, "path_score": new_score, "last_interaction_at": now_iso()}
     ).execute()
     return new_score
-
-
-def record_interaction(db, town_id: str, user_a: str, user_b: str, itype: str, via: str) -> None:
-    db.table("interactions").insert(
-        {
-            "town_id": town_id,
-            "user_a": user_a,
-            "user_b": user_b,
-            "type": itype,
-            "via": via,
-        }
-    ).execute()
-    apply_path_score_delta(db, user_a, user_b, via, f"{via}:{itype}")
