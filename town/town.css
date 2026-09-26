@@ -106,13 +106,14 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #building {
   width: min(300px, calc(100vw - 24px)); padding: 0; overflow: visible; border-radius: 12px;
   background: #fff;
+  transform-origin: center bottom;
   transform: translate(-50%, calc(-100% - 14px));
   box-shadow: var(--shadow-pop);
   animation: bld-in 0.18s ease-out;
 }
 @keyframes bld-in {
-  from { opacity: 0; transform: translate(-50%, calc(-100% - 4px)); }
-  to { opacity: 1; transform: translate(-50%, calc(-100% - 14px)); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 #building::after {
   content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);

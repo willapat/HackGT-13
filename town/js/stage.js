@@ -31,7 +31,8 @@ function fitCamera() {
 }
 fitCamera();
 addEventListener('resize', fitCamera);
-camera.zoom = 1.35; // open close to the old town's scale; scroll out to see the whole town
+export const OPEN_ZOOM = 1.35; // the view the town opens at; the place card treats this as its full size
+camera.zoom = OPEN_ZOOM; // scroll out to see the whole town
 camera.updateProjectionMatrix();
 
 

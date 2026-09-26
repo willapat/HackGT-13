@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
 import { activeCam } from './camera.js';
+import { OPEN_ZOOM } from './stage.js';
 import { topOf } from './city.js';
 import { $, logFeed } from './hud.js';
 import { inkOn, key, PLACES, pos, TOWN, TOWN_ID } from './layout.js';
@@ -117,8 +118,8 @@ async function loadHistory() {
   }
 }
 
-// The card floats above its building: re-projected every frame so it follows panning and rotating, but it's a
-// screen-space element, so zooming doesn't change its size.
+// The card floats above its building. Its on-screen size follows the map zoom, capped at the
+// size it has when the town first opens, so scrolling out does not leave a huge card over a small town.
 function anchorOf(id) {
   const [c, r] = isHouse(id) ? houseOwner(id)?.home?.house ?? [] : [PLACES[id]?.c, PLACES[id]?.r];
   return c == null ? null : pos(c, r).setY((topOf[key(c, r)] ?? 1) + 0.35);
@@ -132,6 +133,9 @@ function follow() {
     card.style.visibility = behind ? 'hidden' : '';
     card.style.left = `${(screen.x * 0.5 + 0.5) * innerWidth}px`;
     card.style.top = `${(-screen.y * 0.5 + 0.5) * innerHeight}px`;
+    const zoom = activeCam.isOrthographicCamera ? activeCam.zoom : OPEN_ZOOM;
+    const scale = Math.min(1, zoom / OPEN_ZOOM);
+    card.style.transform = `translate(-50%, calc(-100% - 14px)) scale(${scale})`;
   }
   requestAnimationFrame(follow);
 }
