@@ -69,7 +69,7 @@ call GET /friends 200 "$BEN"
 echo "     friends=$(jq length <<<"$BODY")"
 
 echo "--- towns"
-call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["lot","road","lot"],["lot","road","lot"],["home","road","lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[2,1],"door":[1,1]}},"river":{"band":4}}}'
+call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["lot","road","lot"],["lot","road","lot"],["home","road","lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[2,1],"door":[1,1]}},"landmarks":{"stadium":{"model":"simplepoly-city/building-stadium"}}}}'
 call POST /towns 422 "$ANA" '{"name":"Bad Map","tiles":[["lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[5,5],"door":[0,0]}}}}'
 TOWN_ID=$(jq -r .id <<<"$BODY"); CODE=$(jq -r .invite_code <<<"$BODY")
 call GET "/towns/$TOWN_ID" 404 "$BEN"

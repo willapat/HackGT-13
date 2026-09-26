@@ -5,7 +5,7 @@ character's home and look.
     python3 -m backend.seed_demo_map <town_id>
     python3 -m backend.seed_demo_map --dry-run    # print what would be written, write nothing
 
-Copied from the constants at the top of frontend/main.js (N, ROADS, inPark, TREES, STADIUM, FARM, RIVER,
+Copied from the constants at the top of frontend/main.js (N, ROADS, inPark, TREES, STADIUM, FARM,
 PLACES, FRIENDS). "lot" tiles are filled by buildCity()'s own zone rules, exactly as the hard-coded
 version does today. Model keys are asset paths without "assets/" and ".glb".
 """
@@ -35,7 +35,6 @@ TOWN_MAP = {
         "downtown": {"name": "downtown", "tile": [7, 5], "door": [7, 6]},
     },
     "landmarks": {"stadium": {"model": SP + "building-stadium"}},
-    "river": {"band": 4, "width": 1, "amp": 0.75},
 }
 
 # Demo role → home (house tile + town_members.home) and look (profiles.avatar). Roles match demo.ROLES.

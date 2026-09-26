@@ -22,7 +22,7 @@ const tilesOf = (kind) => TILES ? TILES.flatMap((row, r) => row.flatMap((k, c) =
 
 // Rectangular maps are drawn in an N x N square; tiles outside the map are left empty.
 const N = TILES ? Math.max(TILES.length, ...TILES.map((row) => row.length)) : 17;
-// Roads that run the full width/height of the map (buildCity's lamps, bridges and suburbs follow these)
+// Roads that run the full width/height of the map (buildCity's lamps and suburbs follow these)
 const ROADS = TILES
   ? [...Array(N).keys()].filter((i) => TILES[i]?.every((k) => k === 'road') || TILES.every((row) => row[i] === 'road'))
   : [2, 6, 10, 14];
@@ -90,8 +90,6 @@ const STADIUM = TILES
   ? { model: TOWN.town.map?.landmarks?.stadium?.model ? asset(TOWN.town.map.landmarks.stadium.model) : sp('building-stadium'), tiles: tilesOf('stadium') }
   : { model: sp('building-stadium'), tiles: block(11, 13, 11, 13) }; // a full 3x3 city block
 const FARM = { tiles: TILES ? tilesOf('farm') : block(0, 1, 15, 16) };
-const RIVER = (TILES && TOWN.town.map?.river) || { band: 4, width: 1, amp: 0.75 }; // a winding river through a green belt in front (+z) of the city
-
 const PLACES = TILES ? Object.fromEntries(Object.entries(TOWN.town.map?.places || {}).map(([id, p]) => [id, {
   name: p.name, ...(p.model ? { model: asset(p.model) } : {}), c: p.tile[0], r: p.tile[1], door: p.door,
 }])) : {
@@ -224,8 +222,7 @@ controls.minZoom = 0.6;
 controls.maxZoom = 5;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = 1.15;
-controls.target.set(0, 0, RIVER.band / 2); // center on the city plus the river belt in front
-camera.position.z += RIVER.band / 2;
+controls.target.set(0, 0, 0);
 
 const hemi = new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6);
 scene.add(hemi);
@@ -237,43 +234,16 @@ Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, n
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-// Base plate under the city, plus the green belt (sitting a hair lower, so tiles on it never z-fight)
+// Base plate under the city
 const slab = (w, d, top, z) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, d), new THREE.MeshLambertMaterial({ color: '#b98a5a' }));
   m.position.set(0, top - 0.151, z);
   m.receiveShadow = true;
   scene.add(m);
 };
-slab(N + 0.4, N + 0.2, 0, -0.1);
-slab(N + 0.4, RIVER.band + 0.2, -0.01, N / 2 + (RIVER.band + 0.2) / 2);
+slab(N + 0.4, N + 0.4, 0, 0);
 
-// River centerline (world z) at world x, and the matching tile row
-const riverZ = (x) => N / 2 + RIVER.band / 2 + Math.sin(x * 0.42 + 0.6) * RIVER.amp + Math.sin(x * 0.9) * RIVER.amp * 0.3;
-
-// A strip following the river's curve, `width` wide, as flat XZ geometry at height y
-function riverStrip(width, y) {
-  const xs = 90, across = 4, pos = [], idx = [];
-  for (let i = 0; i <= xs; i++) {
-    const x = -N / 2 - 0.2 + ((N + 0.4) * i) / xs;
-    const dz = (riverZ(x + 0.01) - riverZ(x - 0.01)) / 0.02; // tangent slope -> normal for even width
-    const len = Math.hypot(1, dz);
-    for (let j = 0; j <= across; j++) {
-      const o = (j / across - 0.5) * width;
-      pos.push(x - (dz / len) * o, y, riverZ(x) + o / len);
-    }
-  }
-  for (let i = 0; i < xs; i++) for (let j = 0; j < across; j++) {
-    const a = i * (across + 1) + j, b = a + across + 1;
-    idx.push(a, a + 1, b, b, a + 1, b + 1);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-
-// Animated low-poly water (river + park pond): vertices bob gently, staying under bridge decks
+// Animated low-poly water (the park pond): vertices bob gently
 function water(geometry) {
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: '#3fa7d6', roughness: 0.25, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.92,
@@ -622,41 +592,6 @@ function buildCity() {
       place(NATURE['grass-fence'], fx + x, fz + z, { scale: 2.4, rotY: rot });
     }
     for (const [x, z, m] of [[0, 15, 'bush-02'], [1.1, 16.1, 'bush-03'], [1.2, 15, 'rock-big'], [-0.1, 16.2, 'bush-01']]) place(NATURE[m], fx + x, fz + z, { scale: 2.2 });
-  }
-
-  // ---- Green belt with a winding river; roads run on through it and cross on bridges
-  const rows = RIVER.band;
-  for (let r = N; r < N + rows; r++) for (let c = 0; c < N; c++) {
-    if (ROADS.includes(c)) { place(ROAD.straight, c, r).position.y = 0.03; continue; }
-    place(GROUND.grass, c, r);
-  }
-  const sand = new THREE.Mesh(riverStrip(RIVER.width + 0.3, 0.006), new THREE.MeshLambertMaterial({ color: '#d9c58f' }));
-  sand.receiveShadow = true;
-  scene.add(sand);
-  water(riverStrip(RIVER.width, 0.014));
-  const stone = new THREE.MeshLambertMaterial({ color: '#cfc8bb' });
-  for (const c of ROADS) {
-    const x = pos(c, 0).x, z = riverZ(x), span = RIVER.width + 0.45;
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, span), stone); // top sits just under the road tiles
-    deck.position.set(x, -0.02, z);
-    scene.add(deck);
-    for (const s of [-0.47, 0.47]) {
-      const railing = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, span), stone);
-      railing.position.set(x + s, 0.08, z);
-      railing.castShadow = true;
-      scene.add(railing);
-    }
-  }
-  let g = 0;
-  for (let c = 0; c < N; c++) {
-    if (ROADS.includes(c)) continue;
-    const x = pos(c, 0).x;
-    for (let r = N; r < N + rows; r++) {
-      const z = pos(0, r).z;
-      if (Math.abs(z - riverZ(x)) < RIVER.width / 2 + 0.35 || hash(c, r) > 0.6) continue;
-      greenery(c + (hash(r, c) - 0.5) * 0.4, r, g++);
-    }
-    if (c % 3 === 1) place(NATURE['rock-small'], c + 0.3, riverZ(x) + RIVER.width / 2 + 0.2 + N / 2 - 0.5, { scale: 2 }); // world z -> tile row
   }
 
   // ---- Central park: pond ringed by rocks, trees in the corners, benches facing the water
@@ -1474,8 +1409,8 @@ const C = (h) => new THREE.Color(h);
 const SKY = { day: C('#9fd3ec'), dusk: C('#f3a36b'), night: C('#1b2b57'), overcastDay: C('#9aa5b3'), overcastNight: C('#232b3d') };
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-// Rain streaks and snow flakes share one volume over the town (and the river belt in front)
-const VOLUME = { x: N / 2 + 1, z0: -N / 2 - 1, z1: N / 2 + RIVER.band + 1, h: 9 };
+// Rain streaks and snow flakes share one volume over the town
+const VOLUME = { x: N / 2 + 1, z0: -N / 2 - 1, z1: N / 2 + 1, h: 9 };
 const DROPS = 2600;
 const dropPos = new Float32Array(DROPS * 6);
 const dropSeed = Float32Array.from({ length: DROPS * 3 }, Math.random);

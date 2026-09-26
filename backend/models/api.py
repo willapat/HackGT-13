@@ -41,7 +41,7 @@ class Place(BaseModel):
 
 
 class TownMap(BaseModel):
-    """towns.map. Named places plus scenery settings (e.g. "river"), which pass through as-is."""
+    """towns.map. Named places plus scenery settings (e.g. "landmarks"), which pass through as-is."""
 
     model_config = ConfigDict(extra="allow")
     places: dict[str, Place] = Field(default_factory=dict)
