@@ -2,16 +2,18 @@
 // plus the account menu, settings (#/settings/<pane>) and help (#/help). Routes live in the URL hash
 // so the back button and links work.
 import { api, getSupabase } from '../shared/session.js';
-import { confirmDialog, getTheme, setTheme, toast } from './ui.js';
+import { confirmDialog, getTheme, promptDialog, setTheme, toast } from './ui.js';
 import * as Colors from '../shared/colors.js';
 import { createWheel } from './wheel.js';
+import { skyline, tierFor } from './skyline.js';
+import { drawTown } from './townart.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
-const VIEWS = ['loading', 'error', 'auth', 'username', 'home', 'settings', 'help'];
-const SIGNED_IN_VIEWS = new Set(['home', 'settings', 'help']);
-const PANES = ['profile', 'character', 'towns', 'account', 'appearance', 'privacy'];
+const VIEWS = ['loading', 'error', 'auth', 'username', 'home', 'friends', 'inbox', 'profile', 'person', 'settings', 'help'];
+const SIGNED_IN_VIEWS = new Set(['home', 'friends', 'inbox', 'profile', 'person', 'settings', 'help']);
+const PANES = ['profile', 'character', 'towns', 'calendar', 'account', 'appearance', 'privacy'];
 
 let sb = null;
 let me = null; // current profile row
@@ -24,8 +26,13 @@ function show(view) {
   $('#appbar').hidden = !signedIn;
   $('#brand').hidden = signedIn;
   $('#shell').classList.toggle('wide', view === 'settings');
+  $('#shell').classList.toggle('home', view === 'home');
+  $('#shell').classList.toggle('feed', ['friends', 'inbox', 'profile', 'person', 'help'].includes(view));
+  for (const a of $$('.navtabs a')) {
+    if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
   clearInterval(pollTimer);
-  if (view === 'home') pollTimer = setInterval(() => { if (!document.hidden) refreshFriends(); }, 20000);
+  if (signedIn) pollTimer = setInterval(() => { if (!document.hidden) refreshAll(); }, 20000);
   if (view !== 'settings' || currentPane !== 'character') character.stop();
 }
 
@@ -53,6 +60,44 @@ function paintAvatar(el, p, name = p?.display_name) {
   el.textContent = initials(name);
   el.style.background = colorOf(p);
   el.style.color = inkOn(colorOf(p));
+  showPhoto(el, p?.avatar?.photo);
+}
+
+// A profile photo covers the initials (they stay in the DOM for screen readers)
+function showPhoto(el, url) {
+  el.classList.toggle('has-photo', Boolean(url));
+  el.style.backgroundImage = url ? `url("${encodeURI(url)}")` : '';
+}
+
+// Anything marked data-person="<user id>" opens that person's profile. Runs in the capture phase so a tap on
+// someone's face inside a bigger control (a town card) opens them instead; other buttons inside a person row
+// (Visit, Accept) keep doing their own thing.
+document.addEventListener('click', (e) => {
+  const target = e.target.closest('[data-person]');
+  if (!target || !me) return;
+  const control = e.target.closest('button, a, input');
+  if (control && control !== target && target.contains(control)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openPerson(target.dataset.person);
+}, true);
+
+// "Say hi": walk your character to their house in the town you share, then open the town to watch.
+// It's an in-town gesture only; nothing is sent to them outside the town.
+async function sayHi(p) {
+  try {
+    const snap = await api(`/towns/${p.town.id}`);
+    const mine = snap.agents.find((a) => a.user_id === me.id) || {};
+    await api(`/towns/${p.town.id}/members/me/move`, { method: 'POST', body: { building_id: `house:${p.user_id}`, from_x: mine.x ?? 0, from_y: mine.y ?? 0 } });
+    toast(`Heading to ${p.name}'s house 👋`);
+  } catch (err) {
+    toast(err.status === 409 ? `${p.name} hasn't placed a house yet. Opening the town.` : err.message, err.status === 409 ? '' : 'error');
+  }
+  setTimeout(() => enterTown(p.town.id), 700);
+}
+
+function openPerson(id) {
+  location.hash = id === me.id ? '#/profile' : `#/u/${id}`;
 }
 
 // Buttons and menu items with data-go="#/somewhere" navigate there
@@ -80,6 +125,7 @@ async function boot() {
     }
   });
   const { data: { session } } = await sb.auth.getSession();
+  if (session && calendarPane.returning) await calendarPane.finishConnect(session);
   if (session) await afterSignIn();
   else showAuth();
 }
@@ -91,6 +137,7 @@ async function afterSignIn() {
   show('loading');
   try {
     ({ profile: me, towns: myTowns } = await api('/me'));
+    loadPins();
   } catch (e) {
     if (e.status === 401) { await sb.auth.signOut(); return; }
     $('#error-text').textContent = e.message;
@@ -115,7 +162,8 @@ let skipNextRoute = false;
 function parseHash() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'settings') return { view: 'settings', pane: PANES.includes(parts[1]) ? parts[1] : 'profile' };
-  if (parts[0] === 'help') return { view: 'help' };
+  if (parts[0] === 'u' && parts[1]) return { view: 'person', id: parts[1] };
+  if (['help', 'friends', 'inbox', 'profile'].includes(parts[0])) return { view: parts[0] };
   return { view: 'home' };
 }
 
@@ -140,20 +188,26 @@ addEventListener('beforeunload', (e) => { if (dirty.size) { e.preventDefault(); 
 
 function route() {
   lastHash = location.hash;
-  const { view, pane } = parseHash();
+  const { view, pane, id } = parseHash();
   closeMenu();
   if (view === 'settings') return showSettings(pane);
   currentPane = null;
   if (view === 'help') { show('help'); return scrollTo(0, 0); }
-  showHome();
+  if (view === 'friends') return showFriends();
+  if (view === 'inbox') return showInbox();
+  if (view === 'profile') return showProfile();
+  if (view === 'person') return showPerson(id);
+  showFeed();
 }
 
 // ---- Account menu ------------------------------------------------------------------------------
 
 function renderIdentity() {
   paintAvatar($('#bar-avatar'), me);
+  paintAvatar($('#menu-avatar'), me);
   $('#menu-name').textContent = me.display_name;
   $('#menu-handle').textContent = `@${me.username}`;
+  renderMyStatus();
 }
 
 function openMenu() {
@@ -287,7 +341,16 @@ $('#username-form').onsubmit = async (e) => {
   }
 };
 
-// ---- Home: profile + towns + friends ------------------------------------------------------------
+// ---- Signed-in tabs: feed, friends, inbox, profile ----------------------------------------------
+// One refresh loads everything the tabs show (feed, friends, requests, invites) so the Inbox badge
+// is right wherever you are. It reruns every 20s while a tab is visible and after anything you do.
+
+let feed = { towns: [], items: [], today: [], inbox: [] };
+let requests = { incoming: [], outgoing: [] };
+let invites = [];
+let allFriends = [];
+let stats = null; // GET /me/stats: highlights, closest people, who to catch up with
+let notices = []; // GET /me/notifications: things that happened to you (a town you were in was deleted)
 
 function renderChips(el, items) {
   el.innerHTML = '';
@@ -299,86 +362,586 @@ function renderChips(el, items) {
   }
 }
 
-function showHome() {
-  paintAvatar($('#me-avatar'), me);
-  $('#me-name').textContent = me.display_name;
-  $('#me-handle').textContent = `@${me.username}`;
-  renderChips($('#me-interests'), me.interests || []);
-  $('#me-interests').hidden = !me.interests?.length;
-  message($('#search-msg'), '');
-  $('#search-results').innerHTML = '';
-  renderTowns();
-  show('home');
-  refreshFriends();
+async function refreshAll() {
+  const [f, fr, rq, inv, st, nt] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats'), api('/me/notifications')]);
+  if (f.status === 'fulfilled') feed = f.value;
+  if (nt.status === 'fulfilled') notices = nt.value;
+  if (st.status === 'fulfilled') stats = st.value;
+  if (fr.status === 'fulfilled') allFriends = fr.value;
+  if (rq.status === 'fulfilled') requests = rq.value;
+  if (inv.status === 'fulfilled') invites = inv.value;
+  renderFeed();
+  renderFriends();
+  renderInbox();
+  renderProfile();
 }
 
 const townsIn = () => myTowns.filter((t) => t.towns);
+const enterTown = (id) => { location.href = `../town/?town=${encodeURIComponent(id)}`; };
+// How many people live in a town, from the feed summary (1 until it has loaded)
+const townSize = (id) => feed.towns.find((t) => t.id === id)?.residents.length || 1;
 
-// "● Sam here" in your color for that town
-function townIdentityNote(m) {
-  const frag = document.createDocumentFragment();
-  if (m.color) {
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.style.background = m.color;
-    frag.append(dot);
+// The round town avatar: its skyline (suburb → town → city) over the town's color
+function townIcon(t, cls = 'avatar sm') {
+  const a = el('div', `${cls} town-icon ${hueOf(t.id)}`);
+  a.innerHTML = skyline(t.id, townSize(t.id), 'icon');
+  a.title = `${t.name} · ${tierFor(townSize(t.id)).label}`;
+  return a;
+}
+
+const hueOf = (id = '') => `hue-${([...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 997, 0) % 4) + 1}`;
+const el = (tag, cls, text) => Object.assign(document.createElement(tag), cls ? { className: cls } : {}, text != null ? { textContent: text } : {});
+
+// A town member's avatar: initials on the color they picked in that town
+function personAvatar(p, cls = 'avatar sm') {
+  const a = el('div', cls, initials(p?.name));
+  ring(a, p?.status);
+  if (p?.user_id) a.dataset.person = p.user_id;
+  const bg = p?.color || hashColor(p?.user_id);
+  a.style.background = bg;
+  a.style.color = inkOn(bg);
+  showPhoto(a, p?.photo);
+  return a;
+}
+
+function timeAgo(iso) {
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)}d`;
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const names = (people) => people.map((p) => p.name).join(', ');
+const crossedPaths = (days) => days == null ? "You haven't crossed paths yet"
+  : days === 0 ? 'Crossed paths today' : days === 1 ? 'Crossed paths yesterday' : `Last crossed paths ${days} days ago`;
+
+// ---- Free / busy status ----
+// One tap: you're free (or busy) for the next few hours. A ring around your avatar drains as the time runs
+// out, then it's gone, like a story. Friends and townmates see the ring everywhere.
+
+const STATUS_HOURS = 3;
+const STATUS_LABEL = { free: 'Free', busy: 'Busy' };
+// A status you set wins; otherwise your calendar makes you busy while a block runs (from /me/feed)
+function myStatus() {
+  if (me?.status && me.status_until && new Date(me.status_until) > new Date()) return { status: me.status, until: me.status_until };
+  const cal = feed.my_calendar_busy;
+  return cal && new Date(cal.until) > new Date() ? { status: 'busy', until: cal.until, since: cal.since, source: 'calendar' } : null;
+}
+// How much ring is left: over the calendar block when it came from one, else over the tap's 3 hours
+function statusLeft(st) {
+  const span = st.since ? new Date(st.until) - new Date(st.since) : STATUS_HOURS * 3600e3;
+  return Math.max(0, Math.min(1, (new Date(st.until) - Date.now()) / span));
+}
+
+function timeLeft(until) {
+  const mins = Math.max(1, Math.ceil((new Date(until) - Date.now()) / 60e3));
+  return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m left` : `${mins}m left`;
+}
+
+// Ring an avatar for a status (or clear it); --left drives how much of the ring is still drawn
+function ring(elm, st) {
+  elm.classList.remove('st-free', 'st-busy');
+  if (!st) return;
+  elm.classList.add(`st-${st.status}`);
+  elm.style.setProperty('--left', statusLeft(st).toFixed(3));
+}
+
+function renderMyStatus() {
+  const st = myStatus();
+  for (const id of ['#bar-avatar', '#menu-avatar', '#composer-avatar', '#me-avatar']) ring($(id), st);
+  for (const box of $$('.status-control')) {
+    box.replaceChildren();
+    if (st?.source === 'calendar') { // busy because of your calendar: one tap says you're free anyway
+      const on = el('span', 'status-on busy', `📅 Busy · ${timeLeft(st.until)}`);
+      on.title = 'From your calendar';
+      const free = el('button', 'status-tap free', 'Free anyway');
+      free.type = 'button';
+      free.onclick = () => setStatus('free');
+      box.append(on, free);
+    } else if (st) {
+      const on = el('span', `status-on ${st.status}`, `${STATUS_LABEL[st.status]} · ${timeLeft(st.until)}`);
+      const end = el('button', 'link small', 'End');
+      end.type = 'button';
+      end.onclick = () => setStatus(null);
+      box.append(on, end);
+    } else {
+      box.append(el('span', 'status-ask', 'Up for plans?'));
+      for (const [status, label] of [['free', 'Free'], ['busy', 'Busy']]) {
+        const b = el('button', `status-tap ${status}`, label);
+        b.type = 'button';
+        b.title = `${label} for the next ${STATUS_HOURS} hours`;
+        b.onclick = () => setStatus(status);
+        box.append(b);
+      }
+      box.append(el('span', 'status-ask', `${STATUS_HOURS}h`));
+    }
   }
-  frag.append(m.name ? `${m.name} here` : 'no name picked yet');
-  return frag;
 }
 
-// Each town you're in; clicking one opens it in 3D, built from its tiles and map in the database
-function renderTowns() {
-  fillList($('#towns'), townsIn().map((m) => {
-    const t = m.towns;
-    const li = document.createElement('li');
-    li.className = 'town';
-    li.innerHTML = '<div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div><button class="small primary">Open →</button>';
-    paintAvatar(li.querySelector('.avatar'), { id: t.id }, t.name);
-    li.querySelector('.name').textContent = t.name;
-    const handle = li.querySelector('.handle');
-    handle.append(townIdentityNote(m));
-    handle.append([t.created_by === me.id ? ' · your town' : '', ` · invite code ${t.invite_code}`,
-      m.house_x == null ? ' · no house yet' : ''].join(''));
-    li.onclick = () => { location.href = `../town/?town=${encodeURIComponent(t.id)}`; };
-    return li;
-  }));
-  $('#no-towns').hidden = townsIn().length > 0;
-  refreshInvites();
+async function setStatus(status) {
+  const body = status ? { status, until: new Date(Date.now() + STATUS_HOURS * 3600e3).toISOString() } : { status: null };
+  try {
+    const row = await api('/me/status', { method: 'PUT', body });
+    me = { ...me, status: row.status, status_until: row.status_until };
+    renderMyStatus();
+    toast(status === 'free' ? `You're free for ${STATUS_HOURS} hours. Friends see a green ring.`
+      : status === 'busy' ? `Busy for ${STATUS_HOURS} hours. No pressure on plans.` : 'Status ended.');
+    refreshAll();
+  } catch (err) { toast(err.message, 'error'); }
 }
 
-// Pending town invites: accepting asks for your name and color in that town first
-async function refreshInvites() {
-  let invites;
-  try { invites = await api('/me/invites'); } catch { return; }
-  fillList($('#invites'), invites.map((inv) => {
-    const li = personRow(inv.from_profile, [], `invited you to ${inv.towns?.name || 'a town'}`);
-    const actions = li.querySelector('.actions');
-    const accept = Object.assign(document.createElement('button'), { className: 'small primary', textContent: 'Join…' });
-    const decline = Object.assign(document.createElement('button'), { className: 'small', textContent: 'Decline' });
-    accept.onclick = async () => {
-      let options;
-      try { options = await api(`/towns/${inv.town_id}/identities`); } catch (err) { return toast(err.message, 'error'); }
-      const picked = await identityDialog.open({
-        title: `Join ${options.town.name}`, confirmLabel: 'Join town', options,
-        save: (me) => api(`/invites/${inv.id}/respond`, { method: 'POST', body: { status: 'accepted', me } }),
-      });
-      if (!picked) return;
-      await reloadMe();
-      renderTowns();
-      toast(`Welcome to ${options.town.name}, ${picked.name}!`);
-    };
-    decline.onclick = async () => {
-      decline.disabled = accept.disabled = true;
-      try { await api(`/invites/${inv.id}/respond`, { method: 'POST', body: { status: 'declined' } }); } catch (err) { toast(err.message, 'error'); }
-      refreshInvites();
-    };
-    actions.append(accept, decline);
+// Keep the countdown and the draining ring current
+setInterval(() => { if (me && !document.hidden) renderMyStatus(); }, 30e3);
+
+// A townmate row (closest people, catch up): avatar, name, a line under it, and a Visit button into their town
+function mateRow(p, line) {
+  const li = el('li');
+  const who = el('div', 'who');
+  who.append(el('div', 'name', p.name), el('div', 'handle', line));
+  const visit = el('button', 'small tonal', 'Visit');
+  visit.type = 'button';
+  visit.onclick = () => enterTown(p.town.id);
+  li.append(personAvatar(p), who, visit);
+  li.dataset.person = p.user_id;
+  return li;
+}
+
+function inboxCount() {
+  return feed.inbox.length + invites.length + requests.incoming.length + notices.length;
+}
+
+function renderBadges() {
+  const n = inboxCount();
+  const badge = $('#nav-inbox-badge');
+  badge.hidden = !n;
+  badge.textContent = n > 9 ? '9+' : n;
+  $('#rail-inbox').hidden = !n;
+  $('#rail-inbox-title').textContent = n === 1 ? '1 thing waiting on you' : `${n} things waiting on you`;
+}
+
+// ---- Feed ----
+
+function showFeed() {
+  paintAvatar($('#composer-avatar'), me);
+  renderMyStatus();
+  $('#composer-open').textContent = `What's new, ${(me.display_name || '').split(' ')[0] || 'friend'}?`;
+  renderFeed();
+  show('home');
+  refreshAll();
+  if (!$('#composer-ideas').children.length) loadIdeas(); // fetch ideas early so the composer opens with them
+}
+
+// Pinned towns come first everywhere. Saved on your account (Supabase user metadata), so pins follow you to
+// other devices; no table needed for a per-person preference like this.
+let pinned = new Set();
+async function loadPins() {
+  try {
+    const { data } = await sb.auth.getUser();
+    pinned = new Set(data.user?.user_metadata?.pinned_towns || []);
+  } catch { pinned = new Set(); }
+}
+async function togglePin(t) {
+  const was = pinned.has(t.id);
+  was ? pinned.delete(t.id) : pinned.add(t.id);
+  renderFeed();
+  renderProfile();
+  try {
+    const { error } = await sb.auth.updateUser({ data: { pinned_towns: [...pinned] } });
+    if (error) throw error;
+    toast(was ? `Unpinned ${t.name}` : `Pinned ${t.name}`);
+  } catch (err) {
+    was ? pinned.add(t.id) : pinned.delete(t.id); // put it back if it didn't save
+    renderFeed();
+    renderProfile();
+    toast(err.message || "Couldn't save that pin", 'error');
+  }
+}
+const byPinned = (list, id = (x) => x.id) => [...list].sort((a, b) => pinned.has(id(b)) - pinned.has(id(a)));
+
+// Filter your towns by name or by who lives there
+let townQuery = '';
+const townMatches = (t) => {
+  const q = townQuery.trim().toLowerCase();
+  return !q || t.name.toLowerCase().includes(q) || (t.residents || []).some((p) => (p.name || '').toLowerCase().includes(q));
+};
+$('#town-search').oninput = (e) => {
+  townQuery = e.target.value;
+  $('#town-cards').scrollLeft = 0;
+  renderFeed();
+};
+
+function renderFeed() {
+  if (!me) return;
+  // Town cards: from the feed summary when it has loaded, else just names from /me
+  const summaries = feed.towns.length ? feed.towns : townsIn().map((m) => ({ id: m.towns.id, name: m.towns.name, residents: [], headline: null, new: 0 }));
+  const strip = $('#town-cards'), scrolled = strip.scrollLeft;
+  const create = el('button', 'town-card create-tile');
+  create.type = 'button';
+  create.append(el('span', 'plus', '+'), el('span', '', 'Create a town'), el('span', 'hint', 'Describe it and invite friends'));
+  create.onclick = () => $('#create-town').click();
+  const shown = byPinned(summaries.filter(townMatches));
+  strip.replaceChildren(...shown.map(townCard), ...(townQuery.trim() ? [] : [create]));
+  strip.scrollLeft = scrolled;
+  $('#no-towns').hidden = summaries.length > 0;
+  $('#town-cards').hidden = !shown.length;
+  $('#town-search-wrap').hidden = summaries.length < 2;
+  const none = $('#no-town-matches');
+  none.hidden = !(summaries.length && !shown.length);
+  none.textContent = `No towns match "${townQuery.trim()}".`;
+
+  $('#feed').replaceChildren(...feed.items.map(post));
+  $('#feed-empty').hidden = feed.items.length > 0;
+
+  $('#today').replaceChildren(...feed.today.map((t) => {
+    const li = el('li');
+    li.append(el('time', '', clock(t.start_at)));
+    const body = el('div');
+    body.append(el('div', 'what', t.title || 'Busy'));
+    const sub = el('div', 'who-where');
+    for (const p of t.people.slice(0, 1)) {
+      const dot = el('span', 'dot');
+      dot.style.background = p.color || hashColor(p.user_id);
+      sub.append(dot);
+    }
+    sub.append(`${names(t.people) || 'Someone'} · ${t.town.name}`);
+    body.append(sub);
+    li.append(body);
+    li.onclick = () => enterTown(t.town.id);
+    li.style.cursor = 'pointer';
     return li;
   }));
-  $('#invites-section').hidden = invites.length === 0;
-  $('#invite-count').textContent = invites.length;
+  $('#no-today').hidden = feed.today.length > 0;
+  renderMyStatus(); // your calendar may have made you busy since the last refresh
+  const free = feed.free_now || [];
+  $('#free-now').replaceChildren(...free.map((p) => mateRow(p, `Free · ${timeLeft(p.status.until)} · ${p.town.name}`)));
+  $('#free-section').hidden = !free.length;
+  const catchUp = stats?.reconnect || [];
+  $('#reconnect').replaceChildren(...catchUp.map((p) => {
+    const li = el('li');
+    const who = el('div', 'who');
+    who.append(el('div', 'name', p.name), el('div', 'handle', p.town.name));
+    let side;
+    if (p.days_since == null) { // never crossed paths: a nudge instead of a number
+      side = el('button', 'small tonal', 'Say hi 👋');
+      side.type = 'button';
+      side.title = `Walk your character to ${p.name}'s house in ${p.town.name}`;
+      side.onclick = () => sayHi(p);
+    } else {
+      side = el('div', 'days');
+      side.title = crossedPaths(p.days_since);
+      side.append(el('b', '', String(p.days_since)), el('span', '', p.days_since === 1 ? 'day' : 'days'));
+    }
+    li.append(personAvatar(p), who, side);
+    li.dataset.person = p.user_id;
+    return li;
+  }));
+  $('#reconnect-section').hidden = !catchUp.length;
+  renderBadges();
 }
+
+const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M5 17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2Z"/></svg>';
+
+function townCard(t) {
+  const b = el('button', 'town-card');
+  b.type = 'button';
+  const banner = el('div', `banner ${hueOf(t.id)}`);
+  // The real town from its tiles when we have them; a generic skyline otherwise
+  if (t.layout?.tiles?.length) {
+    banner.classList.add('real');
+    banner.style.backgroundImage = `url(${drawTown(t.layout)}), var(--sky)`;
+  } else banner.innerHTML = skyline(t.id, t.residents.length || 1, 'banner');
+  banner.append(el('b', '', t.name));
+  if (t.new) banner.append(el('span', 'new', `${t.new} new`));
+  const body = el('div', 'body');
+  const stack = el('div', 'stack');
+  for (const p of t.residents.slice(0, 5)) stack.append(personAvatar(p, 'avatar'));
+  if (t.residents.length > 5) stack.append(el('div', 'avatar more', `+${t.residents.length - 5}`));
+  const size = t.residents.length;
+  const row = el('div', 'size-row');
+  row.append(stack, el('span', 'tier', size ? `${tierFor(size).label} · ${size}` : tierFor(1).label));
+  body.append(row, el('div', 'headline', t.headline || (size ? `${size} ${size === 1 ? 'resident' : 'residents'}` : 'Tap to look around')));
+  const enter = el('div', 'enter');
+  enter.append('Enter town', el('span', '', '→'));
+  // Pin and invite sit in the banner's corner. Not <button>s: the whole card is one
+  const town = townsIn().find((m) => m.towns.id === t.id)?.towns;
+  const tools = el('div', 'card-tools');
+  const tool = (cls, label, act) => {
+    const x = el('span', `card-tool ${cls}`);
+    x.setAttribute('role', 'button');
+    x.setAttribute('aria-label', label);
+    x.title = label;
+    x.tabIndex = 0;
+    const go = (e) => { e.stopPropagation(); e.preventDefault(); act(); };
+    x.onclick = go;
+    x.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); };
+    tools.append(x);
+    return x;
+  };
+  const isPinned = pinned.has(t.id);
+  const pin = tool(`pin${isPinned ? ' on' : ''}`, isPinned ? `Unpin ${t.name}` : `Pin ${t.name}`, () => togglePin(t));
+  pin.setAttribute('aria-pressed', String(isPinned));
+  pin.innerHTML = PIN_SVG;
+  if (town?.created_by === me.id) tool('invite-plus', `Invite friends to ${t.name}`, () => inviteFriends.open(town)); // creator only
+  banner.append(tools);
+  body.append(enter);
+  b.append(banner, body);
+  b.onclick = () => enterTown(t.id);
+  return b;
+}
+
+const ACTION_TAGS = { chat: '💬', visit: '👋', knock: '🚪', leave_gift: '🎁', propose_event: '📅' };
+
+// A post someone wrote: their words as written, who it went to, and a way toward them
+function writtenPost(item) {
+  const card = el('article', `card post ${item.audience === 'private' ? 'private' : ''}`);
+  const head = el('div', 'post-head');
+  const icon = el('div', 'kind-icon');
+  icon.append(personAvatar(item.actor));
+  const who = el('div', 'who');
+  who.append(el('div', 'title', item.mine ? `${item.actor.name} (you)` : item.actor.name));
+  const meta = el('div', 'meta');
+  if (item.audience === 'town') {
+    const town = el('a', 'audience', `🏘️ ${item.town.name}`);
+    town.href = `../town/?town=${encodeURIComponent(item.town.id)}`;
+    meta.append(town);
+  } else meta.append(el('span', 'audience', item.audience === 'private' ? '🔒 Only you' : '👥 Friends'));
+  meta.append(' · ', el('span', '', timeAgo(item.at)));
+  who.append(meta);
+  head.append(icon, who);
+  card.append(head, el('p', 'text written', item.text));
+  if (item.audience === 'private') {
+    card.append(el('p', 'hint', "Only your towns' AI read this. Your character's mood may change; nobody sees these words."));
+    return card;
+  }
+  const actions = el('div', 'post-actions');
+  if (item.audience === 'town') {
+    const visit = el('button', '', `Visit ${item.town.name}`);
+    visit.type = 'button';
+    visit.onclick = () => enterTown(item.town.id);
+    actions.append(visit);
+  }
+  if (!item.mine) {
+    const profile = el('button', '', `See ${item.actor.name}'s profile`);
+    profile.type = 'button';
+    profile.onclick = () => openPerson(item.actor.user_id);
+    actions.append(profile);
+  }
+  if (actions.children.length) card.append(actions);
+  return card;
+}
+
+function post(item) {
+  if (item.kind === 'post') return writtenPost(item);
+  const card = el('article', 'card post');
+  const head = el('div', 'post-head');
+  const icon = el('div', 'kind-icon');
+  if (item.kind === 'news' || item.kind === 'plan') {
+    const art = el('div', `news-art ${hueOf(item.town.id)}`, item.kind === 'news' ? '📣' : '📅');
+    icon.append(art);
+  } else {
+    icon.append(personAvatar(item.actor), el('span', 'tag', ACTION_TAGS[item.action] || '✨'));
+  }
+  const who = el('div', 'who');
+  who.append(el('div', 'title', item.title || ''));
+  const meta = el('div', 'meta');
+  const town = el('a', '', item.town.name);
+  town.href = `../town/?town=${encodeURIComponent(item.town.id)}`;
+  meta.append(town, ' · ', el('span', '', item.at ? timeAgo(item.at) : ''));
+  who.append(meta);
+  head.append(icon, who);
+  card.append(head);
+  if (item.text) card.append(el('p', 'text', item.text));
+  if (item.kind === 'plan' && item.people?.length) card.append(el('p', 'text', `${names(item.people)}${item.start_at ? ` · ${new Date(item.start_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}`));
+  if (item.lines?.length) {
+    const convo = el('div', 'convo');
+    for (const ln of item.lines.slice(0, 6)) {
+      const row = el('div', `line ${ln.name && ln.name !== item.actor?.name ? 'right' : ''}`);
+      const bubble = el('div', 'bubble', ln.text);
+      row.append(personAvatar({ name: ln.name, color: ln.color }), bubble);
+      convo.append(row);
+    }
+    card.append(convo);
+  }
+  const actions = el('div', 'post-actions');
+  const visit = el('button', '', `Visit ${item.town.name}`);
+  visit.type = 'button';
+  visit.onclick = () => enterTown(item.town.id);
+  actions.append(visit);
+  card.append(actions);
+  return card;
+}
+
+// Composer: posting is the opt-in. Pick who it's for: one town, all your friends, or private (only your
+// towns' AI reads it, and all it may do is change your character's mood). Idea chips come from the AI.
+const AUDIENCE_HINT = {
+  friends: 'All your friends see this on their feed, in any town.',
+  private: "🔒 Nobody sees this. Your towns' AI reads it and may change your character's mood (like rain over your house), never what you wrote.",
+};
+
+// "Post to" menu: each town you're in, all your friends, or private
+let audience = 'friends';
+
+function audienceOptions() {
+  return [
+    ...townsIn().map((m) => ({ value: `town:${m.towns.id}`, icon: '🏘️', title: m.towns.name, desc: `Only people in ${m.towns.name}` })),
+    { value: 'friends', icon: '👥', title: 'All my friends', desc: 'Your friends in any town', divider: true },
+    { value: 'private', icon: '🔒', title: 'Private', desc: "Only changes your character's mood" },
+  ];
+}
+
+function fillAudiences() {
+  const opts = audienceOptions();
+  if (!opts.some((o) => o.value === audience)) audience = 'friends';
+  const menu = $('#audience-menu');
+  menu.replaceChildren(el('div', 'menu-title', 'Who sees this?'));
+  for (const o of opts) {
+    if (o.divider) menu.append(el('hr'));
+    const b = el('button');
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.setAttribute('aria-selected', String(o.value === audience));
+    const text = el('span');
+    text.append(el('b', '', o.title), el('span', 'hint', o.desc));
+    b.append(el('span', 'well', o.icon), text, el('span', 'check'));
+    b.onclick = () => { audience = o.value; fillAudiences(); closeAudienceMenu(); $('#composer-text').focus(); };
+    menu.append(b);
+  }
+  const cur = opts.find((o) => o.value === audience);
+  $('#audience-icon').textContent = cur.icon;
+  $('#audience-current').textContent = cur.title;
+  showAudienceHint();
+}
+
+function showAudienceHint() {
+  const town = audience.startsWith('town:') && townsIn().find((m) => `town:${m.towns.id}` === audience);
+  $('#composer-audience-hint').textContent = town ? `Only people in ${town.towns.name} see this.` : AUDIENCE_HINT[audience] || '';
+}
+
+function closeAudienceMenu() {
+  $('#audience-menu').hidden = true;
+  $('#audience-btn').setAttribute('aria-expanded', 'false');
+}
+$('#audience-btn').onclick = (e) => {
+  e.stopPropagation();
+  const open = $('#audience-menu').hidden;
+  $('#audience-menu').hidden = !open;
+  $('#audience-btn').setAttribute('aria-expanded', String(open));
+  if (open) $('#audience-menu [aria-selected="true"]')?.focus();
+};
+document.addEventListener('click', (e) => { if (!e.target.closest('.audience-picker')) closeAudienceMenu(); });
+$('#audience-menu').onkeydown = (e) => {
+  const items = $$('#audience-menu [role="option"]');
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'Escape') { closeAudienceMenu(); $('#audience-btn').focus(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+};
+
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+// Swap the idea chips with motion: the old ones drift up and fade (one after another), the row eases to its
+// new height, and the new ones rise in. While waiting, chips (or placeholders on first load) shimmer.
+async function swapIdeas(box, chips) {
+  const old = [...box.children];
+  if (!calmMotion.matches && old.length) {
+    await Promise.all(old.map((c, i) => c.animate(
+      [{ opacity: 1, transform: 'none', filter: 'blur(0)' }, { opacity: 0, transform: 'translateY(-6px) scale(.96)', filter: 'blur(2px)' }],
+      { duration: 160, delay: i * 35, easing: 'ease-in', fill: 'forwards' }).finished));
+  }
+  const from = box.offsetHeight;
+  box.replaceChildren(...chips);
+  if (calmMotion.matches) return;
+  const to = box.offsetHeight;
+  if (from && from !== to) {
+    box.style.overflow = 'hidden'; // only while the height eases, so focus rings aren't clipped otherwise
+    box.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' })
+      .finished.then(() => { box.style.overflow = ''; });
+  }
+  chips.forEach((c, i) => c.animate(
+    [{ opacity: 0, transform: 'translateY(8px) scale(.94)', filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }],
+    { duration: 320, delay: 60 + i * 55, easing: 'cubic-bezier(.2,.9,.3,1.2)', fill: 'backwards' }));
+}
+
+async function loadIdeas(refresh = false) {
+  const box = $('#composer-ideas');
+  const more = $('#composer-more-ideas');
+  if (box.classList.contains('loading')) return;
+  box.classList.add('loading');
+  more.classList.add('spinning');
+  more.disabled = true;
+  if (!box.children.length) box.replaceChildren(...[64, 92, 76].map((w) => { const s = el('span', 'idea-ghost'); s.style.width = `${w}px`; return s; }));
+  const local = new Date().toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  // On ↻, tell the backend what's on screen so it comes back with different ideas
+  const avoid = refresh ? $$('#composer-ideas button').map((b) => `&avoid=${encodeURIComponent(b.textContent)}`).join('') : '';
+  try {
+    const { ideas } = await api(`/me/post-ideas?local_time=${encodeURIComponent(local)}${refresh ? '&refresh=true' : ''}${avoid}`);
+    box.classList.remove('loading');
+    await swapIdeas(box, ideas.map((idea) => {
+      const b = el('button', '', idea.label);
+      b.type = 'button';
+      if (idea.why) b.title = idea.why;
+      b.onclick = () => {
+        const t = $('#composer-text');
+        t.value = idea.starter;
+        t.focus();
+        t.setSelectionRange(t.value.length, t.value.length);
+      };
+      return b;
+    }));
+  } catch {
+    box.classList.remove('loading');
+    if (!refresh || box.querySelector('.idea-ghost')) box.replaceChildren();
+  }
+  more.classList.remove('spinning');
+  more.disabled = false;
+}
+$('#composer-more-ideas').onclick = () => loadIdeas(true);
+
+function closeComposer() {
+  closeAudienceMenu();
+  $('#composer').classList.remove('writing');
+  $('#composer-form').hidden = true;
+  $('#composer-open').hidden = false;
+  $('#composer-text').value = '';
+}
+
+$('#composer-open').onclick = () => {
+  fillAudiences();
+  $('#composer').classList.add('writing');
+  $('#composer-form').hidden = false;
+  $('#composer-open').hidden = true;
+  $('#composer-text').focus();
+  if (!$('#composer-ideas').children.length) loadIdeas(); // usually already fetched when the feed opened
+};
+$('#composer-cancel').onclick = closeComposer;
+$('#composer-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $('#composer-text').value.trim();
+  if (!text) return toast('Write something first, or tap an idea.', 'error');
+  const choice = audience;
+  const value = { text, audience: choice.startsWith('town:') ? 'town' : choice };
+  if (choice.startsWith('town:')) value.town_id = choice.slice(5);
+  const btn = $('#composer-share');
+  busy(btn, true, 'Posting…');
+  try {
+    await api('/signals', { method: 'POST', body: { source: 'manual', type: 'post', value } });
+    closeComposer();
+    toast(value.audience === 'private' ? 'Saved privately. Your character may change; nobody sees what you wrote.'
+      : value.audience === 'town' ? 'Posted to your town.' : 'Posted to your friends.');
+    refreshAll();
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    busy(btn, false, 'Post');
+  }
+};
+
+$('#join-toggle').onclick = () => {
+  $('#join-form').hidden = !$('#join-form').hidden;
+  if (!$('#join-form').hidden) $('#join-code').focus();
+};
 
 $('#join-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -399,16 +962,145 @@ $('#join-form').onsubmit = async (e) => {
   });
   if (!picked) return;
   $('#join-code').value = '';
+  $('#join-form').hidden = true;
   await reloadMe();
-  renderTowns();
+  refreshAll();
   toast(`Welcome to ${options.town.name}, ${picked.name}!`);
 };
+
+// ---- Inbox: plans waiting on you, town invites, friend requests ----
+
+function showInbox() {
+  renderInbox();
+  show('inbox');
+  refreshAll();
+}
+
+function renderInbox() {
+  if (!me) return;
+  $('#notices').replaceChildren(...notices.map((n) => {
+    const li = el('li');
+    const who = el('div', 'who');
+    const p = n.payload || {};
+    const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in` : 'Something changed';
+    who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · its houses, characters and plans are gone`));
+    const dismiss = el('button', 'small', 'Dismiss');
+    dismiss.type = 'button';
+    dismiss.onclick = async () => {
+      dismiss.disabled = true;
+      try { await api(`/me/notifications/${n.id}`, { method: 'DELETE' }); } catch (err) { toast(err.message, 'error'); }
+      notices = notices.filter((x) => x.id !== n.id);
+      renderInbox();
+    };
+    li.append(el('div', 'notice-icon', n.kind === 'town_deleted' ? '🏚️' : '🔔'), who, dismiss);
+    return li;
+  }));
+  $('#notices-section').hidden = !notices.length;
+  $('#notice-count').textContent = notices.length;
+  $('#plans').replaceChildren(...feed.inbox.map(planCard));
+  $('#plans-section').hidden = !feed.inbox.length;
+  $('#plan-count').textContent = feed.inbox.length;
+
+  fillList($('#invites'), invites.map((inv) => {
+    const li = personRow(inv.from_profile, [], `invited you to ${inv.towns?.name || 'a town'}`);
+    const actions = li.querySelector('.actions');
+    const accept = el('button', 'small primary', 'Join…');
+    const decline = el('button', 'small', 'Decline');
+    accept.onclick = async () => {
+      let options;
+      try { options = await api(`/towns/${inv.town_id}/identities`); } catch (err) { return toast(err.message, 'error'); }
+      const picked = await identityDialog.open({
+        title: `Join ${options.town.name}`, confirmLabel: 'Join town', options,
+        save: (me) => api(`/invites/${inv.id}/respond`, { method: 'POST', body: { status: 'accepted', me } }),
+      });
+      if (!picked) return;
+      await reloadMe();
+      refreshAll();
+      toast(`Welcome to ${options.town.name}, ${picked.name}!`);
+    };
+    decline.onclick = async () => {
+      decline.disabled = accept.disabled = true;
+      try { await api(`/invites/${inv.id}/respond`, { method: 'POST', body: { status: 'declined' } }); } catch (err) { toast(err.message, 'error'); }
+      refreshAll();
+    };
+    actions.append(accept, decline);
+    return li;
+  }));
+  $('#invites-section').hidden = !invites.length;
+  $('#invite-count').textContent = invites.length;
+
+  fillList($('#incoming'), requests.incoming.map((r) => personRow(r.from_profile, [
+    ['Accept', () => api(`/friends/requests/${r.id}/respond`, { method: 'POST', body: { status: 'accepted' } }), 'primary'],
+    ['Decline', () => api(`/friends/requests/${r.id}/respond`, { method: 'POST', body: { status: 'declined' } })],
+  ], 'wants to be friends')));
+  $('#requests-section').hidden = !requests.incoming.length;
+  $('#request-count').textContent = requests.incoming.length;
+
+  $('#inbox-empty').hidden = inboxCount() > 0;
+  renderBadges();
+}
+
+// Suggested: accept or decline for yourself. Everyone accepted: any of you approves the drafted plan.
+function planCard(p) {
+  const card = el('div', 'plan');
+  card.append(el('div', 'title', p.title || 'A plan'));
+  const when = p.start_at ? ` · ${new Date(p.start_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '';
+  card.append(el('div', 'meta', `${p.town.name}${when}${p.people.length ? ` · with ${names(p.people)}` : ''}`));
+  if (p.text) card.append(el('div', '', p.text));
+  if (p.people.length) {
+    const faces = el('div', 'faces');
+    for (const person of p.people) {
+      const face = el('span', 'face');
+      const going = p.going.some((g) => g.user_id === person.user_id);
+      face.append(personAvatar(person), `${person.name}${going ? ' · in' : person.status ? ` · ${STATUS_LABEL[person.status.status].toLowerCase()}` : ''}`);
+      faces.append(face);
+    }
+    card.append(faces);
+  }
+  if (p.status === 'suggested' && myStatus()?.status === 'busy') {
+    card.append(el('div', 'nudge', "You're marked busy, so no pressure. \"Not this time\" is always fine, and nobody sees why."));
+  }
+  const actions = el('div', 'actions');
+  const act = (label, cls, fn, done) => {
+    const b = el('button', `small ${cls}`, label);
+    b.type = 'button';
+    b.onclick = async () => {
+      actions.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+      try { await fn(); toast(done); } catch (err) { toast(err.message, 'error'); }
+      refreshAll();
+    };
+    return b;
+  };
+  if (p.status === 'scheduled') {
+    card.append(el('div', 'meta', 'Everyone said yes. Approve the plan to lock it in.'));
+    actions.append(act('Approve plan', 'primary', () => api(`/events/${p.id}/approve`, { method: 'POST' }), 'Plan approved. Have fun!'));
+  } else {
+    actions.append(
+      act("I'm in", 'primary', () => api(`/events/${p.id}/respond`, { method: 'POST', body: { status: 'accepted' } }), "You're in."),
+      act('Not this time', '', () => api(`/events/${p.id}/respond`, { method: 'POST', body: { status: 'declined' } }), 'Declined.'),
+    );
+  }
+  card.append(actions);
+  return card;
+}
+
+// ---- Friends ----
+
+function showFriends() {
+  message($('#search-msg'), '');
+  $('#search-results').innerHTML = '';
+  renderFriends();
+  show('friends');
+  refreshAll();
+}
 
 // A person row: avatar, name, @username, and optional action buttons [label, onClick, className]
 function personRow(p, actions = [], note = '') {
   const li = document.createElement('li');
   li.innerHTML = `<div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"></div>`;
   paintAvatar(li.querySelector('.avatar'), p);
+  ring(li.querySelector('.avatar'), p?.active_status);
+  if (p?.id) li.dataset.person = p.id;
   li.querySelector('.name').textContent = p?.display_name || 'Unknown';
   li.querySelector('.handle').textContent = [p?.username ? `@${p.username}` : '', note].filter(Boolean).join(' · ');
   for (const [label, onClick, cls = ''] of actions) {
@@ -417,8 +1109,8 @@ function personRow(p, actions = [], note = '') {
     b.textContent = label;
     b.onclick = async () => {
       li.querySelectorAll('button').forEach((x) => { x.disabled = true; });
-      try { await onClick(); } catch (err) { message($('#search-msg'), err.message); }
-      await refreshFriends();
+      try { await onClick(); } catch (err) { toast(err.message, 'error'); }
+      await refreshAll();
     };
     li.querySelector('.actions').append(b);
   }
@@ -433,10 +1125,10 @@ function fillList(ul, rows) {
 }
 
 // Friends list: scrolls inside its card, with a filter once there are more than a handful
-let allFriends = [];
 const FILTER_AFTER = 5;
 
 function renderFriends() {
+  if (!me) return;
   const filter = $('#friend-filter');
   const q = filter.value.trim().toLowerCase().replace(/^@/, '');
   const shown = q ? allFriends.filter((f) => `${f.display_name ?? ''} ${f.username ?? ''}`.toLowerCase().includes(q)) : allFriends;
@@ -450,31 +1142,11 @@ function renderFriends() {
   $('#friend-count').textContent = allFriends.length ? `(${allFriends.length})` : '';
   $('#no-friends').hidden = allFriends.length > 0;
   $('#no-matches').hidden = !(allFriends.length && !shown.length);
+  fillList($('#outgoing'), requests.outgoing.map((r) => personRow(r.to_profile, [], 'request sent')));
+  $('#outgoing-section').hidden = !requests.outgoing.length;
 }
 
 $('#friend-filter').oninput = renderFriends;
-
-async function refreshFriends() {
-  let friends, requests;
-  try {
-    [friends, requests] = await Promise.all([api('/friends'), api('/friends/requests')]);
-  } catch (err) {
-    return message($('#search-msg'), err.message);
-  }
-
-  allFriends = friends;
-  renderFriends();
-
-  fillList($('#incoming'), requests.incoming.map((r) => personRow(r.from_profile, [
-    ['Accept', () => api(`/friends/requests/${r.id}/respond`, { method: 'POST', body: { status: 'accepted' } }), 'primary'],
-    ['Decline', () => api(`/friends/requests/${r.id}/respond`, { method: 'POST', body: { status: 'declined' } })],
-  ], 'wants to be friends')));
-  fillList($('#outgoing'), requests.outgoing.map((r) => personRow(r.to_profile, [], 'request sent')));
-  const total = requests.incoming.length + requests.outgoing.length;
-  $('#no-requests').hidden = total > 0;
-  $('#request-count').hidden = requests.incoming.length === 0;
-  $('#request-count').textContent = requests.incoming.length;
-}
 
 $('#search-form').onsubmit = async (e) => {
   e.preventDefault();
@@ -501,6 +1173,215 @@ $('#search-form').onsubmit = async (e) => {
   }
 };
 
+// ---- Someone else's profile ----
+
+let personId = null;
+
+async function showPerson(id) {
+  personId = id;
+  $('#p-name').textContent = '';
+  $('#p-handle').textContent = '';
+  for (const c of ['#p-you-card', '#p-interests-card', '#p-towns-card', '#p-mutual-card', '#p-stranger']) $(c).hidden = true;
+  $('#p-actions').replaceChildren();
+  $('#p-bio').textContent = '';
+  $('#p-stats').textContent = '';
+  $('#p-status').replaceChildren();
+  show('person');
+  scrollTo(0, 0);
+  let p;
+  try { p = await api(`/users/${encodeURIComponent(id)}/profile`); } catch (err) {
+    $('#p-name').textContent = err.status === 404 ? 'No one here' : "Couldn't load this profile";
+    return toast(err.message, 'error');
+  }
+  if (personId !== id) return; // navigated away while loading
+  renderPerson(p);
+}
+
+function renderPerson(p) {
+  const avatar = $('#p-avatar');
+  paintAvatar(avatar, { id: p.id, display_name: p.display_name, avatar: { photo: p.photo } });
+  ring(avatar, p.status);
+  $('#p-name').textContent = p.display_name || 'Someone';
+  $('#p-handle').textContent = p.username ? `@${p.username}` : '';
+
+  // Friend button (and Visit when you share a town)
+  const actions = $('#p-actions');
+  const button = (label, cls, fn) => {
+    const b = el('button', `small ${cls}`, label);
+    b.type = 'button';
+    if (fn) b.onclick = async () => {
+      b.disabled = true;
+      try { await fn(); await refreshAll(); showPerson(p.id); } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+    };
+    return b;
+  };
+  const f = p.friendship;
+  const btns = [];
+  if (f.state === 'none') btns.push(button('Add friend', 'primary', async () => { await api('/friends/requests', { method: 'POST', body: { username: p.username } }); toast(`Friend request sent to @${p.username}`); }));
+  if (f.state === 'requested') { const b = button('Requested', ''); b.disabled = true; btns.push(b); }
+  if (f.state === 'incoming') {
+    btns.push(button('Accept', 'primary', () => api(`/friends/requests/${f.request_id}/respond`, { method: 'POST', body: { status: 'accepted' } })));
+    btns.push(button('Decline', '', () => api(`/friends/requests/${f.request_id}/respond`, { method: 'POST', body: { status: 'declined' } })));
+  }
+  if (f.state === 'friends') btns.push(button('✓ Friends', 'tonal', async () => {
+    const yes = await confirmDialog({ title: `Remove ${p.display_name}?`, body: "You'll stop being friends. You can send a new request later.", confirmLabel: 'Remove', danger: true });
+    if (yes) await api(`/friends/${p.id}`, { method: 'DELETE' });
+  }));
+  if (p.shared_towns?.length) {
+    const visit = button('Visit', 'primary');
+    visit.onclick = () => enterTown(p.shared_towns[0].id);
+    btns.unshift(visit);
+  }
+  actions.replaceChildren(...btns);
+
+  if (p.relation === 'stranger') {
+    $('#p-stranger-title').textContent = f.state === 'friends' ? '' : `Add ${p.display_name} to see their profile`;
+    $('#p-stranger').hidden = false;
+    return;
+  }
+
+  if (p.status) $('#p-status').replaceChildren(el('span', `status-on ${p.status.status}`, `${p.status.source === 'calendar' ? '📅 ' : ''}${STATUS_LABEL[p.status.status]} · ${timeLeft(p.status.until)}`));
+  $('#p-bio').textContent = p.bio;
+  $('#p-bio').hidden = !p.bio;
+  const stats = [];
+  if (f.state === 'friends') stats.push('Friends');
+  if (p.shared_towns.length) stats.push(`${p.shared_towns.length} ${p.shared_towns.length === 1 ? 'town' : 'towns'} together`);
+  if (p.mutual_count) stats.push(`${p.mutual_count} mutual ${p.mutual_count === 1 ? 'friend' : 'friends'}`);
+  $('#p-stats').textContent = stats.join(' · ');
+
+  if (p.you_two) {
+    $('#p-you-text').textContent = crossedPaths(p.you_two.days_since);
+    $('#p-you-bar').style.width = `${Math.round(p.you_two.score * 100)}%`;
+    $('#p-you-card').hidden = false;
+  }
+  $('#p-interests').replaceChildren(...p.interests.map((i) => {
+    const chip = el('span', `chip ${i.shared ? 'shared' : 'muted'}`, i.name);
+    if (i.shared) chip.title = 'You both like this';
+    return chip;
+  }));
+  $('#p-interests-card').hidden = !p.interests.length;
+  $('#p-towns').replaceChildren(...p.shared_towns.map((t) => {
+    const li = el('li', 'town');
+    const ringWrap = el('div', 'ring');
+    ringWrap.append(townIcon(t));
+    const who = el('div', 'who');
+    const handle = el('div', 'handle');
+    if (t.their_color) { const dot = el('span', 'dot'); dot.style.background = t.their_color; handle.append(dot); }
+    handle.append(`${t.their_name || p.display_name} there · ${t.residents} ${t.residents === 1 ? 'resident' : 'residents'}`);
+    who.append(el('div', 'name', t.name), handle);
+    const enter = el('button', 'small tonal', 'Enter');
+    li.append(ringWrap, who, enter);
+    li.onclick = () => enterTown(t.id);
+    return li;
+  }));
+  $('#p-towns-card').hidden = !p.shared_towns.length;
+  $('#p-mutual').replaceChildren(...p.mutual_friends.map((m) => personRow(m)));
+  $('#p-mutual-count').textContent = p.mutual_count ? `(${p.mutual_count})` : '';
+  $('#p-mutual-card').hidden = !p.mutual_count;
+}
+
+// ---- Profile ----
+
+function renderHighlights() {
+  const s = stats || {};
+  const tile = (emoji, hue, label, value, detail, townId) => {
+    const t = el(townId ? 'button' : 'div', 'highlight');
+    if (townId) { t.type = 'button'; t.onclick = () => enterTown(townId); }
+    const body = el('div');
+    body.append(el('div', 'label', label), el('div', 'value', value), el('div', 'detail', detail));
+    t.append(el('div', `emoji ${hue}`, emoji), body);
+    return t;
+  };
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+  $('#highlights').replaceChildren(
+    s.most_active
+      ? tile('🔥', 'hue-4', 'Most active town', s.most_active.name, `${plural(s.most_active.activity_week, 'thing')} happened this week`, s.most_active.id)
+      : tile('🔥', 'hue-4', 'Most active town', 'Quiet week', 'Nothing new in your towns yet'),
+    s.biggest
+      ? tile('🏘️', 'hue-3', 'Biggest town', s.biggest.name, plural(s.biggest.residents, 'resident'), s.biggest.id)
+      : tile('🏘️', 'hue-3', 'Biggest town', 'No towns yet', 'Join one from an invite'),
+    tile('🤝', 'hue-2', 'Real-life hangouts', String(s.hangouts ?? 0), 'Plans that actually happened'),
+    tile('👋', 'hue-1', 'Townmates', String(s.townmates ?? 0), `${plural(s.shared ?? 0, 'update')} shared with them`),
+  );
+}
+
+function showProfile() {
+  renderProfile();
+  show('profile');
+  refreshAll();
+}
+
+// "● Sam here" in your color for that town
+function townIdentityNote(m) {
+  const frag = document.createDocumentFragment();
+  if (m.color) {
+    const dot = el('span', 'dot');
+    dot.style.background = m.color;
+    frag.append(dot);
+  }
+  frag.append(m.name ? `${m.name} here` : 'no name picked yet');
+  return frag;
+}
+
+function renderProfile() {
+  if (!me) return;
+  paintAvatar($('#me-avatar'), me);
+  renderMyStatus();
+  $('#me-name').textContent = me.display_name;
+  $('#me-handle').textContent = `@${me.username}`;
+  $('#me-bio').textContent = me.bio || '';
+  $('#me-bio').hidden = !me.bio;
+  $('#me-bio-add').hidden = Boolean(me.bio);
+  $('#stat-towns').textContent = townsIn().length;
+  $('#stat-friends').textContent = allFriends.length;
+  $('#stat-hangouts').textContent = stats?.hangouts ?? 0;
+  renderHighlights();
+  const closest = stats?.closest || [];
+  $('#closest').replaceChildren(...closest.map((p) => {
+    const li = mateRow(p, `${crossedPaths(p.days_since)} · ${p.town.name}`);
+    const bond = el('div', 'bond');
+    const fill = el('span');
+    fill.style.width = `${Math.round(p.score * 100)}%`;
+    bond.append(fill);
+    li.querySelector('.who').append(bond);
+    return li;
+  }));
+  $('#closest-section').hidden = !closest.length;
+  renderChips($('#me-interests'), me.interests || []);
+  $('#no-interests').hidden = Boolean(me.interests?.length);
+  // Each town you're in; clicking one opens it in 3D, built from its tiles and map in the database
+  fillList($('#towns'), byPinned(townsIn(), (m) => m.towns.id).map((m) => {
+    const t = m.towns;
+    const li = el('li', 'town');
+    li.innerHTML = `<div class="ring"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small danger">Leave</button></div>`;
+    li.querySelector('.ring').append(townIcon(t));
+    li.querySelector('.name').textContent = t.name;
+    const handle = li.querySelector('.handle');
+    handle.append(townIdentityNote(m));
+    handle.append([t.created_by === me.id ? ' · your town' : '', ` · invite code ${t.invite_code}`,
+      m.house_x == null ? ' · no house yet' : ''].join(''));
+    li.onclick = () => enterTown(t.id);
+    const leave = li.querySelector('.danger');
+    leave.onclick = (e) => { e.stopPropagation(); leaveTown(t); };
+    const pin = el('button', `small pin-toggle${pinned.has(t.id) ? ' on' : ''}`);
+    pin.type = 'button';
+    pin.innerHTML = PIN_SVG;
+    pin.append(pinned.has(t.id) ? 'Pinned' : 'Pin');
+    pin.setAttribute('aria-pressed', String(pinned.has(t.id)));
+    pin.onclick = (e) => { e.stopPropagation(); togglePin(t); };
+    li.querySelector('.actions').prepend(pin);
+    if (t.created_by === me.id) { // only a town's creator can delete it
+      const del = el('button', 'small danger-solid', 'Delete');
+      del.type = 'button';
+      del.title = `Delete ${t.name} for everyone`;
+      del.onclick = (e) => { e.stopPropagation(); deleteTown(t); };
+      leave.after(del);
+    }
+    return li;
+  }));
+  $('#profile-no-towns').hidden = townsIn().length > 0;
+}
+
 // ---- Settings ----------------------------------------------------------------------------------
 
 const dirty = new Set(); // panes with unsaved edits
@@ -519,6 +1400,7 @@ function showSettings(pane) {
     if (pane === 'appearance') appearance.load();
     if (pane === 'privacy') privacy.load();
     if (pane === 'towns') townsPane.load();
+    if (pane === 'calendar') calendarPane.load();
   }
   currentPane = pane;
   for (const el of $$('.pane')) el.hidden = el.dataset.pane !== pane;
@@ -538,6 +1420,8 @@ const profile = (() => {
   function load() {
     $('#set-name').value = me.display_name || '';
     $('#set-username').value = me.username || '';
+    $('#set-bio').value = me.bio || '';
+    paintMyAvatars();
     interests = [...(me.interests || [])];
     message($('#profile-msg'), '');
     update();
@@ -566,6 +1450,8 @@ const profile = (() => {
     const name = $('#set-name').value.trim(), username = $('#set-username').value.trim().toLowerCase();
     if (name !== me.display_name) out.display_name = name;
     if (username !== me.username) out.username = username;
+    const bio = $('#set-bio').value.split(/\s+/).join(' ').trim();
+    if (bio !== (me.bio || '')) out.bio = bio;
     if (!same(interests, me.interests || [])) out.interests = interests;
     return out;
   }
@@ -582,6 +1468,8 @@ const profile = (() => {
     paintAvatar($('#preview-avatar'), me, name);
     $('#preview-name').textContent = name;
     $('#preview-handle').textContent = `@${$('#set-username').value || me.username}`;
+    $('#preview-bio').textContent = $('#set-bio').value.trim();
+    $('#set-bio-count').textContent = `${$('#set-bio').value.length}/160`;
     const isDirty = Object.keys(changes()).length > 0;
     setDirty('profile', isDirty);
     $('#profile-reset').disabled = !isDirty;
@@ -599,6 +1487,7 @@ const profile = (() => {
 
   $('#set-name').oninput = update;
   $('#set-username').oninput = update;
+  $('#set-bio').oninput = update;
   $('#interest-input').onkeydown = (e) => {
     const input = e.target;
     if ((e.key === 'Enter' || e.key === ',') && input.value.trim()) { e.preventDefault(); addInterest(input.value); }
@@ -747,7 +1636,7 @@ const identityDialog = (() => {
   $('#identity-name').oninput = update;
   $('#identity-free').onclick = () => { color = Colors.freeColor(taken.map((p) => p.color).filter(Boolean)); wheel.set(color); update(); };
 
-  function open({ title, confirmLabel, options, save }) {
+  function open({ title, confirmLabel, options, save, busyLabel = 'Saving…' }) {
     taken = options.taken || [];
     const mine = options.mine;
     keep = mine ? { name: mine.name, color: mine.color } : { name: null, color: null };
@@ -767,7 +1656,7 @@ const identityDialog = (() => {
         e.preventDefault();
         const picked = { name: $('#identity-name').value.trim(), color };
         const btn = $('#identity-ok');
-        busy(btn, true, 'Saving…');
+        busy(btn, true, busyLabel);
         try {
           await save(picked);
           dialog.close('ok');
@@ -786,9 +1675,318 @@ const identityDialog = (() => {
   return { open };
 })();
 
+// Leave a town (from Profile or Settings → Towns). If you made it, it passes to its longest-standing member.
+async function leaveTown(t) {
+  const mine = t.created_by === me.id;
+  const yes = await confirmDialog({
+    title: `Leave ${t.name}?`,
+    body: `Your house and character will be removed from ${t.name}, and you'd need a new invite to come back.`
+      + (mine ? " You created this town, so it passes to whoever has been there longest. If you're the last one there, the town is deleted." : ''),
+    confirmLabel: 'Leave town', danger: true,
+  });
+  if (!yes) return;
+  try {
+    await api(`/towns/${t.id}/members/me`, { method: 'DELETE' });
+    myTowns = myTowns.filter((m) => m.towns?.id !== t.id);
+    feed = { ...feed, towns: feed.towns.filter((x) => x.id !== t.id) };
+    townsPane.load();
+    renderProfile();
+    renderFeed();
+    toast(`You left ${t.name}`);
+    refreshAll();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ---- Profile photo: crop to a square and shrink in the browser, then upload the JPEG ----
+
+function paintMyAvatars() {
+  for (const id of ['#bar-avatar', '#menu-avatar', '#composer-avatar', '#me-avatar', '#photo-preview', '#preview-avatar']) paintAvatar($(id), me);
+  $('#photo-remove').hidden = !me.avatar?.photo;
+  renderMyStatus();
+}
+
+async function squareJpeg(file, size = 400) {
+  const img = await createImageBitmap(file);
+  const side = Math.min(img.width, img.height);
+  const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+  canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+}
+
+document.addEventListener('click', (e) => { if (e.target.closest('[data-photo-pick]')) $('#photo-input').click(); });
+$('#photo-input').onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const shown = [$('#me-avatar'), $('#photo-preview')];
+  shown.forEach((a) => a.classList.add('uploading'));
+  try {
+    let blob;
+    try { blob = await squareJpeg(file); } catch { throw new Error("That image couldn't be opened. Try a JPEG or PNG."); }
+    me = await api('/me/photo', { method: 'PUT', file: blob });
+    paintMyAvatars();
+    toast('Profile photo updated');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    shown.forEach((a) => a.classList.remove('uploading'));
+  }
+};
+$('#photo-remove').onclick = async () => {
+  try {
+    me = await api('/me/photo', { method: 'DELETE' });
+    paintMyAvatars();
+    toast('Photo removed');
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+// The creator deletes a whole town. Everyone else there gets a notice in their Inbox.
+async function deleteTown(t) {
+  const yes = await confirmDialog({
+    title: `Delete ${t.name}?`,
+    body: `This deletes the whole town for everyone: every house, character, plan and calendar in it. Everyone else in ${t.name} gets a notice in their Inbox. This can't be undone.`,
+    confirmLabel: 'Delete town', danger: true, typeToConfirm: t.name,
+  });
+  if (!yes) return;
+  try {
+    await api(`/towns/${t.id}`, { method: 'DELETE' });
+    myTowns = myTowns.filter((m) => m.towns?.id !== t.id);
+    feed = { ...feed, towns: feed.towns.filter((x) => x.id !== t.id) };
+    townsPane.load();
+    renderProfile();
+    renderFeed();
+    toast(`${t.name} was deleted`);
+    refreshAll();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 async function reloadMe() {
   ({ profile: me, towns: myTowns } = await api('/me'));
 }
+
+// ---- Create a town, invite friends ------------------------------------------------------------
+
+// A checklist of friends for a dialog. `lockedNote(friend)` returns a note ("invite sent") for people who
+// can't be picked, else null. `onChange(count)` runs whenever the selection changes.
+function friendPicker({ list, filter, empty, onChange = () => {} }) {
+  let friends = [], picked = new Set(), lockedNote = () => null;
+  function render() {
+    const q = filter.value.trim().toLowerCase().replace(/^@/, '');
+    const shown = q ? friends.filter((f) => `${f.display_name ?? ''} ${f.username ?? ''}`.toLowerCase().includes(q)) : friends;
+    fillList(list, shown.map((f) => {
+      const note = lockedNote(f);
+      const li = document.createElement('li');
+      li.className = note ? 'pick locked' : 'pick';
+      li.innerHTML = '<input type="checkbox" tabindex="-1" /><div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div>';
+      paintAvatar(li.querySelector('.avatar'), f);
+      li.querySelector('.name').textContent = f.display_name;
+      li.querySelector('.handle').textContent = [f.username ? `@${f.username}` : '', note].filter(Boolean).join(' · ');
+      const box = li.querySelector('input');
+      box.checked = Boolean(note) || picked.has(f.id);
+      box.disabled = Boolean(note);
+      if (!note) {
+        li.tabIndex = 0;
+        li.setAttribute('role', 'checkbox');
+        li.setAttribute('aria-checked', String(box.checked));
+        const toggle = () => {
+          if (picked.has(f.id)) picked.delete(f.id); else picked.add(f.id);
+          box.checked = picked.has(f.id);
+          li.setAttribute('aria-checked', String(box.checked));
+          onChange(picked.size);
+        };
+        li.onclick = toggle;
+        li.onkeydown = (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } };
+      }
+      return li;
+    }));
+    filter.hidden = friends.length <= FILTER_AFTER && !q;
+    empty.hidden = friends.length > 0;
+  }
+  filter.oninput = render;
+  return {
+    load(people, note = () => null) {
+      friends = people;
+      lockedNote = note;
+      picked = new Set();
+      filter.value = '';
+      render();
+      onChange(0);
+    },
+    picked: () => [...picked],
+  };
+}
+
+// Create a town: describe it, pick friends to invite, then your name and color there. The backend has the
+// town planner design it (POST /towns/generate) and sends the invites as soon as it exists.
+const createTown = (() => {
+  const dialog = $('#create-dialog');
+  const prompt = $('#create-prompt');
+  const picker = friendPicker({
+    list: $('#create-friends'), filter: $('#create-filter'), empty: $('#create-no-friends'),
+    onChange: (n) => { $('#create-picked').textContent = n ? `(${n} picked)` : ''; },
+  });
+
+  // Places: a toggle chip per supported place type and landmark (GET /towns/place-options), plus "other
+  // buildings" typed by name (the backend puts each on a random building, under the name as typed)
+  let options = null, chosen = new Set(), custom = [];
+  const customInput = $('#create-custom');
+  const isLandmark = (id) => options.landmarks.some((l) => l.id === id);
+  const placeCount = () => [...chosen].filter((id) => !isLandmark(id)).length + custom.length;
+
+  function renderPlaces() {
+    const full = placeCount() >= options.max_places;
+    const box = $('#create-places');
+    box.innerHTML = '';
+    for (const o of [...options.places, ...options.landmarks]) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'chip toggle', textContent: o.label });
+      const on = chosen.has(o.id);
+      b.setAttribute('aria-pressed', String(on));
+      b.disabled = !on && full && !isLandmark(o.id);
+      b.onclick = () => { if (on) chosen.delete(o.id); else chosen.add(o.id); renderPlaces(); };
+      box.append(b);
+    }
+    const cbox = $('#create-custom-box');
+    cbox.querySelectorAll('.chip').forEach((c) => c.remove());
+    custom.forEach((text, i) => {
+      const chip = Object.assign(document.createElement('span'), { className: 'chip', textContent: text });
+      const x = Object.assign(document.createElement('button'), { type: 'button', textContent: '×' });
+      x.setAttribute('aria-label', `Remove ${text}`);
+      x.onclick = () => { custom.splice(i, 1); renderPlaces(); customInput.focus(); };
+      chip.append(x);
+      cbox.insertBefore(chip, customInput);
+    });
+    customInput.disabled = full;
+    customInput.placeholder = custom.length ? '' : 'Hospital, arcade, fire station…';
+    const n = placeCount();
+    $('#create-places-count').textContent = n ? `(${n} picked)` : '';
+    $('#create-places-hint').textContent = full ? `That's the most one town can hold (${options.max_places}).` : '';
+  }
+
+  // Adds what's typed as an "other building". Returns false (and says why, keeping the text) if it can't.
+  function addCustom() {
+    const text = customInput.value.trim().slice(0, 40);
+    if (!text) return true;
+    const hint = $('#create-places-hint');
+    if (custom.some((c) => c.toLowerCase() === text.toLowerCase())) { customInput.value = ''; return true; } // already added
+    if (placeCount() >= options.max_places) {
+      hint.textContent = `"${text}" didn't fit: a town holds ${options.max_places} places. Unpick one to add it.`;
+      return false;
+    }
+    customInput.value = '';
+    custom.push(text);
+    renderPlaces();
+    return true;
+  }
+  customInput.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addCustom(); }
+    else if (e.key === 'Backspace' && !customInput.value && custom.length) { custom.pop(); renderPlaces(); }
+  };
+  customInput.onblur = addCustom;
+  $('#create-custom-box').onclick = (e) => { if (e.target.id === 'create-custom-box') customInput.focus(); };
+
+  function update() {
+    const text = prompt.value.trim();
+    $('#create-prompt-hint').textContent = text
+      ? `${1000 - prompt.value.length} characters left`
+      : "A sentence or two is plenty: the vibe, places you'd love to hang out, what kind of buildings.";
+    $('#create-next').disabled = !text;
+  }
+  prompt.oninput = update;
+
+  async function open() {
+    let friends = allFriends;
+    try {
+      [friends, options] = await Promise.all([api('/friends'), options || api('/towns/place-options')]);
+    } catch (err) {
+      if (!options) return toast(err.message, 'error');
+    }
+    chosen = new Set();
+    custom = [];
+    customInput.value = '';
+    renderPlaces();
+    prompt.value = '';
+    $('#create-name').value = '';
+    message($('#create-msg'), '');
+    picker.load(friends);
+    update();
+    dialog.showModal();
+    prompt.focus();
+  }
+
+  $('#create-form').onsubmit = async (e) => {
+    if (e.submitter?.value !== 'ok') return; // Cancel closes the dialog as usual
+    e.preventDefault();
+    if (!addCustom()) return customInput.focus(); // a name still being typed counts; never drop it silently
+    const body = {
+      prompt: prompt.value.trim(), name: $('#create-name').value.trim() || null, invite_user_ids: picker.picked(),
+      places: [...chosen].filter((id) => !isLandmark(id)), landmarks: [...chosen].filter(isLandmark), custom_places: custom,
+    };
+    dialog.close();
+    let created = null;
+    const picked = await identityDialog.open({
+      title: body.name ? `You in ${body.name}` : 'You in your new town',
+      confirmLabel: 'Create town',
+      busyLabel: 'Building your town…',
+      options: { taken: [], mine: null, suggested_color: Colors.freeColor([]) },
+      save: async (you) => { created = await api('/towns/generate', { method: 'POST', body: { ...body, me: you } }); },
+    });
+    if (!picked) return dialog.showModal(); // cancelled: back to the description, nothing lost
+    await reloadMe();
+    refreshAll();
+    const invited = created.invited ? ` Invited ${created.invited} friend${created.invited === 1 ? '' : 's'}.` : '';
+    const built = Object.entries(created.map?.places || {}).filter(([id]) => id !== 'park' && id !== 'outerpark').map(([, p]) => p.name);
+    toast(`${created.name} is ready!${built.length ? ` Built with: ${built.join(', ')}.` : ''}${invited}`);
+  };
+
+  $('#create-town').onclick = open;
+})();
+
+// Invite friends to a town you created. People already in it, or already invited, can't be picked again.
+const inviteFriends = (() => {
+  const dialog = $('#invite-dialog');
+  const ok = $('#invite-ok');
+  let town = null;
+  const label = (n) => (n ? `Send ${n} invite${n === 1 ? '' : 's'}` : 'Send invites');
+  const picker = friendPicker({
+    list: $('#invite-friends'), filter: $('#invite-filter'), empty: $('#invite-no-friends'),
+    onChange: (n) => { ok.disabled = !n; ok.textContent = label(n); },
+  });
+
+  async function open(t) {
+    town = t;
+    let friends, detail, invites;
+    try {
+      [friends, detail, invites] = await Promise.all([api('/friends'), api(`/towns/${t.id}`), api(`/towns/${t.id}/invites`)]);
+    } catch (err) {
+      return toast(err.message, 'error');
+    }
+    const members = new Set(detail.members.map((m) => m.user_id));
+    const pending = new Set(invites.filter((i) => i.status === 'pending').map((i) => i.to_user));
+    $('#invite-title').textContent = `Invite friends to ${t.name}`;
+    message($('#invite-msg'), '');
+    picker.load(friends, (f) => (members.has(f.id) ? 'already in this town' : pending.has(f.id) ? 'invite sent' : null));
+    dialog.showModal();
+  }
+
+  $('#invite-form').onsubmit = async (e) => {
+    if (e.submitter?.value !== 'ok') return;
+    e.preventDefault();
+    const ids = picker.picked();
+    busy(ok, true, 'Sending…');
+    const results = await Promise.allSettled(ids.map((id) => api(`/towns/${town.id}/invites`, { method: 'POST', body: { user_id: id } })));
+    busy(ok, false, label(ids.length));
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length) return message($('#invite-msg'), `${failed.length} invite${failed.length === 1 ? '' : 's'} didn't send: ${failed[0].reason.message}`);
+    dialog.close();
+    toast(`Invited ${ids.length} friend${ids.length === 1 ? '' : 's'} to ${town.name}.`);
+  };
+
+  return { open };
+})();
 
 // Towns: your name and color in each town (edit), and leaving
 const townsPane = (() => {
@@ -796,16 +1994,49 @@ const townsPane = (() => {
     fillList($('#settings-towns'), townsIn().map((m) => {
       const t = m.towns;
       const li = document.createElement('li');
-      li.innerHTML = '<div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small">Name &amp; color</button><button class="small danger">Leave</button></div>';
-      paintAvatar(li.querySelector('.avatar'), { id: t.id }, t.name);
+      li.innerHTML = `<div class="ring"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small">Name &amp; color</button><button class="small">House name</button><button class="small danger">Leave</button></div>`;
+      li.querySelector('.ring').append(townIcon(t));
       li.querySelector('.name').textContent = t.name;
-      li.querySelector('.handle').append(townIdentityNote(m));
-      const [edit, leave] = li.querySelectorAll('button');
+      const handle = li.querySelector('.handle');
+      handle.append(townIdentityNote(m));
+      if (m.house_x != null) handle.append(` · 🏠 ${houseName(m)}`);
+      const [edit, house, leave] = li.querySelectorAll('button');
       edit.onclick = () => editIdentity(t);
-      leave.onclick = () => privacy.leave(t);
+      house.hidden = m.house_x == null; // no house in this town yet
+      house.onclick = () => renameHouse(t, m);
+      leave.onclick = () => leaveTown(t);
+      if (t.created_by === me.id) { // only a town's creator can invite friends, or delete it
+        const invite = el('button', 'small', 'Invite friends');
+        invite.type = 'button';
+        invite.onclick = () => inviteFriends.open(t);
+        edit.before(invite);
+        const del = el('button', 'small danger-solid', 'Delete town');
+        del.type = 'button';
+        del.onclick = () => deleteTown(t);
+        leave.after(del);
+      }
       return li;
     }));
     $('#settings-no-towns').hidden = townsIn().length > 0;
+  }
+
+  const houseName = (m) => m.home?.name || `${m.name || me.display_name}'s house`;
+
+  async function renameHouse(t, m) {
+    const name = await promptDialog({
+      title: `Your house in ${t.name}`,
+      body: 'This is the label on your house in town. Leave it empty to go back to the default.',
+      label: 'House name', value: m.home?.name || '', placeholder: `${m.name || me.display_name}'s house`, maxLength: 40,
+    });
+    if (name === null) return;
+    try {
+      await api(`/towns/${t.id}/members/me/home`, { method: 'PATCH', body: { name: name || null } });
+    } catch (err) {
+      return toast(err.message, 'error');
+    }
+    await reloadMe();
+    load();
+    toast(name ? `Your house is now “${name}”.` : 'Your house is back to its default name.');
   }
 
   async function editIdentity(t) {
@@ -905,26 +2136,91 @@ const appearance = (() => {
   return { load };
 })();
 
-// Privacy & data: download, delete account (and leaving a town, used by the Towns pane)
-const privacy = (() => {
-  function load() {}
+// Calendar: connect Google Calendar (free/busy only). Google sends people back to ?calendar=google with a
+// refresh token in the session exactly once; it goes straight to the backend, which does all the syncing.
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.freebusy';
+const calendarPane = (() => {
+  // Read before supabase-js tidies the URL: are we coming back from Google, and did it fail?
+  const query = new URLSearchParams(location.search), fragment = new URLSearchParams(location.hash.slice(1));
+  const returning = query.get('calendar') === 'google';
+  const googleError = returning && (query.get('error_description') || fragment.get('error_description'));
 
-  async function leave(t) {
-    const yes = await confirmDialog({
-      title: `Leave ${t.name}?`,
-      body: `Your house and character will be removed from ${t.name}. You'd need a new invite to come back.`,
-      confirmLabel: 'Leave town', danger: true,
-    });
-    if (!yes) return;
+  const ago = (iso) => {
+    const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : `${Math.round(min / 60)} h ago`;
+  };
+
+  function render(s) {
+    const on = Boolean(s?.connected);
+    $('#cal-connect').hidden = on || !s;
+    $('#cal-sync').hidden = !on;
+    $('#cal-disconnect').hidden = !on;
+    $('#cal-status').textContent = !s ? 'Checking…' : !on ? 'Not connected'
+      : `Connected${s.last_synced_at ? ` · synced ${ago(s.last_synced_at)}` : ''} · ${s.upcoming_busy_blocks} busy ${s.upcoming_busy_blocks === 1 ? 'block' : 'blocks'} coming up`;
+    $('#cal-error').hidden = !s?.last_error;
+    $('#cal-error').textContent = s?.last_error || '';
+  }
+
+  async function load() {
+    render(null);
+    try { render(await api('/me/calendar')); } catch (err) { $('#cal-status').textContent = 'Not available'; toast(err.message, 'error'); }
+  }
+
+  async function finishConnect(session) {
+    history.replaceState(null, '', `${location.pathname}#/settings/calendar`);
+    if (googleError) return toast(`Google Calendar wasn't connected: ${googleError}`, 'error');
+    if (!session.provider_refresh_token) return toast("Google didn't grant ongoing calendar access. Try connecting again.", 'error');
     try {
-      await api(`/towns/${t.id}/members/me`, { method: 'DELETE' });
-      myTowns = myTowns.filter((m) => m.towns?.id !== t.id);
-      townsPane.load();
-      toast(`You left ${t.name}`);
+      await api('/me/calendar/google', { method: 'POST', body: { refresh_token: session.provider_refresh_token, scopes: GOOGLE_SCOPES } });
+      toast('Google Calendar connected');
     } catch (err) {
       toast(err.message, 'error');
     }
   }
+
+  $('#cal-connect').onclick = async () => {
+    busy($('#cal-connect'), true, 'Opening Google…');
+    const { data: { user } } = await sb.auth.getUser();
+    const options = {
+      redirectTo: `${location.origin}${location.pathname}?calendar=google`,
+      scopes: GOOGLE_SCOPES,
+      queryParams: { access_type: 'offline', prompt: 'consent' }, // ask for a refresh token every time
+    };
+    // First time: link Google to this account. Already linked (e.g. reconnecting): sign in with it again.
+    const linked = user?.identities?.some((i) => i.provider === 'google');
+    const { error } = linked
+      ? await sb.auth.signInWithOAuth({ provider: 'google', options })
+      : await sb.auth.linkIdentity({ provider: 'google', options });
+    if (error) {
+      toast(error.message, 'error');
+      busy($('#cal-connect'), false, 'Connect Google Calendar');
+    }
+  };
+
+  $('#cal-sync').onclick = async () => {
+    busy($('#cal-sync'), true, 'Syncing…');
+    try { render(await api('/me/calendar/sync', { method: 'POST' })); toast('Calendar synced'); } catch (err) { toast(err.message, 'error'); load(); }
+    busy($('#cal-sync'), false, 'Sync now');
+  };
+
+  $('#cal-disconnect').onclick = async () => {
+    const yes = await confirmDialog({
+      title: 'Disconnect Google Calendar?',
+      body: 'Luma stops reading your busy times and removes the ones it copied. Google access is revoked too.',
+      confirmLabel: 'Disconnect', danger: true,
+    });
+    if (!yes) return;
+    try { await api('/me/calendar', { method: 'DELETE' }); toast('Google Calendar disconnected'); } catch (err) { toast(err.message, 'error'); }
+    load();
+  };
+
+  return { load, finishConnect, returning };
+})();
+
+// Privacy & data: download, delete account
+const privacy = (() => {
+  function load() {}
+
 
   $('#download-data').onclick = async () => {
     const btn = $('#download-data');
@@ -939,7 +2235,7 @@ const privacy = (() => {
         profile: mine.profile, towns: mine.towns, friends, friend_requests: requests, town_invites: invites, shared_signals: signals,
       };
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-      Object.assign(document.createElement('a'), { href: url, download: `tiny-town-${me.username}.json` }).click();
+      Object.assign(document.createElement('a'), { href: url, download: `luma-${me.username}.json` }).click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       toast(err.message, 'error');
@@ -969,7 +2265,7 @@ const privacy = (() => {
     }
   };
 
-  return { load, leave };
+  return { load };
 })();
 
 boot();

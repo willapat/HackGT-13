@@ -7,7 +7,7 @@ from backend.config import settings
 from backend.llm import complete
 from backend.models.agents import AgentDecisionInput, AgentDecisionOutput
 
-CONVO_SYSTEM = """You generate short in-town dialogue for Tiny Town characters.
+CONVO_SYSTEM = """You generate short in-town dialogue for Luma characters.
 
 HARD RULES:
 - Only use the facts and characters listed below. Everything here is real

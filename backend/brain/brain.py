@@ -72,7 +72,8 @@ def run_brain_for_town(town_id: str) -> BrainOutput | None:
         )
         if since:
             q = q.gt("created_at", since)
-        signals = q.execute().data or []
+        # A post to one town only reaches that town's brain
+        signals = [s for s in q.execute().data or [] if (s.get("value") or {}).get("town_id") in (None, town_id)]
         facts = recent_facts(db, town_id)
         candidates = find_connection_candidates(town_id, db)
         # brain_runs is readable by every town member, so store ids only, never raw signal values.

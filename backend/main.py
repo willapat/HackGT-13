@@ -1,36 +1,51 @@
 from contextlib import asynccontextmanager
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from postgrest.exceptions import APIError
 
 from backend.loops.agent_loop import agent_loop
 from backend.loops.brain_loop import brain_loop
-from backend.routes import demo, events, friends, invites, me, signals, towns
+from backend.loops.calendar_loop import calendar_loop
+from backend.routes import calendar, demo, events, friends, invites, me, signals, towns
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
 
-    if os.getenv("DISABLE_LOOPS") == "1":
-        yield
-        return
-    brain_task = asyncio.create_task(brain_loop())
-    agent_task = asyncio.create_task(agent_loop())
+    tasks = []
+    # Calendar sync isn't AI, so it runs even with DISABLE_LOOPS=1 (DISABLE_CALENDAR_SYNC=1 turns it off).
+    if os.getenv("DISABLE_CALENDAR_SYNC") != "1":
+        tasks.append(asyncio.create_task(calendar_loop()))
+    if os.getenv("DISABLE_LOOPS") != "1":
+        tasks += [asyncio.create_task(brain_loop()), asyncio.create_task(agent_loop())]
     yield
-    brain_task.cancel()
-    agent_task.cancel()
+    for task in tasks:
+        task.cancel()
 
 
-app = FastAPI(title="Tiny Town", lifespan=lifespan)
+app = FastAPI(title="Luma", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (me, friends, invites, signals, towns, events, demo):
+
+
+# Database errors come back as JSON (with CORS headers) instead of a bare 500 the browser reports as
+# "can't reach the backend". A missing column means a migration hasn't been applied yet.
+@app.exception_handler(APIError)
+def database_error(request: Request, exc: APIError):
+    if exc.code in ("PGRST204", "42703"):
+        return JSONResponse(status_code=503, content={"detail": "The database is missing a column this needs. Apply the latest migration (it lands when the branch merges to main)."})
+    return JSONResponse(status_code=502, content={"detail": f"Database error: {exc.message}"})
+
+
+for module in (me, calendar, friends, invites, signals, towns, events, demo):
     app.include_router(module.router)
 
 

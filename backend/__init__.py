@@ -1,1 +1,1 @@
-"""Tiny Town backend process."""
+"""Luma backend process."""

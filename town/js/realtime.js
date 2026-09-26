@@ -4,7 +4,7 @@
 
 import { placementsMatchScreen } from './sky.js';
 
-const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
+const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownBackend(api) {
   const {

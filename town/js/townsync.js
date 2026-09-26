@@ -5,7 +5,6 @@ import { api } from '../../frontend/shared/session.js';
 import { placementsMatchScreen } from './sky.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
-const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownSync(townId, initial, t) {
   const placed = {}; // user_id -> action|building|depart already drawn
@@ -19,6 +18,8 @@ export function startTownSync(townId, initial, t) {
     return `${row.action || ''}|${target.building_id || ''}|${String(target.depart_at || '').slice(0, 16)}|${row.x},${row.y}`;
   }
 
+  // The city and residents are built once, when you open the town; a friend moving in or the town regrowing shows
+  // up next time you enter it. Moves, moods, chats and house names below update live.
   function applyTown(data) {
     for (const row of data.agents || []) {
       const f = t.friends[row.user_id];
@@ -37,6 +38,11 @@ export function startTownSync(townId, initial, t) {
     for (const m of data.members || []) {
       const f = t.friends[m.user_id];
       if (!f) continue;
+      const houseName = m.home?.name || `${f.name}'s house`; // someone renamed their house: relabel it for everyone
+      if (f.home && f.home.name !== houseName) {
+        f.home.name = houseName;
+        if (f.homeLabel) f.homeLabel.el.textContent = houseName;
+      }
       const status = m.activity || m.mood;
       if (status && f.status !== status) t.setStatus(f.id, status);
       const kind = m.mood === 'sunny' || m.mood === 'rainbow' ? 'party' : m.mood === 'rainy' || m.mood === 'stormy' ? 'rain' : null;

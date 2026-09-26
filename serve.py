@@ -51,5 +51,5 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    print(f"Tiny Town: http://localhost:{port}/frontend/  (3D town: /town/)")
+    print(f"Luma: http://localhost:{port}/frontend/  (3D town: /town/)")
     http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

@@ -261,6 +261,7 @@ function stepCalendar(f) {
   const seg = segment(f.calendar, nowM, f.home);
   f.busy = true;
   f.nextThink = Infinity;
+  f.destId = seg.destId === 'home' ? `house:${f.id}` : seg.destId;
   if (seg.phase !== 'walk') {
     f.trailing = false;
     const key = `at:${seg.destId}`;
@@ -359,6 +360,7 @@ function onDoor(row, dest) {
 }
 
 export function placeAgent(f, row) {
+  f.destId = row.target?.building_id || `house:${f.id}`; // for the building card: who's here / on the way
   f.holdCalendar = row.target?.by === 'user';
   // The clock paints calendar trips. A late agents row used to drop them on the door.
   if (f.calendar?.length && !f.holdCalendar) return;

@@ -23,12 +23,25 @@ class Settings(BaseSettings):
     BRAIN_MODEL: str = "google/gemini-2.5-flash"
     AGENT_MODEL: str = "google/gemini-2.5-flash-lite"
     ACTION_AGENT_MODEL: str = "google/gemini-2.5-flash"
+    # xAI (Grok) key (xai-...). When set, every AI feature uses xAI instead of OpenRouter (see backend/llm.py).
+    XAI_API_KEY: str = ""
+    XAI_MODEL: str = "grok-4.6"  # town brain, town generation
+    XAI_FAST_MODEL: str = "grok-4.20-0309-non-reasoning"  # post ideas, character agents and chats (AGENT_MODEL calls); ~2s
+    # How long Grok thinks before answering: "low" keeps replies fast (a few seconds), "high" is slower. Blank = model default.
+    XAI_REASONING_EFFORT: str = "low"
+    # Optional: "xai" or "openrouter" to force one. Empty = xAI if its key is set, else OpenRouter.
+    LLM_PROVIDER: str = ""
     BRAIN_LOOP_INTERVAL_SECONDS: float = 10
     AGENT_LOOP_INTERVAL_SECONDS: float = 2
     DEMO_TOWN_ID: str = ""
     MIN_COMMITMENT_SECONDS: int = 30
     # Optional ISO time the town treats as "now" at process start (then advances). Empty = real clock.
     TOWN_CLOCK: str = ""
+    # Google Calendar sync: the same OAuth client as Supabase's Google provider (needed to refresh tokens).
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    CALENDAR_SYNC_INTERVAL_SECONDS: float = 300
+    CALENDAR_SYNC_DAYS: int = 7
 
 
 @lru_cache

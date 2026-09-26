@@ -1,4 +1,4 @@
-// Tiny Town 3D: loads the models, builds the town, spawns everyone, and runs the frame loop.
+// Luma 3D town: loads the models, builds the town, spawns everyone, and runs the frame loop.
 // A real town (?town=<id>) follows the database; otherwise the demo town runs scripted or via the demo backend.
 import * as THREE from 'three';
 import { startTownBackend } from './realtime.js';
@@ -13,6 +13,7 @@ import { EXTRA_MODELS, FRIENDS, PLACES, STADIUM, TOWN, TOWN_ID, townApi } from '
 import { loadAll } from './models.js';
 import { updateOcclusion } from './occlusion.js';
 import { renderResidents, renderSchedules } from './panels.js';
+import './buildings.js'; // the building card (click a place's or house's name)
 import { friends, placeAgent, say, setCalendars, spawnFriends, stepFriend, syncTrail, think, walkTo } from './people.js';
 import { addStreetLamps, applyTownTime, lightWindows, patchWeather, updateSky, wireSkyControls } from './sky.js';
 import { animated, renderer, scene } from './stage.js';
@@ -60,11 +61,11 @@ const allModels = [
 ];
 // Match the label to the server clock while the city loads, before the first frame
 // can show the laptop's time.
-fetch(`${window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000'}/demo/clock`)
+fetch(`${window.LUMA_BACKEND || 'http://127.0.0.1:8000'}/demo/clock`)
   .then((r) => (r.ok ? r.json() : null))
   .then((data) => { if (data) applyTownTime(data.town_time, data.mode, 'boot'); })
   .catch(() => {});
-logFeed('Loading city…');
+logFeed('Loading cityâ€¦');
 await loadAll(allModels);
 buildCity();
 addStreetLamps();

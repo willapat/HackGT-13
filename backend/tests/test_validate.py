@@ -112,6 +112,15 @@ def test_hidden_signal_never_leaks_to_town_visible_output():
     assert out.news == [] and out.quest_candidates == []
 
 
+def test_private_post_changes_the_mood_but_shows_nothing_written():
+    secret = "I bombed my midterm and feel awful"
+    signals = [{"user_id": "jordan", "value": {"text": secret, "audience": "private", "visibility": "mood"}}]
+    out = apply_visibility(_brain_output(secret), signals, [JORDAN_PREV, SAM_PREV])
+    assert out.member_states[0].mood.value == "stormy"  # the feeling shows on the character
+    assert out.member_states[0].activity == JORDAN_PREV.get("activity")  # but not "crying at home"
+    assert out.facts == [] and out.news == [] and out.quest_candidates == []
+
+
 def test_vague_signal_blurs_state():
     signals = [{"user_id": "jordan", "value": {"visibility": "vague"}}]
     out = apply_visibility(_brain_output("specifics"), signals, [JORDAN_PREV, SAM_PREV])

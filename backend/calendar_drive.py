@@ -5,7 +5,7 @@ This is not an LLM decision. The times and places are what the person shared.
 
 from datetime import datetime, timedelta
 
-from backend.db import iso_in, now_iso, parse_ts
+from backend.db import iso_in, now_iso, parse_ts, writer
 from backend.writer import stamp
 from backend.models.enums import AgentAction
 from backend.town_map import buildings, house_building_id
@@ -293,6 +293,10 @@ def _apply_placement(db, town_id: str, user_id: str, change: dict) -> dict | Non
             raise
         print(f"[calendar] {user_id}: {exc}", flush=True)
         return None
+    dest = (change.get("target") or {}).get("building_id")
+    # Logged like any other move, so the building card's "earlier today" includes calendar trips
+    db.table("agent_actions").insert({"town_id": town_id, "user_id": user_id, "action": change["action"], "written_by": writer("calendar"),
+                                      "details": {"by": "calendar", "target_building_id": dest, "reasoning": reason}}).execute()
     return {"user_id": user_id, "action": change["action"], "target": change["target"], "reason": reason}
 
 

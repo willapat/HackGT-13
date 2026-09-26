@@ -2,11 +2,18 @@
 
 from datetime import datetime, timedelta, timezone
 import threading
+from uuid import uuid4
 
 from supabase import Client, create_client
 
 from backend.config import settings
 from backend.writer import stamp
+
+def writer(source: str) -> str:
+    """A fresh agents.written_by value. The database rejects any agents update that doesn't set a new one
+    (trigger agents_require_writer); the prefix says which code path wrote the row."""
+    return f"{source}:{uuid4().hex[:12]}"
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -50,11 +57,12 @@ def towns_with_unprocessed_signals(db) -> list[str]:
         by_town.setdefault(m["town_id"], []).append(m["user_id"])
     due = []
     for town_id, user_ids in by_town.items():
-        q = db.table("signals").select("id").in_("user_id", user_ids).limit(1)
+        q = db.table("signals").select("value").in_("user_id", user_ids).limit(50)
         since = last_brain_run_at(db, town_id)
         if since:
             q = q.gt("created_at", since)
-        if q.execute().data:
+        # A post scoped to another town doesn't make this one due
+        if any((r.get("value") or {}).get("town_id") in (None, town_id) for r in q.execute().data or []):
             due.append(town_id)
     return due
 
