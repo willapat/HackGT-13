@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Luma mark: a street lamp whose post and lit sidewalk draw an L, with two friends meeting in its light -->
+  <defs>
+    <linearGradient id="luma-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a6dff"/>
+      <stop offset=".52" stop-color="#7a5cff"/>
+      <stop offset="1" stop-color="#ff6b7a"/>
+    </linearGradient>
+    <linearGradient id="luma-beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe29a" stop-opacity=".85"/>
+      <stop offset="1" stop-color="#ffe29a" stop-opacity=".12"/>
+    </linearGradient>
+    <radialGradient id="luma-halo">
+      <stop offset="0" stop-color="#fff3c4" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#fff3c4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="32" height="32" rx="9" fill="url(#luma-bg)"/>
+  <g transform="translate(-1.6 -.4)">
+  <!-- light falling from the lamp onto the sidewalk -->
+  <path d="M15.2 9.6h3.2l8.4 14.4H12.6z" fill="url(#luma-beam)"/>
+  <!-- two friends in the light -->
+  <circle cx="17.3" cy="18.4" r="1.35" fill="#fff"/>
+  <path d="M15.5 24v-1.9a1.8 1.8 0 0 1 3.6 0V24z" fill="#fff"/>
+  <circle cx="22.3" cy="18.8" r="1.25" fill="#fff" opacity=".92"/>
+  <path d="M20.6 24v-1.6a1.7 1.7 0 0 1 3.4 0V24z" fill="#fff" opacity=".92"/>
+  <!-- the L: post and sidewalk, with a thin arm holding the lamp -->
+  <path d="M9.6 9.2a2.4 2.4 0 0 1 2.4-2.4h4.8" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M9.6 24.4V8.4" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>
+  <rect x="8" y="22.9" width="19.4" height="3.1" rx="1.55" fill="#fff"/>
+  <!-- lamp -->
+  <circle cx="16.8" cy="9.2" r="4" fill="url(#luma-halo)"/>
+  <path d="M15 6.8h3.6l-.8 2.5h-2z" fill="#fff"/>
+  <circle cx="16.8" cy="9.9" r=".9" fill="#ffc44d"/>
+  </g>
+</svg>
