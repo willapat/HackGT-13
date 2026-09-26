@@ -203,6 +203,11 @@ body:has(#me:not([hidden])) #hint { bottom: 72px; }
 #building #bld-go input::-webkit-outer-spin-button,
 #building #bld-go input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 #building #bld-go input:focus { outline: none; box-shadow: 0 2px 0 var(--accent); }
+#building #bld-go select {
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); background: transparent;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.15)); border-radius: 8px; padding: 2px 6px; cursor: pointer;
+}
+#building #bld-go select:focus { outline: none; box-shadow: 0 0 0 2px var(--accent); }
 #bld-go .mode { margin-top: 2px; color: var(--muted); font-size: 13px; font-weight: 600; }
 #building #bld-go button.go {
   width: 100%; min-height: 44px; font: inherit; font-size: 15px; font-weight: 600;

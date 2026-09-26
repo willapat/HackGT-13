@@ -191,14 +191,30 @@ $('#bld-rename').onsubmit = async (e) => {
   }
 };
 
+// Travel time in seconds (quick demo walks) or minutes (real-life pace), remembered on this device
+const UNIT_KEY = 'luma-travel-unit';
+const unitName = (unit, n) => (unit === 'min' ? (n === 1 ? 'minute' : 'minutes') : (n === 1 ? 'second' : 'seconds'));
+function syncTravelUnit() {
+  $('#bld-minutes').setAttribute('aria-label', $('#bld-unit').value === 'min' ? 'Minutes to get there' : 'Seconds to get there');
+}
+try {
+  const saved = localStorage.getItem(UNIT_KEY);
+  if (saved === 'sec' || saved === 'min') $('#bld-unit').value = saved;
+} catch { /* private mode: keep the default */ }
+syncTravelUnit();
+$('#bld-unit').onchange = () => {
+  try { localStorage.setItem(UNIT_KEY, $('#bld-unit').value); } catch { /* not saved; still used this time */ }
+  syncTravelUnit();
+};
+
 $('#bld-go').onsubmit = async (e) => {
   e.preventDefault();
   const me = friends[meId];
   if (!me || !openId) return;
-  // ponytail: the box is seconds for now (quick demo walks); back to minutes by dropping the / 60
-  const seconds = Math.round(Number($('#bld-minutes').value));
-  if (!(seconds >= 1 && seconds <= 180)) {
-    logFeed('Pick a travel time between 1 and 180 seconds.');
+  const unit = $('#bld-unit').value;
+  const amount = Math.round(Number($('#bld-minutes').value));
+  if (!(amount >= 1 && amount <= 180)) {
+    logFeed(`Pick a travel time between 1 and 180 ${unitName(unit, 2)}.`);
     return;
   }
   const here = tileOf(me);
@@ -207,9 +223,9 @@ $('#bld-go').onsubmit = async (e) => {
   try {
     await api(`/towns/${TOWN_ID}/members/me/move`, {
       method: 'POST',
-      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: seconds / 60 },
+      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: unit === 'min' ? amount : amount / 60 },
     });
-    logFeed(`You head to ${nameOf(openId)} (${seconds} sec).`);
+    logFeed(`You head to ${nameOf(openId)} (${amount} ${unitName(unit, amount)}).`);
     close();
   } catch (err) {
     logFeed(`Couldn't head there: ${err.message}`);

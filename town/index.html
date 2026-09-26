@@ -61,7 +61,11 @@
         <div class="travel">
           <label class="mins">
             <input id="bld-minutes" type="number" min="1" max="180" value="10" inputmode="numeric" aria-label="Seconds to get there" />
-            <span>sec away</span>
+            <select id="bld-unit" aria-label="Travel time unit">
+              <option value="sec">sec</option>
+              <option value="min">min</option>
+            </select>
+            <span>away</span>
           </label>
           <div class="mode">Walking</div>
         </div>
