@@ -33,7 +33,7 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Tech Stack
 
-- Rendering: Three.js with an orthographic camera + Kenney 3D kits (city buildings, roads, trees, characters), which read as isometric. Code in `patrik/3d/`. (2D Phaser prototype was tried and dropped.) SimplePoly City (Unity Asset Store) models are converted to GLB in `patrik/3d/assets/simplepoly-city/` by `patrik/3d/tools/import-unitypackage.mjs`; not wired into `main.js` yet.
+- Rendering: Three.js with an orthographic camera, which reads as isometric. Town (buildings, roads, trees, props) uses SimplePoly City (Unity Asset Store) converted to GLB in `patrik/3d/assets/simplepoly-city/` by `patrik/3d/tools/import-unitypackage.mjs`, placed at its native scale (road tile = 20 units). Characters are Kenney Mini Characters. Code in `patrik/3d/`. (2D Phaser prototype was tried and dropped.)
 - Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), Anthropic SDK. Town Brain + action agent: `claude-sonnet-4-6`. Character agents: `claude-haiku-4-5-20251001`. Two asyncio loops; no Redis/Celery.
 - Database: Supabase (Postgres + Auth + Realtime).
 
@@ -89,6 +89,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Town rebuilt on SimplePoly City; Kenney city kits removed (Kenney Mini Characters kept). Same 12x12 grid, roads and `PLACES`. Place models: library = books shop, gym = auto service, cafe = coffee shop, market = super market.
 - 2026-09-26: Added SimplePoly City (Unity Asset Store, Standard EULA) as 117 textured GLBs, converted without Unity via `patrik/3d/tools/` (three FBXLoader + gltf-transform). Team chose to commit them to the public repo despite the EULA's redistribution limits.
 - 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `patrik/3d/`.
 - 2026-09-25: `patrik/3d/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.
