@@ -43,9 +43,9 @@ When choosing between features, pick whichever does more for real-world connecti
 Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. The Supabase GitHub integration applies new migrations on `main` automatically, so **never change the schema by hand in the dashboard**. Preview locally with `supabase db push --db-url "$SUPABASE_DB_URL" --dry-run`.
 
 **Tables**
-- `profiles`: one per user, auto-created on signup. Unique `username` (how people find each other; set via `PATCH /me`), avatar (JSON of asset keys) and `interests` (text array).
-- `towns`: name, `invite_code`, and `tiles`, the town map: a 2D JSON array of asset manifest keys indexed `tiles[y][x]`. Keys: terrain (`road`, `park`, `tree`), filler buildings (`skyscraper-a`, `commercial-f`, `house-k`), and named places (`library`, `gym`, `cafe`, `market`, `park`, `downtown`; a place's tile is its location, see `backend/town_map.py`). Road pieces, facing and doors are derived from the grid, not stored. `python3 -m backend.seed_demo_map` writes the frontend's hard-coded city into `DEMO_TOWN_ID`.
-- `town_members`: who's in which town, their house position, and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
+- `profiles`: one per user, auto-created on signup. Unique `username` (how people find each other; set via `PATCH /me`), avatar (`{character, color}`) and `interests` (text array).
+- `towns`: name, `invite_code`, `tiles` and `map`. `tiles[y][x]` (any rectangular size up to 64x64) says what's on each tile: `road`, `park`, `pond`, `tree`, `stadium`, `farm`, `home`, `driveway`, `yard`, `lot` (frontend fills it procedurally), or an explicit model key (asset path without `assets/`/`.glb`). `map` holds named places `{places: {cafe: {name, model, tile, door}}}` plus scenery (`river`, `landmarks`). See `backend/town_map.py`; `python3 -m backend.seed_demo_map` writes the frontend's hard-coded city into `DEMO_TOWN_ID`.
+- `town_members`: who's in which town, their house tile (`house_x/house_y`) and `home` details (`{model, driveway, door, block}`), and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
 - `friendships`: in-town agent relationship, one row per pair (`user_a < user_b`) with `path_score`. Not the same as account friends.
 - `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
 - `brain_runs`: each town hall AI run's `input` and `output`.
@@ -94,6 +94,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Full town layout in the DB (migration `20260926000006`): tile kinds in `towns.tiles`, places + scenery in `towns.map`, homes in `town_members.home`, looks in `profiles.avatar`. Doors are stored (not derivable: the café touches two roads). Frontend still draws its hard-coded copy; it should build from `/demo/snapshot` (`tiles`, `map`, member `home`, `profiles.avatar`).
 - 2026-09-26: Login/onboarding before the map: `index.html` is the auth + friends app, the 3D map moved to `town.html`. Username is required on first login.
 - 2026-09-26: `backend/db.get_client()` is per-thread (was one cached client). Sharing one Supabase client across FastAPI's thread pool made parallel requests fail with `httpx.ReadError` (surfacing as 500s and bogus "invalid or expired token" 401s).
 - 2026-09-26: Town map lives in `towns.tiles` (no migration). Users can walk their own character to a building; clients animate from start point + time. Frontend still draws the hard-coded map; it should build from `tiles` (snapshot now returns `tiles`, agent `x`/`y`, member houses).

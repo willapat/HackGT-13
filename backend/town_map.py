@@ -1,46 +1,35 @@
-"""Town maps: `towns.tiles[y][x]` holds asset manifest keys ("road", "park", "house-c", "cafe", ...).
+"""Town maps. Layout lives in three places (see migration 20260926000006):
 
-A named place is a tile whose key is a place id below; its grid position is its location.
-Houses are `house:{user_id}` at the member's `town_members.house_x/house_y`.
-Road pieces, facing, and door tiles are derived by the frontend from the grid, not stored.
+- `towns.tiles[y][x]`: what's on each tile (road, park, pond, tree, stadium, farm, home, driveway, yard,
+  lot = frontend fills it procedurally, or an explicit building model key).
+- `towns.map.places`: named destinations, {"cafe": {"name", "tile": [x, y], "door": [x, y]}}.
+- `town_members.house_x/house_y` + `.home` ({model, driveway, door, block}): each person's house.
+
+Building ids are place ids ("cafe") and `house:{user_id}`. Doors are where characters stand when visiting.
 """
 
-PLACE_TYPES = {
-    "library": "library",
-    "gym": "gym",
-    "cafe": "cafe",
-    "market": "market",
-    "park": "park",
-    "downtown": "square",
-}
+WALKABLE = {"road", "park"}
+
+# Place ids agents know by type. A town with no places yet gets these (no coordinates) so agents still have
+# somewhere to go; any other id in towns.map.places is just type "place".
+PLACE_TYPES = {"library": "library", "gym": "gym", "cafe": "cafe", "market": "market", "park": "park", "downtown": "square"}
 
 
 def house_building_id(user_id: str) -> str:
     return f"house:{user_id}"
 
 
-def place_positions(tiles: list) -> dict[str, tuple[int, int]]:
-    """Place id → (x, y) of its first tile, row by row (multi-tile places like the park use their top-left)."""
-    out: dict[str, tuple[int, int]] = {}
-    for y, row in enumerate(tiles or []):
-        for x, key in enumerate(row):
-            if key in PLACE_TYPES:
-                out.setdefault(key, (x, y))
-    return out
-
-
-def buildings(tiles: list, members: list[dict]) -> list[dict]:
-    """Everywhere a character can go: places on this map plus members' houses, with coordinates.
-
-    A town without a map yet gets every place type (x/y None) so agents still have somewhere to go.
-    """
-    places = place_positions(tiles) if tiles else dict.fromkeys(PLACE_TYPES)
+def buildings(town_map: dict | None, members: list[dict]) -> list[dict]:
+    """Everywhere a character can go, with its tile (x, y) and door. Coordinates are None when unknown."""
+    places = (town_map or {}).get("places") or {}
     out = [
-        {"id": pid, "type": PLACE_TYPES[pid], "x": xy[0] if xy else None, "y": xy[1] if xy else None}
-        for pid, xy in places.items()
-    ]
+        {"id": pid, "type": PLACE_TYPES.get(pid, "place"), "name": p.get("name"),
+         "x": p["tile"][0], "y": p["tile"][1], "door": p.get("door")}
+        for pid, p in places.items()
+    ] or [{"id": pid, "type": t, "name": None, "x": None, "y": None, "door": None} for pid, t in PLACE_TYPES.items()]
     out += [
-        {"id": house_building_id(m["user_id"]), "type": "house", "x": m.get("house_x"), "y": m.get("house_y")}
+        {"id": house_building_id(m["user_id"]), "type": "house", "name": None,
+         "x": m.get("house_x"), "y": m.get("house_y"), "door": (m.get("home") or {}).get("door")}
         for m in members
     ]
     return out
@@ -54,10 +43,13 @@ def in_bounds(tiles: list, x: float, y: float) -> bool:
 
 
 if __name__ == "__main__":
-    tiles = [["road", "park", "park"], ["cafe", "road", "house-c"]]
-    assert place_positions(tiles) == {"park": (1, 0), "cafe": (0, 1)}
-    bs = {b["id"]: b for b in buildings(tiles, [{"user_id": "u1", "house_x": 2, "house_y": 1}])}
-    assert set(bs) == {"park", "cafe", "house:u1"} and (bs["cafe"]["x"], bs["cafe"]["y"]) == (0, 1)
-    assert len(buildings([], [])) == len(PLACE_TYPES)
+    town_map = {"places": {"cafe": {"name": "Bean There Café", "tile": [2, 1], "door": [1, 1]}}}
+    members = [{"user_id": "u1", "house_x": 0, "house_y": 2, "home": {"door": [1, 2]}}]
+    bs = {b["id"]: b for b in buildings(town_map, members)}
+    assert set(bs) == {"cafe", "house:u1"}
+    assert (bs["cafe"]["x"], bs["cafe"]["y"], bs["cafe"]["door"]) == (2, 1, [1, 1])
+    assert bs["house:u1"]["door"] == [1, 2]
+    assert len(buildings({}, [])) == len(PLACE_TYPES) and buildings(None, [])[0]["x"] is None
+    tiles = [["road", "park", "lot"], ["lot", "road", "lot"]]
     assert in_bounds(tiles, 2.5, 1.9) and not in_bounds(tiles, 3, 0) and not in_bounds(tiles, 0, 2)
     print("town_map ok")

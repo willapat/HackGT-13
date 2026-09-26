@@ -10,6 +10,12 @@ from backend.town_map import buildings, house_building_id, in_bounds
 
 router = APIRouter(prefix="/towns", tags=["towns"])
 
+
+def check_places(tiles: list, places: dict) -> None:
+    for pid, p in places.items():
+        if not all(in_bounds(tiles, *xy) for xy in (p.tile, p.door)):
+            raise HTTPException(status_code=422, detail=f"place '{pid}' is outside the town map")
+
 # After a person picks a destination, their AI character leaves them alone this long.
 USER_MOVE_HOLD_SECONDS = 600
 
@@ -24,7 +30,10 @@ def load_town(db, town_id: str) -> dict:
 @router.post("", status_code=201)
 def create_town(body: TownCreate, uid: str = Depends(current_user_id)):
     """You become its first member (and get a character) via DB triggers."""
-    rows = get_client().table("towns").insert({"name": body.name.strip(), "tiles": body.tiles, "created_by": uid}).execute().data
+    check_places(body.tiles, body.map.places)
+    rows = get_client().table("towns").insert(
+        {"name": body.name.strip(), "tiles": body.tiles, "map": body.map.model_dump(), "created_by": uid}
+    ).execute().data
     return rows[0]
 
 
@@ -56,12 +65,14 @@ def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
 
 @router.patch("/{town_id}")
 def update_town(town_id: UUID, body: TownUpdate, uid: str = Depends(current_user_id)):
-    """Rename the town or replace its tile map. Creator only."""
+    """Rename the town or replace its tiles / map. Creator only."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    if load_town(db, tid)["created_by"] != uid:
+    town = load_town(db, tid)
+    if town["created_by"] != uid:
         raise HTTPException(status_code=403, detail="only the town's creator can edit it")
     changes = body.model_dump(exclude_none=True)
+    check_places(changes.get("tiles", town["tiles"]), body.map.places if body.map else {})
     if not changes:
         raise HTTPException(status_code=422, detail="nothing to update")
     return db.table("towns").update(changes).eq("id", tid).execute().data[0]
@@ -73,10 +84,16 @@ def place_house(town_id: UUID, body: HouseUpdate, uid: str = Depends(current_use
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
     tiles = load_town(db, tid)["tiles"]
-    if tiles and not (body.house_y < len(tiles) and body.house_x < len(tiles[body.house_y])):
-        raise HTTPException(status_code=422, detail="house is outside the town map")
+    spots = [(body.house_x, body.house_y)]
+    if body.home:
+        spots += [tuple(t) for t in (body.home.driveway, body.home.door) if t]
+    if not all(in_bounds(tiles, x, y) for x, y in spots):
+        raise HTTPException(status_code=422, detail="house, driveway or door is outside the town map")
+    change = {"house_x": body.house_x, "house_y": body.house_y, "updated_at": now_iso()}
+    if body.home:
+        change["home"] = body.home.model_dump(exclude_none=True)
     row = (
-        db.table("town_members").update({"house_x": body.house_x, "house_y": body.house_y, "updated_at": now_iso()})
+        db.table("town_members").update(change)
         .eq("town_id", tid).eq("user_id", uid).execute().data[0]
     )
     db.table("agents").update({"x": body.house_x, "y": body.house_y, "updated_at": now_iso()}).eq("town_id", tid).eq(
@@ -91,18 +108,19 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
     clients animate from (x, y) starting at updated_at, so late viewers can place you mid-walk."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    tiles = load_town(db, tid)["tiles"]
+    town = load_town(db, tid)
+    tiles = town["tiles"]
     if not in_bounds(tiles, body.from_x, body.from_y):
         raise HTTPException(status_code=422, detail="from_x/from_y is outside the town map")
-    members = db.table("town_members").select("user_id, house_x, house_y").eq("town_id", tid).execute().data or []
-    dest = next((b for b in buildings(tiles, members) if b["id"] == body.building_id), None)
+    members = db.table("town_members").select("user_id, house_x, house_y, home").eq("town_id", tid).execute().data or []
+    dest = next((b for b in buildings(town.get("map"), members) if b["id"] == body.building_id), None)
     if dest is None:
         raise HTTPException(status_code=422, detail="no such building in this town")
     if dest["x"] is None:
         raise HTTPException(status_code=409, detail="that building has no position yet (no map, or house not placed)")
     home = body.building_id == house_building_id(uid)
     action = AgentAction.go_home.value if home else AgentAction.walk_to.value
-    target = {"building_id": dest["id"], "x": dest["x"], "y": dest["y"], "by": "user"}
+    target = {"building_id": dest["id"], "x": dest["x"], "y": dest["y"], "door": dest["door"], "by": "user"}
     row = (
         db.table("agents").update(
             {"x": body.from_x, "y": body.from_y, "action": action, "target": target,
