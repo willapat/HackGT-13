@@ -4,7 +4,7 @@
 import { api } from '../../frontend/shared/session.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
-const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
+const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownSync(townId, initial, t) {
   const applied = {}; // user_id -> agents.updated_at already drawn

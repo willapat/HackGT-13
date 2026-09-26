@@ -7,6 +7,7 @@ from backend.db import get_client, iso_in, now_iso
 from backend.identity import check_identity, suggest_color, town_identities
 from backend.models.api import EventCreate, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
+from backend.routes.me import plan_town_handoff
 from backend.calendar_drive import destination_for, estimate_travel_minutes
 from backend.schedules import local_now
 from backend.town_map import buildings, house_building_id, in_bounds
@@ -199,8 +200,19 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
 
 @router.delete("/{town_id}/members/me", status_code=204)
 def leave_town(town_id: UUID, uid: str = Depends(current_user_id)):
+    """Leave a town (your character goes with you). If you created it, it passes to the longest-standing
+    member so someone can still invite people; if you were the last one there, the town is deleted."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
+    town = db.table("towns").select("created_by").eq("id", tid).limit(1).execute().data
+    if town and town[0]["created_by"] == uid:
+        others = (db.table("town_members").select("town_id, user_id, joined_at").eq("town_id", tid)
+                  .neq("user_id", uid).execute().data or [])
+        transfers, deletes = plan_town_handoff([tid], others)
+        if deletes:
+            db.table("towns").delete().eq("id", tid).execute()  # cascades to members, agents, events
+            return
+        db.table("towns").update({"created_by": transfers[tid]}).eq("id", tid).execute()
     db.table("town_members").delete().eq("town_id", tid).eq("user_id", uid).execute()
 
 

@@ -1,4 +1,4 @@
-"""Seed the current Tiny Town members with three days of calendars in DEMO_TOWN_ID.
+"""Seed the current Luma members with three days of calendars in DEMO_TOWN_ID.
 
     py -3 -m backend.scripts.seed_demo_schedules
 

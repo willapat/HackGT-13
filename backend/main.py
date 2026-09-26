@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from postgrest.exceptions import APIError
 
 from backend.loops.agent_loop import agent_loop
 from backend.loops.brain_loop import brain_loop
@@ -23,13 +25,24 @@ async def lifespan(app: FastAPI):
     agent_task.cancel()
 
 
-app = FastAPI(title="Tiny Town", lifespan=lifespan)
+app = FastAPI(title="Luma", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Database errors come back as JSON (with CORS headers) instead of a bare 500 the browser reports as
+# "can't reach the backend". A missing column means a migration hasn't been applied yet.
+@app.exception_handler(APIError)
+def database_error(request: Request, exc: APIError):
+    if exc.code in ("PGRST204", "42703"):
+        return JSONResponse(status_code=503, content={"detail": "The database is missing a column this needs. Apply the latest migration (it lands when the branch merges to main)."})
+    return JSONResponse(status_code=502, content={"detail": f"Database error: {exc.message}"})
+
+
 for module in (me, friends, invites, signals, towns, events, demo):
     app.include_router(module.router)
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tiny Town</title>
+  <title>Luma</title>
   <script>
     // Apply the saved theme before first paint so dark mode doesn't flash light
     try {
@@ -19,23 +19,30 @@
 <body>
   <!-- Top bar, shown once signed in -->
   <header class="appbar" id="appbar" hidden>
-    <a class="logo" href="#/">Tiny Town</a>
-    <div class="spacer"></div>
-    <div class="menu-wrap">
+    <a class="logo" href="#/" aria-label="Luma home">
+      <span class="mark"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg></span>
+      <span class="wordmark">Luma</span>
+    </a>
+    <nav class="navtabs" aria-label="Main">
+      <a href="#/" data-view="home" title="Feed"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg><span>Feed</span></a>
+      <a href="#/friends" data-view="friends" title="Friends"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14a6.5 6.5 0 0 1 3.5 6"/></svg><span>Friends</span></a>
+      <a href="#/inbox" data-view="inbox" title="Inbox"><span class="tab-icon"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span class="badge dot-badge" id="nav-inbox-badge" hidden></span></span><span>Inbox</span></a>
+      <a href="#/profile" data-view="profile" title="Profile"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Profile</span></a>
+    </nav>
+    <div class="end menu-wrap">
       <button class="avatar-btn" id="account-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu" aria-label="Account menu">
         <span class="avatar sm" id="bar-avatar"></span>
       </button>
       <div class="menu" id="account-menu" role="menu" hidden>
-        <div class="menu-head">
-          <div class="name" id="menu-name"></div>
-          <div class="handle" id="menu-handle"></div>
-        </div>
-        <button role="menuitem" data-go="#/">Home</button>
-        <button role="menuitem" data-go="#/settings/profile">Profile</button>
-        <button role="menuitem" data-go="#/settings/account">Settings</button>
-        <button role="menuitem" data-go="#/help">Help</button>
-        <hr />
-        <button role="menuitem" id="menu-sign-out">Sign out</button>
+        <button class="menu-head" role="menuitem" data-go="#/settings/profile">
+          <span class="avatar xs" id="menu-avatar"></span>
+          <span><span class="name" id="menu-name"></span><br /><span class="handle" id="menu-handle"></span></span>
+        </button>
+        <button role="menuitem" data-go="#/settings/character"><span class="well"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg></span>Your character</button>
+        <button role="menuitem" data-go="#/settings/account"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg></span>Settings &amp; privacy</button>
+        <button role="menuitem" data-go="#/settings/appearance"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></span>Display</button>
+        <button role="menuitem" data-go="#/help"><span class="well"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7"/><path d="M12 17h.01"/></svg></span>Help</button>
+        <button role="menuitem" id="menu-sign-out"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg></span>Sign out</button>
       </div>
     </div>
   </header>
@@ -43,7 +50,8 @@
   <div class="page">
     <main class="shell" id="shell">
       <header class="brand" id="brand">
-        <h1>Tiny Town</h1>
+        <span class="mark lg"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg></span>
+        <h1 class="wordmark">Luma</h1>
         <p>A little city full of your real friends</p>
       </header>
 
@@ -95,64 +103,221 @@
         </form>
       </section>
 
-      <!-- Home: profile, towns, friends -->
+      <!-- Feed: your towns, share an update, what's happening -->
       <section id="view-home" hidden>
-        <div class="shell">
-          <div class="card me">
-            <div class="avatar" id="me-avatar"></div>
-            <div class="who">
-              <div class="name" id="me-name"></div>
-              <div class="handle" id="me-handle"></div>
-              <div class="chips" id="me-interests" style="margin-top:6px"></div>
+        <div class="feed-layout">
+          <div class="feed-main">
+            <div class="card composer" id="composer">
+              <div class="composer-top">
+                <div class="avatar sm" id="composer-avatar"></div>
+                <button type="button" class="composer-open" id="composer-open"></button>
+              </div>
+              <div class="status-control"></div>
+              <form id="composer-form" hidden novalidate>
+                <textarea id="composer-text" rows="3" maxlength="280" placeholder="Got good news, a rough week, a new obsession? Your towns notice what you share."></textarea>
+                <div class="chips mood-chips" id="composer-moods" role="radiogroup" aria-label="How's it going">
+                  <button type="button" role="radio" aria-checked="false" data-type="news" data-mood="good_news">🎉 Good news</button>
+                  <button type="button" role="radio" aria-checked="false" data-type="mood" data-mood="busy_week">📚 Busy week</button>
+                  <button type="button" role="radio" aria-checked="false" data-type="mood" data-mood="rough_week">🌧️ Rough week</button>
+                  <button type="button" role="radio" aria-checked="false" data-type="availability" data-mood="free_to_hang">🙌 Free to hang</button>
+                </div>
+                <div class="composer-foot">
+                  <label class="inline">Who sees it
+                    <select id="composer-visibility">
+                      <option value="full">Friends in my towns</option>
+                      <option value="vague">Keep it vague</option>
+                      <option value="hidden">Private (nothing shown)</option>
+                    </select>
+                  </label>
+                  <span class="spacer"></span>
+                  <button type="button" id="composer-cancel">Cancel</button>
+                  <button type="submit" class="primary" id="composer-share">Share</button>
+                </div>
+              </form>
             </div>
-            <button class="small" data-go="#/settings/profile">Edit profile</button>
-          </div>
 
-          <div class="card">
-            <div class="section">
-              <h3>Your towns</h3>
-              <ul class="people" id="towns"></ul>
-              <p class="empty" id="no-towns">None yet. When a friend invites you to their town, it shows up here.</p>
-            </div>
-            <div class="section" id="invites-section" hidden>
-              <h3>Town invites <span class="badge" id="invite-count"></span></h3>
-              <ul class="people" id="invites"></ul>
-            </div>
-            <div class="section">
-              <h3>Join with an invite code</h3>
-              <form class="row" id="join-form" novalidate>
-                <input id="join-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="invite code" />
+            <div class="card">
+              <div class="card-head">
+                <h3>Your towns</h3>
+                <button type="button" class="link" id="join-toggle">Join with a code</button>
+              </div>
+              <form class="row" id="join-form" hidden novalidate>
+                <input id="join-code" class="pill" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="Invite code from a friend" />
                 <button class="primary" type="submit">Join</button>
               </form>
               <p class="msg" id="join-msg" hidden></p>
+              <div class="town-strip" id="town-cards"></div>
+              <p class="empty" id="no-towns">You're not in a town yet. When a friend invites you, it shows up in your <a href="#/inbox">Inbox</a>.</p>
+            </div>
+
+            <div id="feed" class="feed"></div>
+            <div class="card empty-state" id="feed-empty" hidden>
+              <div class="empty-art">✨</div>
+              <h2>It's quiet in town</h2>
+              <p class="sub">When friends share news or their characters bump into each other, it shows up here. Share something to get things going.</p>
             </div>
           </div>
 
+          <aside class="rail">
+            <div class="card">
+              <h3>Today in your towns</h3>
+              <ul class="today" id="today"></ul>
+              <p class="empty" id="no-today">Nothing on anyone's calendar in the next day.</p>
+            </div>
+            <div class="card" id="free-section" hidden>
+              <h3><span class="status-dot free"></span>Free now</h3>
+              <ul class="people" id="free-now"></ul>
+            </div>
+            <div class="card" id="reconnect-section" hidden>
+              <h3>Catch up with</h3>
+              <ul class="people" id="reconnect"></ul>
+            </div>
+            <a class="card rail-link" href="#/inbox" id="rail-inbox" hidden>
+              <span class="well accent"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span>
+              <span><b id="rail-inbox-title"></b><br /><span class="handle">Open your inbox</span></span>
+            </a>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Friends -->
+      <section id="view-friends" hidden>
+        <div class="shell">
           <div class="card">
-            <div class="section">
-              <h3>Add a friend</h3>
-              <form class="row" id="search-form" novalidate>
-                <div class="at-field" style="flex:1"><span>@</span><input id="search-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="their username" /></div>
-                <button class="primary" type="submit">Search</button>
-              </form>
-              <p class="msg" id="search-msg" hidden></p>
-              <ul class="people" id="search-results" style="margin-top:10px"></ul>
-            </div>
+            <h3>Add a friend</h3>
+            <form class="row" id="search-form" novalidate>
+              <div class="at-field pill" style="flex:1"><span>@</span><input id="search-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="Search by username" /></div>
+              <button class="primary" type="submit">Search</button>
+            </form>
+            <p class="msg" id="search-msg" hidden></p>
+            <ul class="people" id="search-results" style="margin-top:10px"></ul>
+          </div>
+          <div class="card">
+            <h3>Friends <span class="count" id="friend-count"></span></h3>
+            <input class="filter" id="friend-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
+            <ul class="people scroll" id="friends"></ul>
+            <p class="empty" id="no-friends">No friends yet. Search for someone's username above.</p>
+            <p class="empty" id="no-matches" hidden>No friends match that.</p>
+          </div>
+          <div class="card" id="outgoing-section" hidden>
+            <h3>Sent requests</h3>
+            <ul class="people" id="outgoing"></ul>
+          </div>
+        </div>
+      </section>
 
-            <div class="section" id="requests-section">
-              <h3>Friend requests <span class="badge" id="request-count" hidden></span></h3>
-              <ul class="people" id="incoming"></ul>
-              <ul class="people" id="outgoing" style="margin-top:8px"></ul>
-              <p class="empty" id="no-requests">No pending requests.</p>
-            </div>
+      <!-- Inbox: everything waiting on you -->
+      <section id="view-inbox" hidden>
+        <div class="shell">
+          <div class="card" id="plans-section" hidden>
+            <h3>Plans waiting on you <span class="badge" id="plan-count"></span></h3>
+            <p class="sub">Suggested in your towns. Nothing happens unless everyone says yes and someone approves the plan.</p>
+            <div class="plans" id="plans"></div>
+          </div>
+          <div class="card" id="invites-section" hidden>
+            <h3>Town invites <span class="badge" id="invite-count"></span></h3>
+            <ul class="people" id="invites"></ul>
+          </div>
+          <div class="card" id="requests-section" hidden>
+            <h3>Friend requests <span class="badge" id="request-count"></span></h3>
+            <ul class="people" id="incoming"></ul>
+          </div>
+          <div class="card empty-state" id="inbox-empty" hidden>
+            <div class="empty-art">📬</div>
+            <h2>You're all caught up</h2>
+            <p class="sub">Plans, town invites and friend requests land here.</p>
+          </div>
+        </div>
+      </section>
 
-            <div class="section">
-              <h3>Friends <span class="count" id="friend-count"></span></h3>
-              <input class="filter" id="friend-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
-              <ul class="people scroll" id="friends"></ul>
-              <p class="empty" id="no-friends">No friends yet. Search for someone's username above.</p>
-              <p class="empty" id="no-matches" hidden>No friends match that.</p>
+      <!-- Profile -->
+      <section id="view-profile" hidden>
+        <div class="shell">
+          <div class="card profile-card">
+            <div class="cover"></div>
+            <div class="me">
+              <div class="avatar-wrap">
+                <div class="avatar lg" id="me-avatar"></div>
+                <button type="button" class="photo-edit" data-photo-pick aria-label="Change profile photo"><svg class="i" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+              </div>
+              <div class="who">
+                <div class="name" id="me-name"></div>
+                <div class="handle" id="me-handle"></div>
+              </div>
+              <button class="small" data-go="#/settings/profile"><svg class="i" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit profile</button>
             </div>
+            <div class="profile-body">
+              <div class="status-control"></div>
+              <p class="bio" id="me-bio"></p>
+              <a class="bio-add" href="#/settings/profile" id="me-bio-add">+ Add a bio</a>
+              <div class="stats"><span><b id="stat-towns">0</b> towns</span><span><b id="stat-friends">0</b> friends</span><span><b id="stat-hangouts">0</b> hangouts</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Highlights</h3>
+            <div class="highlights" id="highlights"></div>
+          </div>
+          <div class="card" id="closest-section" hidden>
+            <h3>Your people</h3>
+            <p class="sub">Who you cross paths with most, in town and in real life.</p>
+            <ul class="people" id="closest"></ul>
+          </div>
+          <div class="card">
+            <h3>Interests</h3>
+            <div class="chips" id="me-interests"></div>
+            <p class="empty" id="no-interests">Add a few interests so your towns can spot what you have in common. <a href="#/settings/profile">Add interests</a></p>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Your towns</h3>
+              <a href="#/settings/towns">Name &amp; color</a>
+            </div>
+            <ul class="people" id="towns"></ul>
+            <p class="empty" id="profile-no-towns">Not in any towns yet.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Someone else's profile (#/u/<id>): what friends and townmates can see -->
+      <section id="view-person" hidden>
+        <div class="shell">
+          <div class="card profile-card">
+            <div class="cover" id="p-cover"></div>
+            <div class="me">
+              <div class="avatar lg" id="p-avatar"></div>
+              <div class="who">
+                <div class="name" id="p-name"></div>
+                <div class="handle" id="p-handle"></div>
+              </div>
+              <div class="p-actions" id="p-actions"></div>
+            </div>
+            <div class="profile-body">
+              <div id="p-status"></div>
+              <p class="bio" id="p-bio"></p>
+              <div class="stats" id="p-stats"></div>
+            </div>
+          </div>
+          <div class="card" id="p-you-card" hidden>
+            <h3>You two</h3>
+            <div class="you-two"><span id="p-you-text"></span><div class="bond"><span id="p-you-bar"></span></div></div>
+            <p class="private-note" style="margin:10px 0 0">🔒 Only you see this.</p>
+          </div>
+          <div class="card" id="p-interests-card" hidden>
+            <h3>Interests</h3>
+            <div class="chips" id="p-interests"></div>
+          </div>
+          <div class="card" id="p-towns-card" hidden>
+            <h3>Towns you share</h3>
+            <ul class="people" id="p-towns"></ul>
+          </div>
+          <div class="card" id="p-mutual-card" hidden>
+            <h3>Mutual friends <span class="count" id="p-mutual-count"></span></h3>
+            <ul class="people" id="p-mutual"></ul>
+          </div>
+          <div class="card empty-state" id="p-stranger" hidden>
+            <div class="empty-art">🔒</div>
+            <h2 id="p-stranger-title"></h2>
+            <p class="sub">Profiles are for friends and people you share a town with.</p>
           </div>
         </div>
       </section>
@@ -161,12 +326,13 @@
       <section id="view-settings" hidden>
         <div class="settings">
           <nav class="card" aria-label="Settings sections">
-            <a href="#/settings/profile" data-pane="profile">Profile</a>
-            <a href="#/settings/character" data-pane="character">Your character</a>
-            <a href="#/settings/towns" data-pane="towns">Towns</a>
-            <a href="#/settings/account" data-pane="account">Account</a>
-            <a href="#/settings/appearance" data-pane="appearance">Appearance</a>
-            <a href="#/settings/privacy" data-pane="privacy">Privacy &amp; data</a>
+            <div class="nav-title">Settings</div>
+            <a href="#/settings/profile" data-pane="profile"><span class="well"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>Profile</a>
+            <a href="#/settings/character" data-pane="character"><span class="well"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg></span>Your character</a>
+            <a href="#/settings/towns" data-pane="towns"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V8l6-4v17"/><path d="M11 21V10l8 3v8"/></svg></span>Towns</a>
+            <a href="#/settings/account" data-pane="account"><span class="well"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>Account</a>
+            <a href="#/settings/appearance" data-pane="appearance"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg></span>Appearance</a>
+            <a href="#/settings/privacy" data-pane="privacy"><span class="well"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg></span>Privacy &amp; data</a>
           </nav>
 
           <div>
@@ -175,6 +341,17 @@
               <form class="card" id="profile-form" novalidate>
                 <h2>Profile</h2>
                 <p class="sub">What your friends see when they find you.</p>
+                <div class="photo-row">
+                  <div class="avatar lg" id="photo-preview"></div>
+                  <div>
+                    <div class="k">Profile photo</div>
+                    <div class="hint">Friends and townmates see it on your avatar. It's cropped to a square.</div>
+                    <div class="actions-row" style="justify-content:flex-start;margin-top:10px">
+                      <button type="button" class="small primary" data-photo-pick>Upload photo</button>
+                      <button type="button" class="small danger" id="photo-remove">Remove</button>
+                    </div>
+                  </div>
+                </div>
                 <div class="field-grid">
                   <label>Name
                     <input id="set-name" maxlength="50" autocomplete="name" />
@@ -185,6 +362,9 @@
                     <span class="hint" id="set-username-hint"></span>
                   </label>
                 </div>
+                <label>Bio <span class="hint" id="set-bio-count"></span>
+                  <textarea id="set-bio" rows="2" maxlength="160" placeholder="A line about you: what you're into, what you're up to this semester…"></textarea>
+                </label>
                 <label>Interests <span class="hint">(helps the town notice what you have in common; press Enter to add)</span>
                   <div class="chip-input" id="interests-box">
                     <input id="interest-input" maxlength="40" placeholder="climbing, jazz, board games…" autocomplete="off" />
@@ -193,7 +373,7 @@
                 <h3 style="margin-top:6px">Preview</h3>
                 <div class="preview-row">
                   <div class="avatar sm" id="preview-avatar"></div>
-                  <div><div class="name" id="preview-name"></div><div class="handle" id="preview-handle"></div></div>
+                  <div><div class="name" id="preview-name"></div><div class="handle" id="preview-handle"></div><div class="bio" id="preview-bio"></div></div>
                 </div>
                 <p class="msg" id="profile-msg" hidden></p>
                 <div class="actions-row" style="margin-top:16px">
@@ -308,7 +488,7 @@
             <div class="pane" data-pane="privacy" hidden>
               <div class="card">
                 <h2>What friends can see</h2>
-                <p class="sub">Tiny Town only shows what you choose to share, and never makes things up about you.</p>
+                <p class="sub">Luma only shows what you choose to share, and never makes things up about you.</p>
                 <ul class="plain">
                   <li><b>Friends</b> see your name, @username, character and interests.</li>
                   <li><b>People in your towns</b> also see the name and color you picked there, your house, and your character walking around.</li>
@@ -337,10 +517,10 @@
         <div class="shell">
           <div class="card">
             <h2>Help</h2>
-            <p class="sub">Tiny Town is a little isometric city where every character is one of your real friends. The town notices what's going on in friends' lives (only what they share) and suggests real-world ways to show up for each other.</p>
+            <p class="sub">Luma is a little isometric town where every character is one of your real friends. The town notices what's going on in friends' lives (only what they share) and suggests real-world ways to show up for each other.</p>
             <details open>
               <summary>How do friends find me?</summary>
-              <p>By your @username. Share it with them, or search for theirs on the home page. Nobody can search by email.</p>
+              <p>By your @username. Share it with them, or search for theirs in the Friends tab. Nobody can search by email.</p>
             </details>
             <details>
               <summary>How do I join a town?</summary>
@@ -360,7 +540,7 @@
             </details>
             <details>
               <summary>How do I leave a town or delete my account?</summary>
-              <p>Both are in <a href="#/settings/privacy">Privacy &amp; data</a>.</p>
+              <p>Leave a town from <a href="#/profile">your profile</a> or <a href="#/settings/towns">Settings → Towns</a>. If you created it, it passes to whoever has been there longest. Deleting your account is in <a href="#/settings/privacy">Privacy &amp; data</a>.</p>
             </details>
           </div>
           <div class="card">
@@ -408,6 +588,7 @@
       </div>
     </form>
   </dialog>
+  <input type="file" id="photo-input" accept="image/jpeg,image/png,image/webp" hidden />
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <script src="lib/supabase.js"></script>

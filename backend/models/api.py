@@ -1,5 +1,6 @@
 """Request bodies for the REST API. Responses are the Supabase rows as-is."""
 
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -16,6 +17,7 @@ class ProfileUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=50)
     avatar: dict | None = None  # asset manifest keys
     interests: list[str] | None = Field(default=None, max_length=30)
+    bio: str | None = Field(default=None, max_length=160)
 
 
 Tile = Annotated[list[int], Field(min_length=2, max_length=2)]  # [x, y]
@@ -105,6 +107,13 @@ class SignalIn(BaseModel):
     source: str = Field(min_length=1, max_length=40)  # 'manual', 'calendar', 'music', ...
     type: str = Field(min_length=1, max_length=40)
     value: dict  # may include "visibility": "full" | "vague" | "hidden"
+
+
+class StatusIn(BaseModel):
+    """Set or clear your free/busy status. `until` is required when setting one."""
+
+    status: Literal["free", "busy"] | None = None
+    until: datetime | None = None
 
 
 class ClockIn(BaseModel):

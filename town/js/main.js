@@ -1,4 +1,4 @@
-// Tiny Town 3D: loads the models, builds the town, spawns everyone, and runs the frame loop.
+// Luma 3D town: loads the models, builds the town, spawns everyone, and runs the frame loop.
 // A real town (?town=<id>) follows the database; otherwise the demo town runs scripted or via the demo backend.
 import * as THREE from 'three';
 import { startTownBackend } from './realtime.js';

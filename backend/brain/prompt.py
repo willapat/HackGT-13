@@ -2,7 +2,7 @@ import json
 
 from backend.models.brain import BrainOutput
 
-BRAIN_SYSTEM_PROMPT = """You are the Town Brain for a social app called Tiny Town. You read what real
+BRAIN_SYSTEM_PROMPT = """You are the Town Brain for a social app called Luma. You read what real
 people have explicitly chosen to share, and you decide what the town should show
 and whether any new quest (a suggestion for two or more friends to do something
 together in real life) is warranted right now.
