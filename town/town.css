@@ -44,7 +44,8 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #feed time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 .feedwrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 
-#triggers { top: 16px; right: 16px; padding: 12px; width: 250px; display: grid; gap: 6px; }
+#triggers { top: 16px; right: 16px; padding: 12px; width: 250px; max-width: calc(100vw - 32px); display: grid; gap: 6px; }
+#triggers > * { min-width: 0; }
 #triggers button, .card button { font: inherit; font-weight: 600; border: none; background: var(--soft); color: var(--ink);
   border-radius: 8px; padding: 8px 12px; text-align: left; cursor: pointer; transition: background 0.12s, transform 0.08s; }
 #triggers button:hover, .card button:hover { background: var(--soft-hover); }
@@ -53,11 +54,11 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #triggers h2 + .sky-row { margin-top: -2px; }
 .sky-row { display: flex; gap: 6px; align-items: center; }
 .sky-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
-#clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 88px; text-align: right; }
+#clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 0; flex: 0 1 auto; text-align: right; overflow: hidden; text-overflow: ellipsis; }
 #town-date { font-size: 12px; font-weight: 600; color: var(--ink); }
 .sky-row button { flex: 1; min-width: 0; }
 #triggers #time-play { flex: 0 0 auto; width: 32px; padding: 4px 0; text-align: center; }
-.sky-row.modes button { padding: 7px 2px; text-align: center; font-size: 12px; }
+.sky-row.modes button { padding: 7px 4px; text-align: center; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sky-row.weather button { padding: 4px 0; font-size: 15px; }
 #triggers button.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
 
@@ -111,6 +112,8 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #building form { display: flex; gap: 6px; margin-bottom: 4px; }
 #building form input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
 #building form button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+#bld-go .mins { display: flex; align-items: center; gap: 6px; flex: 1; color: var(--muted); font-size: 13px; }
+#bld-go input { width: 4.2em; flex: none; text-align: right; }
 ul.who { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 ul.who li { display: flex; align-items: center; gap: 8px; }
 ul.who .note { margin-left: auto; color: var(--muted); font-size: 12px; }

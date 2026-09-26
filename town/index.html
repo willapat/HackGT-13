@@ -49,7 +49,7 @@
     <h2>Time &amp; weather</h2>
     <div class="sky-row"><button id="time-play" title="Play: one minute per second" aria-label="Play or pause the clock">▶</button><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
     <div class="sky-row" id="town-date" aria-live="polite"></div>
-    <div class="sky-row"><button id="time-live">🕒 Live clock</button><button id="time-fast">⏩ Fast day</button></div>
+    <div class="sky-row modes"><button id="time-live" title="Live clock">🕒 Live</button><button id="time-fast" title="Fast day">⏩ Fast</button></div>
     <div class="sky-row weather">
       <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
       <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
@@ -64,6 +64,13 @@
     <form id="bld-rename" hidden>
       <input id="bld-rename-input" maxlength="40" placeholder="Name your house" aria-label="House name" />
       <button type="submit">Rename</button>
+    </form>
+    <h2>Head there</h2>
+    <form id="bld-go">
+      <label class="mins">Minutes
+        <input id="bld-minutes" type="number" min="1" max="180" value="10" inputmode="numeric" aria-label="Minutes to get there" />
+      </label>
+      <button type="submit">Go now</button>
     </form>
     <h2>Here now</h2><ul class="who" id="bld-here"></ul>
     <h2>On the way</h2><ul class="who" id="bld-coming"></ul>

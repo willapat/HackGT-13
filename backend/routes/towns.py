@@ -335,7 +335,7 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
     action = AgentAction.go_home.value if home else AgentAction.walk_to.value
     target = {
         "building_id": dest["id"], "x": dest["x"], "y": dest["y"], "door": dest["door"], "by": "user",
-        "travel_minutes": estimate_travel_minutes(dest["id"]),
+        "travel_minutes": body.travel_minutes or estimate_travel_minutes(dest["id"]),
         "depart_at": local_now().isoformat(),
     }
     row = (

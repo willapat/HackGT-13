@@ -7,7 +7,7 @@ import { activeCam } from './camera.js';
 import { topOf } from './city.js';
 import { $, logFeed } from './hud.js';
 import { key, PLACES, pos, TOWN, TOWN_ID } from './layout.js';
-import { friends } from './people.js';
+import { friends, tileOf } from './people.js';
 
 const card = $('#building');
 let openId = null, earlier = [], meId = null, liveTimer = null, historyTimer = null, anchor = null;
@@ -45,6 +45,7 @@ function render() {
   $('#bld-kind').textContent = isHouse(id) ? (own ? 'Your house' : 'House') : 'Place';
   $('#bld-name').textContent = nameOf(id);
   $('#bld-rename').hidden = !own;
+  $('#bld-go').hidden = !friends[meId];
   // Now and on the way come from the characters as drawn: headed here (agents.target) and arrived or still walking
   const people = Object.values(friends);
   const here = people.filter((f) => f.destId === id && !f.path.length);
@@ -129,6 +130,31 @@ $('#bld-rename').onsubmit = async (e) => {
     render();
   } catch (err) {
     logFeed(`Couldn't rename your house: ${err.message}`);
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$('#bld-go').onsubmit = async (e) => {
+  e.preventDefault();
+  const me = friends[meId];
+  if (!me || !openId) return;
+  const minutes = Math.round(Number($('#bld-minutes').value));
+  if (!(minutes >= 1 && minutes <= 180)) {
+    logFeed('Pick a travel time between 1 and 180 minutes.');
+    return;
+  }
+  const here = tileOf(me);
+  const button = $('#bld-go button');
+  button.disabled = true;
+  try {
+    await api(`/towns/${TOWN_ID}/members/me/move`, {
+      method: 'POST',
+      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: minutes },
+    });
+    logFeed(`You head to ${nameOf(openId)} (${minutes} min).`);
+  } catch (err) {
+    logFeed(`Couldn't head there: ${err.message}`);
   } finally {
     button.disabled = false;
   }

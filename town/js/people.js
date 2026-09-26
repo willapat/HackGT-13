@@ -76,6 +76,11 @@ const CURB = 0.53; // standing spot outside a building: on the sidewalk strip ne
 const toTile = (p) => ({ x: p.x + N / 2 - 0.5, z: p.z + N / 2 - 0.5 });
 const toWorld = (t) => pos(t.x, t.z);
 
+export function tileOf(f) {
+  const t = toTile(f.obj.position);
+  return { x: t.x, y: t.z };
+}
+
 // Where someone stands outside a building (shift slides them along the sidewalk)
 function sidewalkPoint(a, shift = 0) {
   const dc = a.door[0] - a.c, dr = a.door[1] - a.r;
@@ -129,7 +134,10 @@ function isoTownMinutes(iso) {
 // 8:54 with a 8:50 departure and a 10 minute walk is 40% of the way, not already at the building.
 function walkProgress(f) {
   if (!f.travelMinutes) return null;
-  if (f.departAt) {
+  const clockOn = sky.live || sky.play || sky.fast;
+  // A paused clock does not move calendar walks. A walk you started yourself still plays:
+  // one real second per minute you typed, so "go now" is visible while the slider is stopped.
+  if (f.departAt && (clockOn || !f.holdCalendar)) {
     const nowM = townMinutesNow();
     const startM = isoTownMinutes(f.departAt);
     if (nowM != null && startM != null) return Math.max(0, Math.min(1, (nowM - startM) / f.travelMinutes));
@@ -308,8 +316,14 @@ export function stepFriend(f, dt) {
     const { pos, face } = pointAlong(f.walkFrom, f.route, frac);
     if (face && frac < 1) faceTowards(f, face);
     f.obj.position.copy(pos);
-    setAction(f, frac >= 1 ? 'idle' : 'walk');
-    f.trailing = frac < 1;
+    if (frac >= 1) {
+      f.trailing = false;
+      f.path = [];
+      setAction(f, 'idle');
+      return;
+    }
+    setAction(f, 'walk');
+    f.trailing = true;
     return;
   }
   if (!f.path.length) { f.trailing = false; return; }
@@ -394,6 +408,10 @@ export function placeAgent(f, row) {
     // x/y is the curb this trip leaves from (home, or the event they just finished) — not a leftover visit.
     if (row.x != null && row.y != null) f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
     walkTo(f, dest, 0, { travelMinutes: row.target.travel_minutes || 8, departAt: row.target.depart_at });
+    if (row.target?.by === 'user') {
+      const started = Date.parse(row.updated_at);
+      if (Number.isFinite(started)) f.walkStarted = performance.now() - (Date.now() - started);
+    }
     placeAlongWalk(f);
     return;
   }
