@@ -137,6 +137,7 @@ async function afterSignIn() {
   show('loading');
   try {
     ({ profile: me, towns: myTowns } = await api('/me'));
+    loadPins();
   } catch (e) {
     if (e.status === 401) { await sb.auth.signOut(); return; }
     $('#error-text').textContent = e.message;
@@ -349,6 +350,7 @@ let requests = { incoming: [], outgoing: [] };
 let invites = [];
 let allFriends = [];
 let stats = null; // GET /me/stats: highlights, closest people, who to catch up with
+let notices = []; // GET /me/notifications: things that happened to you (a town you were in was deleted)
 
 function renderChips(el, items) {
   el.innerHTML = '';
@@ -361,8 +363,9 @@ function renderChips(el, items) {
 }
 
 async function refreshAll() {
-  const [f, fr, rq, inv, st] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats')]);
+  const [f, fr, rq, inv, st, nt] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats'), api('/me/notifications')]);
   if (f.status === 'fulfilled') feed = f.value;
+  if (nt.status === 'fulfilled') notices = nt.value;
   if (st.status === 'fulfilled') stats = st.value;
   if (fr.status === 'fulfilled') allFriends = fr.value;
   if (rq.status === 'fulfilled') requests = rq.value;
@@ -506,7 +509,7 @@ function mateRow(p, line) {
 }
 
 function inboxCount() {
-  return feed.inbox.length + invites.length + requests.incoming.length;
+  return feed.inbox.length + invites.length + requests.incoming.length + notices.length;
 }
 
 function renderBadges() {
@@ -527,7 +530,47 @@ function showFeed() {
   renderFeed();
   show('home');
   refreshAll();
+  if (!$('#composer-ideas').children.length) loadIdeas(); // fetch ideas early so the composer opens with them
 }
+
+// Pinned towns come first everywhere. Saved on your account (Supabase user metadata), so pins follow you to
+// other devices; no table needed for a per-person preference like this.
+let pinned = new Set();
+async function loadPins() {
+  try {
+    const { data } = await sb.auth.getUser();
+    pinned = new Set(data.user?.user_metadata?.pinned_towns || []);
+  } catch { pinned = new Set(); }
+}
+async function togglePin(t) {
+  const was = pinned.has(t.id);
+  was ? pinned.delete(t.id) : pinned.add(t.id);
+  renderFeed();
+  renderProfile();
+  try {
+    const { error } = await sb.auth.updateUser({ data: { pinned_towns: [...pinned] } });
+    if (error) throw error;
+    toast(was ? `Unpinned ${t.name}` : `Pinned ${t.name}`);
+  } catch (err) {
+    was ? pinned.add(t.id) : pinned.delete(t.id); // put it back if it didn't save
+    renderFeed();
+    renderProfile();
+    toast(err.message || "Couldn't save that pin", 'error');
+  }
+}
+const byPinned = (list, id = (x) => x.id) => [...list].sort((a, b) => pinned.has(id(b)) - pinned.has(id(a)));
+
+// Filter your towns by name or by who lives there
+let townQuery = '';
+const townMatches = (t) => {
+  const q = townQuery.trim().toLowerCase();
+  return !q || t.name.toLowerCase().includes(q) || (t.residents || []).some((p) => (p.name || '').toLowerCase().includes(q));
+};
+$('#town-search').oninput = (e) => {
+  townQuery = e.target.value;
+  $('#town-cards').scrollLeft = 0;
+  renderFeed();
+};
 
 function renderFeed() {
   if (!me) return;
@@ -538,10 +581,15 @@ function renderFeed() {
   create.type = 'button';
   create.append(el('span', 'plus', '+'), el('span', '', 'Create a town'), el('span', 'hint', 'Describe it and invite friends'));
   create.onclick = () => $('#create-town').click();
-  strip.replaceChildren(...summaries.map(townCard), create);
+  const shown = byPinned(summaries.filter(townMatches));
+  strip.replaceChildren(...shown.map(townCard), ...(townQuery.trim() ? [] : [create]));
   strip.scrollLeft = scrolled;
   $('#no-towns').hidden = summaries.length > 0;
-  $('#town-cards').hidden = !summaries.length;
+  $('#town-cards').hidden = !shown.length;
+  $('#town-search-wrap').hidden = summaries.length < 2;
+  const none = $('#no-town-matches');
+  none.hidden = !(summaries.length && !shown.length);
+  none.textContent = `No towns match "${townQuery.trim()}".`;
 
   $('#feed').replaceChildren(...feed.items.map(post));
   $('#feed-empty').hidden = feed.items.length > 0;
@@ -593,6 +641,8 @@ function renderFeed() {
   renderBadges();
 }
 
+const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M5 17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2Z"/></svg>';
+
 function townCard(t) {
   const b = el('button', 'town-card');
   b.type = 'button';
@@ -614,18 +664,27 @@ function townCard(t) {
   body.append(row, el('div', 'headline', t.headline || (size ? `${size} ${size === 1 ? 'resident' : 'residents'}` : 'Tap to look around')));
   const enter = el('div', 'enter');
   enter.append('Enter town', el('span', '', '→'));
+  // Pin and invite sit in the banner's corner. Not <button>s: the whole card is one
   const town = townsIn().find((m) => m.towns.id === t.id)?.towns;
-  if (town?.created_by === me.id) { // only a town's creator can invite. Not a <button>: the whole card is one
-    const invite = el('span', 'invite-plus'); // the + is drawn in CSS so it's exactly centered
-    invite.setAttribute('role', 'button');
-    invite.setAttribute('aria-label', `Invite friends to ${t.name}`);
-    invite.title = 'Invite friends';
-    invite.tabIndex = 0;
-    const go = (e) => { e.stopPropagation(); e.preventDefault(); inviteFriends.open(town); };
-    invite.onclick = go;
-    invite.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); };
-    banner.append(invite);
-  }
+  const tools = el('div', 'card-tools');
+  const tool = (cls, label, act) => {
+    const x = el('span', `card-tool ${cls}`);
+    x.setAttribute('role', 'button');
+    x.setAttribute('aria-label', label);
+    x.title = label;
+    x.tabIndex = 0;
+    const go = (e) => { e.stopPropagation(); e.preventDefault(); act(); };
+    x.onclick = go;
+    x.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); };
+    tools.append(x);
+    return x;
+  };
+  const isPinned = pinned.has(t.id);
+  const pin = tool(`pin${isPinned ? ' on' : ''}`, isPinned ? `Unpin ${t.name}` : `Pin ${t.name}`, () => togglePin(t));
+  pin.setAttribute('aria-pressed', String(isPinned));
+  pin.innerHTML = PIN_SVG;
+  if (town?.created_by === me.id) tool('invite-plus', `Invite friends to ${t.name}`, () => inviteFriends.open(town)); // creator only
+  banner.append(tools);
   body.append(enter);
   b.append(banner, body);
   b.onclick = () => enterTown(t.id);
@@ -634,7 +693,47 @@ function townCard(t) {
 
 const ACTION_TAGS = { chat: '💬', visit: '👋', knock: '🚪', leave_gift: '🎁', propose_event: '📅' };
 
+// A post someone wrote: their words as written, who it went to, and a way toward them
+function writtenPost(item) {
+  const card = el('article', `card post ${item.audience === 'private' ? 'private' : ''}`);
+  const head = el('div', 'post-head');
+  const icon = el('div', 'kind-icon');
+  icon.append(personAvatar(item.actor));
+  const who = el('div', 'who');
+  who.append(el('div', 'title', item.mine ? `${item.actor.name} (you)` : item.actor.name));
+  const meta = el('div', 'meta');
+  if (item.audience === 'town') {
+    const town = el('a', 'audience', `🏘️ ${item.town.name}`);
+    town.href = `../town/?town=${encodeURIComponent(item.town.id)}`;
+    meta.append(town);
+  } else meta.append(el('span', 'audience', item.audience === 'private' ? '🔒 Only you' : '👥 Friends'));
+  meta.append(' · ', el('span', '', timeAgo(item.at)));
+  who.append(meta);
+  head.append(icon, who);
+  card.append(head, el('p', 'text written', item.text));
+  if (item.audience === 'private') {
+    card.append(el('p', 'hint', "Only your towns' AI read this. Your character's mood may change; nobody sees these words."));
+    return card;
+  }
+  const actions = el('div', 'post-actions');
+  if (item.audience === 'town') {
+    const visit = el('button', '', `Visit ${item.town.name}`);
+    visit.type = 'button';
+    visit.onclick = () => enterTown(item.town.id);
+    actions.append(visit);
+  }
+  if (!item.mine) {
+    const profile = el('button', '', `See ${item.actor.name}'s profile`);
+    profile.type = 'button';
+    profile.onclick = () => openPerson(item.actor.user_id);
+    actions.append(profile);
+  }
+  if (actions.children.length) card.append(actions);
+  return card;
+}
+
 function post(item) {
+  if (item.kind === 'post') return writtenPost(item);
   const card = el('article', 'card post');
   const head = el('div', 'post-head');
   const icon = el('div', 'kind-icon');
@@ -674,49 +773,168 @@ function post(item) {
   return card;
 }
 
-// Composer: posting is the opt-in. The town brain reads it on its next pass.
-let composerMood = null;
+// Composer: posting is the opt-in. Pick who it's for: one town, all your friends, or private (only your
+// towns' AI reads it, and all it may do is change your character's mood). Idea chips come from the AI.
+const AUDIENCE_HINT = {
+  friends: 'All your friends see this on their feed, in any town.',
+  private: "🔒 Nobody sees this. Your towns' AI reads it and may change your character's mood (like rain over your house), never what you wrote.",
+};
+
+// "Post to" menu: each town you're in, all your friends, or private
+let audience = 'friends';
+
+function audienceOptions() {
+  return [
+    ...townsIn().map((m) => ({ value: `town:${m.towns.id}`, icon: '🏘️', title: m.towns.name, desc: `Only people in ${m.towns.name}` })),
+    { value: 'friends', icon: '👥', title: 'All my friends', desc: 'Your friends in any town', divider: true },
+    { value: 'private', icon: '🔒', title: 'Private', desc: "Only changes your character's mood" },
+  ];
+}
+
+function fillAudiences() {
+  const opts = audienceOptions();
+  if (!opts.some((o) => o.value === audience)) audience = 'friends';
+  const menu = $('#audience-menu');
+  menu.replaceChildren(el('div', 'menu-title', 'Who sees this?'));
+  for (const o of opts) {
+    if (o.divider) menu.append(el('hr'));
+    const b = el('button');
+    b.type = 'button';
+    b.setAttribute('role', 'option');
+    b.setAttribute('aria-selected', String(o.value === audience));
+    const text = el('span');
+    text.append(el('b', '', o.title), el('span', 'hint', o.desc));
+    b.append(el('span', 'well', o.icon), text, el('span', 'check'));
+    b.onclick = () => { audience = o.value; fillAudiences(); closeAudienceMenu(); $('#composer-text').focus(); };
+    menu.append(b);
+  }
+  const cur = opts.find((o) => o.value === audience);
+  $('#audience-icon').textContent = cur.icon;
+  $('#audience-current').textContent = cur.title;
+  showAudienceHint();
+}
+
+function showAudienceHint() {
+  const town = audience.startsWith('town:') && townsIn().find((m) => `town:${m.towns.id}` === audience);
+  $('#composer-audience-hint').textContent = town ? `Only people in ${town.towns.name} see this.` : AUDIENCE_HINT[audience] || '';
+}
+
+function closeAudienceMenu() {
+  $('#audience-menu').hidden = true;
+  $('#audience-btn').setAttribute('aria-expanded', 'false');
+}
+$('#audience-btn').onclick = (e) => {
+  e.stopPropagation();
+  const open = $('#audience-menu').hidden;
+  $('#audience-menu').hidden = !open;
+  $('#audience-btn').setAttribute('aria-expanded', String(open));
+  if (open) $('#audience-menu [aria-selected="true"]')?.focus();
+};
+document.addEventListener('click', (e) => { if (!e.target.closest('.audience-picker')) closeAudienceMenu(); });
+$('#audience-menu').onkeydown = (e) => {
+  const items = $$('#audience-menu [role="option"]');
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'Escape') { closeAudienceMenu(); $('#audience-btn').focus(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+};
+
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+// Swap the idea chips with motion: the old ones drift up and fade (one after another), the row eases to its
+// new height, and the new ones rise in. While waiting, chips (or placeholders on first load) shimmer.
+async function swapIdeas(box, chips) {
+  const old = [...box.children];
+  if (!calmMotion.matches && old.length) {
+    await Promise.all(old.map((c, i) => c.animate(
+      [{ opacity: 1, transform: 'none', filter: 'blur(0)' }, { opacity: 0, transform: 'translateY(-6px) scale(.96)', filter: 'blur(2px)' }],
+      { duration: 160, delay: i * 35, easing: 'ease-in', fill: 'forwards' }).finished));
+  }
+  const from = box.offsetHeight;
+  box.replaceChildren(...chips);
+  if (calmMotion.matches) return;
+  const to = box.offsetHeight;
+  if (from && from !== to) {
+    box.style.overflow = 'hidden'; // only while the height eases, so focus rings aren't clipped otherwise
+    box.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' })
+      .finished.then(() => { box.style.overflow = ''; });
+  }
+  chips.forEach((c, i) => c.animate(
+    [{ opacity: 0, transform: 'translateY(8px) scale(.94)', filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }],
+    { duration: 320, delay: 60 + i * 55, easing: 'cubic-bezier(.2,.9,.3,1.2)', fill: 'backwards' }));
+}
+
+async function loadIdeas(refresh = false) {
+  const box = $('#composer-ideas');
+  const more = $('#composer-more-ideas');
+  if (box.classList.contains('loading')) return;
+  box.classList.add('loading');
+  more.classList.add('spinning');
+  more.disabled = true;
+  if (!box.children.length) box.replaceChildren(...[64, 92, 76].map((w) => { const s = el('span', 'idea-ghost'); s.style.width = `${w}px`; return s; }));
+  const local = new Date().toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  // On ↻, tell the backend what's on screen so it comes back with different ideas
+  const avoid = refresh ? $$('#composer-ideas button').map((b) => `&avoid=${encodeURIComponent(b.textContent)}`).join('') : '';
+  try {
+    const { ideas } = await api(`/me/post-ideas?local_time=${encodeURIComponent(local)}${refresh ? '&refresh=true' : ''}${avoid}`);
+    box.classList.remove('loading');
+    await swapIdeas(box, ideas.map((idea) => {
+      const b = el('button', '', idea.label);
+      b.type = 'button';
+      if (idea.why) b.title = idea.why;
+      b.onclick = () => {
+        const t = $('#composer-text');
+        t.value = idea.starter;
+        t.focus();
+        t.setSelectionRange(t.value.length, t.value.length);
+      };
+      return b;
+    }));
+  } catch {
+    box.classList.remove('loading');
+    if (!refresh || box.querySelector('.idea-ghost')) box.replaceChildren();
+  }
+  more.classList.remove('spinning');
+  more.disabled = false;
+}
+$('#composer-more-ideas').onclick = () => loadIdeas(true);
 
 function closeComposer() {
+  closeAudienceMenu();
+  $('#composer').classList.remove('writing');
   $('#composer-form').hidden = true;
   $('#composer-open').hidden = false;
   $('#composer-text').value = '';
-  setComposerMood(null);
-}
-
-function setComposerMood(btn) {
-  composerMood = btn;
-  for (const b of $$('#composer-moods button')) b.setAttribute('aria-checked', String(b === btn));
 }
 
 $('#composer-open').onclick = () => {
+  fillAudiences();
+  $('#composer').classList.add('writing');
   $('#composer-form').hidden = false;
   $('#composer-open').hidden = true;
   $('#composer-text').focus();
+  if (!$('#composer-ideas').children.length) loadIdeas(); // usually already fetched when the feed opened
 };
 $('#composer-cancel').onclick = closeComposer;
-$('#composer-moods').onclick = (e) => {
-  const b = e.target.closest('button');
-  if (b) setComposerMood(composerMood === b ? null : b);
-};
 $('#composer-form').onsubmit = async (e) => {
   e.preventDefault();
   const text = $('#composer-text').value.trim();
-  if (!text && !composerMood) return toast('Write something or pick how it\'s going.', 'error');
-  if (!townsIn().length) return toast('Join a town first so there are friends to share with.', 'error');
-  const value = { visibility: $('#composer-visibility').value };
-  if (text) value.text = text;
-  if (composerMood) value.mood = composerMood.dataset.mood;
+  if (!text) return toast('Write something first, or tap an idea.', 'error');
+  const choice = audience;
+  const value = { text, audience: choice.startsWith('town:') ? 'town' : choice };
+  if (choice.startsWith('town:')) value.town_id = choice.slice(5);
   const btn = $('#composer-share');
-  busy(btn, true, 'Sharing…');
+  busy(btn, true, 'Posting…');
   try {
-    await api('/signals', { method: 'POST', body: { source: 'manual', type: composerMood?.dataset.type || 'update', value } });
+    await api('/signals', { method: 'POST', body: { source: 'manual', type: 'post', value } });
     closeComposer();
-    toast('Shared with your towns. They\'ll notice soon.');
+    toast(value.audience === 'private' ? 'Saved privately. Your character may change; nobody sees what you wrote.'
+      : value.audience === 'town' ? 'Posted to your town.' : 'Posted to your friends.');
+    refreshAll();
   } catch (err) {
     toast(err.message, 'error');
   } finally {
-    busy(btn, false, 'Share');
+    busy(btn, false, 'Post');
   }
 };
 
@@ -760,6 +978,25 @@ function showInbox() {
 
 function renderInbox() {
   if (!me) return;
+  $('#notices').replaceChildren(...notices.map((n) => {
+    const li = el('li');
+    const who = el('div', 'who');
+    const p = n.payload || {};
+    const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in` : 'Something changed';
+    who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · its houses, characters and plans are gone`));
+    const dismiss = el('button', 'small', 'Dismiss');
+    dismiss.type = 'button';
+    dismiss.onclick = async () => {
+      dismiss.disabled = true;
+      try { await api(`/me/notifications/${n.id}`, { method: 'DELETE' }); } catch (err) { toast(err.message, 'error'); }
+      notices = notices.filter((x) => x.id !== n.id);
+      renderInbox();
+    };
+    li.append(el('div', 'notice-icon', n.kind === 'town_deleted' ? '🏚️' : '🔔'), who, dismiss);
+    return li;
+  }));
+  $('#notices-section').hidden = !notices.length;
+  $('#notice-count').textContent = notices.length;
   $('#plans').replaceChildren(...feed.inbox.map(planCard));
   $('#plans-section').hidden = !feed.inbox.length;
   $('#plan-count').textContent = feed.inbox.length;
@@ -1113,10 +1350,10 @@ function renderProfile() {
   renderChips($('#me-interests'), me.interests || []);
   $('#no-interests').hidden = Boolean(me.interests?.length);
   // Each town you're in; clicking one opens it in 3D, built from its tiles and map in the database
-  fillList($('#towns'), townsIn().map((m) => {
+  fillList($('#towns'), byPinned(townsIn(), (m) => m.towns.id).map((m) => {
     const t = m.towns;
     const li = el('li', 'town');
-    li.innerHTML = `<div class="ring"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small tonal">Enter</button><button class="small danger">Leave</button></div>`;
+    li.innerHTML = `<div class="ring"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small danger">Leave</button></div>`;
     li.querySelector('.ring').append(townIcon(t));
     li.querySelector('.name').textContent = t.name;
     const handle = li.querySelector('.handle');
@@ -1126,11 +1363,19 @@ function renderProfile() {
     li.onclick = () => enterTown(t.id);
     const leave = li.querySelector('.danger');
     leave.onclick = (e) => { e.stopPropagation(); leaveTown(t); };
-    if (t.created_by === me.id) { // only a town's creator can invite
-      const invite = el('button', 'small', 'Invite');
-      invite.type = 'button';
-      invite.onclick = (e) => { e.stopPropagation(); inviteFriends.open(t); };
-      leave.before(invite);
+    const pin = el('button', `small pin-toggle${pinned.has(t.id) ? ' on' : ''}`);
+    pin.type = 'button';
+    pin.innerHTML = PIN_SVG;
+    pin.append(pinned.has(t.id) ? 'Pinned' : 'Pin');
+    pin.setAttribute('aria-pressed', String(pinned.has(t.id)));
+    pin.onclick = (e) => { e.stopPropagation(); togglePin(t); };
+    li.querySelector('.actions').prepend(pin);
+    if (t.created_by === me.id) { // only a town's creator can delete it
+      const del = el('button', 'small danger-solid', 'Delete');
+      del.type = 'button';
+      del.title = `Delete ${t.name} for everyone`;
+      del.onclick = (e) => { e.stopPropagation(); deleteTown(t); };
+      leave.after(del);
     }
     return li;
   }));
@@ -1497,6 +1742,28 @@ $('#photo-remove').onclick = async () => {
   } catch (err) { toast(err.message, 'error'); }
 };
 
+// The creator deletes a whole town. Everyone else there gets a notice in their Inbox.
+async function deleteTown(t) {
+  const yes = await confirmDialog({
+    title: `Delete ${t.name}?`,
+    body: `This deletes the whole town for everyone: every house, character, plan and calendar in it. Everyone else in ${t.name} gets a notice in their Inbox. This can't be undone.`,
+    confirmLabel: 'Delete town', danger: true, typeToConfirm: t.name,
+  });
+  if (!yes) return;
+  try {
+    await api(`/towns/${t.id}`, { method: 'DELETE' });
+    myTowns = myTowns.filter((m) => m.towns?.id !== t.id);
+    feed = { ...feed, towns: feed.towns.filter((x) => x.id !== t.id) };
+    townsPane.load();
+    renderProfile();
+    renderFeed();
+    toast(`${t.name} was deleted`);
+    refreshAll();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 async function reloadMe() {
   ({ profile: me, towns: myTowns } = await api('/me'));
 }
@@ -1738,6 +2005,16 @@ const townsPane = (() => {
       house.hidden = m.house_x == null; // no house in this town yet
       house.onclick = () => renameHouse(t, m);
       leave.onclick = () => leaveTown(t);
+      if (t.created_by === me.id) { // only a town's creator can invite friends, or delete it
+        const invite = el('button', 'small', 'Invite friends');
+        invite.type = 'button';
+        invite.onclick = () => inviteFriends.open(t);
+        edit.before(invite);
+        const del = el('button', 'small danger-solid', 'Delete town');
+        del.type = 'button';
+        del.onclick = () => deleteTown(t);
+        leave.after(del);
+      }
       return li;
     }));
     $('#settings-no-towns').hidden = townsIn().length > 0;

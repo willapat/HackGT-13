@@ -1,3 +1,6 @@
+import pytest
+from fastapi import HTTPException
+
 import backend.routes.towns as towns_route
 
 
@@ -21,6 +24,10 @@ class FakeQuery:
 
     def delete(self):
         self.op = "delete"
+        return self
+
+    def insert(self, payload):
+        self.op, self.payload = "insert", payload
         return self
 
     def eq(self, key, value):
@@ -84,3 +91,29 @@ def test_last_person_leaving_deletes_the_town(monkeypatch):
     tables = {"towns": [{"id": TID, "created_by": "owner"}],
               "town_members": [{"town_id": TID, "user_id": "owner", "joined_at": "2026-01-01"}]}
     assert leave(monkeypatch, tables, "owner") == [("towns", "delete", None, {"id": TID})]
+
+
+def delete(monkeypatch, tables, uid, me=None):
+    db = FakeDB(tables)
+    monkeypatch.setattr(towns_route, "get_client", lambda: db)
+    monkeypatch.setattr(towns_route, "require_member", lambda *a: me or {"name": "Will"})
+    towns_route.delete_town(TID, uid=uid)
+    return db.writes
+
+
+def test_only_the_creator_can_delete_a_town(monkeypatch):
+    with pytest.raises(HTTPException) as e:
+        delete(monkeypatch, {"towns": [{"id": TID, "name": "Lakeside", "created_by": "owner"}]}, "sam")
+    assert e.value.status_code == 403
+
+
+def test_deleting_a_town_tells_everyone_else_in_their_inbox(monkeypatch):
+    tables = {"towns": [{"id": TID, "name": "Lakeside", "created_by": "owner"}],
+              "town_members": [{"town_id": TID, "user_id": "owner"}, {"town_id": TID, "user_id": "sam"},
+                               {"town_id": TID, "user_id": "maya"}]}
+    writes = delete(monkeypatch, tables, "owner", me={"name": "Will"})
+    table, op, notices, _ = writes[0]
+    assert (table, op) == ("notifications", "insert")
+    assert sorted(n["user_id"] for n in notices) == ["maya", "sam"]
+    assert notices[0]["payload"] == {"town_name": "Lakeside", "by_name": "Will"}
+    assert writes[1] == ("towns", "delete", None, {"id": TID})

@@ -11,6 +11,7 @@ class Visibility(str, Enum):
     """Set per signal in `signals.value.visibility`. Missing means full."""
 
     full = "full"
+    mood = "mood"  # a private post: the town may change your character's mood, but shows nothing you wrote
     vague = "vague"
     hidden = "hidden"
 

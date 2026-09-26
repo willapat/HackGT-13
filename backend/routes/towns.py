@@ -332,6 +332,27 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
     return row[0]
 
 
+@router.delete("/{town_id}", status_code=204)
+def delete_town(town_id: UUID, uid: str = Depends(current_user_id)):
+    """The creator deletes the whole town: houses, characters, calendars and invites go with it. Everyone else
+    who lived there gets a notice in their Inbox saying who deleted it."""
+    db, tid = get_client(), str(town_id)
+    me = require_member(db, tid, uid)
+    town = db.table("towns").select("name, created_by").eq("id", tid).limit(1).execute().data
+    if not town or town[0]["created_by"] != uid:
+        raise HTTPException(status_code=403, detail="only the town's creator can delete it")
+    others = (db.table("town_members").select("user_id").eq("town_id", tid).neq("user_id", uid)
+              .execute().data or [])
+    by_name = me.get("name") or ((db.table("profiles").select("display_name").eq("id", uid).limit(1)
+                                  .execute().data or [{}])[0].get("display_name")) or "The creator"
+    if others:
+        db.table("notifications").insert([
+            {"user_id": o["user_id"], "kind": "town_deleted", "payload": {"town_name": town[0]["name"], "by_name": by_name}}
+            for o in others
+        ]).execute()
+    db.table("towns").delete().eq("id", tid).execute()  # cascades to members, agents, events, invites
+
+
 @router.delete("/{town_id}/members/me", status_code=204)
 def leave_town(town_id: UUID, uid: str = Depends(current_user_id)):
     """Leave a town (your character goes with you). If you created it, it passes to the longest-standing

@@ -1,14 +1,15 @@
 """Filter Brain output before anything is written. Fails closed.
 
-Each signal can carry `value.visibility` ('full' default, 'vague', 'hidden'). A person's level for a
-run is the strictest level among their new signals. `brain_runs` is readable by every town member,
+Each signal can carry `value.visibility` ('full' default, 'mood', 'vague', 'hidden'). 'mood' is a private
+post: your character's mood may change (the weather over your house) but no facts, news, plans or activity
+text come from it. A person's level for a run is the strictest level among their new signals. `brain_runs` is readable by every town member,
 so only fully shareable facts are kept at all.
 """
 
 from backend.models.brain import BrainOutput, MemberState
 from backend.models.enums import Mood, Visibility
 
-LEVELS = [Visibility.full.value, Visibility.vague.value, Visibility.hidden.value]  # least → most private
+LEVELS = [Visibility.full.value, Visibility.mood.value, Visibility.vague.value, Visibility.hidden.value]  # least → most private
 NEUTRAL_MOOD = Mood.cloudy.value
 VAGUE_ACTIVITY = "is out and about"
 
@@ -51,6 +52,9 @@ def apply_visibility(output: BrainOutput, signals: list[dict], members: list[dic
             before = prev[s.user_id]
             mood = before.get("mood") if before.get("mood") in {m.value for m in Mood} else NEUTRAL_MOOD
             s = MemberState(user_id=s.user_id, mood=mood, activity=before.get("activity"))
+        elif level(s.user_id) == Visibility.mood.value:
+            # Private post: the feeling shows on your character, the words and what you're doing don't
+            s = MemberState(user_id=s.user_id, mood=s.mood, activity=prev[s.user_id].get("activity"), props=s.props)
         elif level(s.user_id) == Visibility.vague.value:
             s = MemberState(user_id=s.user_id, mood=NEUTRAL_MOOD, activity=VAGUE_ACTIVITY)
         member_states.append(s)

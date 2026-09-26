@@ -268,13 +268,60 @@ textarea:focus { outline: none; background: var(--panel); border-color: var(--ac
 label.inline { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--muted); }
 label.inline select { width: auto; padding: 7px 30px 7px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; color: var(--ink); }
 
+.ideas-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ideas-label { font-size: 13px; font-weight: 700; color: var(--accent); }
+.ideas-row .chips { flex: 1; }
+#composer-ideas button { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+#composer-ideas button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-soft) 80%, var(--accent) 12%); }
+#composer-ideas.loading > * { animation: idea-wait 1.1s ease-in-out infinite alternate; pointer-events: none; }
+#composer-ideas.loading > :nth-child(2) { animation-delay: .15s; }
+#composer-ideas.loading > :nth-child(3) { animation-delay: .3s; }
+#composer-ideas.loading > :nth-child(4) { animation-delay: .45s; }
+@keyframes idea-wait { from { opacity: 1; } to { opacity: .45; } }
+.idea-ghost { display: inline-block; height: 31px; border-radius: 999px; background: var(--accent-soft); }
+@media (prefers-reduced-motion: reduce) { #composer-ideas.loading > * { animation: none; opacity: .6; } }
+#composer-more-ideas { display: inline-block; transition: transform .2s; }
+#composer-more-ideas.spinning { animation: idea-spin .8s linear infinite; }
+@keyframes idea-spin { to { transform: rotate(360deg); } }
+.audience-hint { margin: -4px 0 0; }
+/* "Post to" picker: a pill that opens a menu like the account menu */
+.audience-picker { position: relative; }
+.audience-btn { gap: 8px; padding: 7px 12px 7px 8px; border-radius: 999px; font-size: 14px; background: var(--soft); }
+.audience-btn .chev { width: 16px; height: 16px; color: var(--muted); }
+.audience-btn[aria-expanded="true"] { background: var(--soft-hover); }
+.audience-icon { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--panel); font-size: 13px; }
+.audience-menu { left: 0; right: auto; top: calc(100% + 8px); width: 340px; max-width: calc(100vw - 32px); z-index: 30; max-height: 360px; overflow-y: auto; }
+.audience-menu .menu-title { font-size: 13px; font-weight: 700; color: var(--muted); padding: 6px 8px 8px; }
+.audience-menu [role="option"] {
+  display: flex; width: 100%; align-items: center; gap: 12px; text-align: left; background: none; padding: 8px;
+  border-radius: 8px; font-weight: 400; color: var(--ink); justify-content: flex-start;
+}
+.audience-menu [role="option"]:hover:not(:disabled), .audience-menu [role="option"]:focus-visible { background: var(--hover); outline: none; }
+.audience-menu [role="option"] .well { font-size: 17px; }
+.audience-menu [role="option"] b { display: block; font-size: 15px; font-weight: 600; }
+.audience-menu [role="option"] .hint { display: block; font-size: 12.5px; }
+.audience-menu [role="option"] .check { margin-left: auto; width: 22px; height: 22px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 2px var(--line); }
+.audience-menu [role="option"][aria-selected="true"] .check { box-shadow: inset 0 0 0 6px var(--accent); }
+.audience-menu hr { border: none; border-top: 1px solid var(--line); margin: 6px 8px; }
+/* While writing, the composer is just the form */
+.composer.writing .composer-top, .composer.writing .status-control { display: none; }
+.composer.writing #composer-form { margin-top: 0; }
+#notices .name, #notices .handle { white-space: normal; }
+.audience-hint:empty { display: none; }
+/* Posts people wrote */
+.post .audience { display: inline-flex; align-items: center; gap: 3px; }
+.post .text.written { font-size: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.post.private { box-shadow: var(--shadow), inset 0 0 0 1px var(--line); background: color-mix(in srgb, var(--panel) 92%, var(--bg)); }
+.notice-icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); font-size: 18px; flex: none; }
+
 /* Town cards: tap one to walk into it */
 .town-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); gap: 12px; overflow-x: auto; margin: 0 -4px; padding: 4px; scroll-snap-type: x mandatory; }
 .town-card {
   scroll-snap-align: start; display: grid; text-align: left; padding: 0; overflow: hidden; background: var(--panel); color: var(--ink);
   border-radius: var(--radius); box-shadow: 0 0 0 1px var(--line); font-weight: 400; align-content: start; justify-content: stretch;
 }
-.town-card:hover:not(:disabled) { background: var(--panel); box-shadow: 0 0 0 1px var(--line), var(--shadow-pop); }
+.town-card:hover:not(:disabled):not(:has(.card-tool:hover)) { background: var(--panel); box-shadow: 0 0 0 1px var(--line), var(--shadow-pop); }
+.town-card:active:has(.card-tool:active) { transform: none; } /* pressing the pin or + presses only that */
 .town-card .banner { height: 84px; position: relative; display: flex; align-items: flex-start; padding: 10px 12px; overflow: hidden; }
 .town-card .banner svg, .town-icon svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .town-card .banner b { position: relative; z-index: 1; }
@@ -589,13 +636,31 @@ button.chip.toggle:disabled { opacity: 0.4; cursor: default; }
 .create-tile .plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: #fff; font-size: 26px; font-weight: 400; }
 .create-tile .hint { font-weight: 400; }
 
-/* "+" (invite friends) in the top-right of your own town's card, solid so it reads over the town art */
-.town-card .invite-plus { position: absolute; top: 8px; right: 8px; z-index: 2; width: 30px; height: 30px; border-radius: 50%;
-  background: #fff; color: var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); cursor: pointer; transition: transform 0.12s; }
+/* Pin and "+" (invite friends) in the top-right of a town card, solid so they read over the town art */
+.town-card .card-tools { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; }
+.town-card .card-tool { position: relative; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: #fff; color: var(--accent); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); cursor: pointer; transition: transform 0.12s, background 0.12s, opacity 0.12s; }
+.town-card .card-tool:hover, .town-card .card-tool:focus-visible { background: var(--accent); color: var(--accent-ink); transform: scale(1.08); outline: none; }
+.town-card .card-tool:active { transform: scale(0.92); }
 /* Two bars crossing at the exact centre (a text "+" sits off-center depending on the font) */
 .town-card .invite-plus::before, .town-card .invite-plus::after {
   content: ""; position: absolute; top: 50%; left: 50%; width: 14px; height: 2.5px; border-radius: 2px;
   background: currentColor; transform: translate(-50%, -50%); }
 .town-card .invite-plus::after { transform: translate(-50%, -50%) rotate(90deg); }
-.town-card .invite-plus:hover, .town-card .invite-plus:focus-visible { background: var(--accent); color: var(--accent-ink); transform: scale(1.08); outline: none; }
-.town-card .banner:has(.invite-plus) .new { right: 46px; top: 12px; } /* "N new" moves left of the + */
+/* The pin: faint until you hover the card (always shown on touch screens), solid once pinned */
+.town-card .banner .card-tool svg { position: static; inset: auto; display: block; } /* not the full-banner art rule */
+.town-card .card-tool.pin svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transform: rotate(35deg); }
+.town-card .card-tool.pin:not(.on) { color: var(--muted); }
+@media (hover: hover) { .town-card:not(:hover):not(:focus-within) .card-tool.pin:not(.on) { opacity: 0; } }
+.town-card .card-tool.pin.on { background: var(--accent); color: var(--accent-ink); }
+.town-card .card-tool.pin.on svg { fill: currentColor; }
+/* "N new" moves to the bottom-right, clear of the pin and + */
+.town-card .banner .new { top: auto; bottom: 8px; right: 8px; }
+.town-search { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 0 14px; border-radius: 999px; background: var(--soft); }
+.town-search svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+.town-search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 9px 0; box-shadow: none; outline: none; }
+.town-search:focus-within { box-shadow: 0 0 0 2px var(--accent); }
+button.pin-toggle { display: inline-flex; align-items: center; gap: 5px; }
+button.pin-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+button.pin-toggle.on { color: var(--accent); background: var(--accent-soft); }
+button.pin-toggle.on svg { fill: currentColor; }

@@ -114,24 +114,24 @@
               </div>
               <div class="status-control"></div>
               <form id="composer-form" hidden novalidate>
-                <textarea id="composer-text" rows="3" maxlength="280" placeholder="Got good news, a rough week, a new obsession? Your towns notice what you share."></textarea>
-                <div class="chips mood-chips" id="composer-moods" role="radiogroup" aria-label="How's it going">
-                  <button type="button" role="radio" aria-checked="false" data-type="news" data-mood="good_news">🎉 Good news</button>
-                  <button type="button" role="radio" aria-checked="false" data-type="mood" data-mood="busy_week">📚 Busy week</button>
-                  <button type="button" role="radio" aria-checked="false" data-type="mood" data-mood="rough_week">🌧️ Rough week</button>
-                  <button type="button" role="radio" aria-checked="false" data-type="availability" data-mood="free_to_hang">🙌 Free to hang</button>
+                <div class="ideas-row">
+                  <span class="ideas-label">✨ Ideas</span>
+                  <div class="chips mood-chips" id="composer-ideas" aria-label="Ideas for what to post"></div>
+                  <button type="button" class="link small" id="composer-more-ideas" title="More ideas">↻</button>
                 </div>
+                <textarea id="composer-text" rows="3" maxlength="280" placeholder="Got good news, a rough week, a new obsession? Your towns notice what you share."></textarea>
+                <p class="hint audience-hint" id="composer-audience-hint"></p>
                 <div class="composer-foot">
-                  <label class="inline">Who sees it
-                    <select id="composer-visibility">
-                      <option value="full">Friends in my towns</option>
-                      <option value="vague">Keep it vague</option>
-                      <option value="hidden">Private (nothing shown)</option>
-                    </select>
-                  </label>
+                  <div class="audience-picker">
+                    <button type="button" class="audience-btn" id="audience-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="audience-menu">
+                      <span class="audience-icon" id="audience-icon"></span><span id="audience-current"></span>
+                      <svg class="i chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
+                    <div class="menu audience-menu" id="audience-menu" role="listbox" aria-label="Who sees this post" hidden></div>
+                  </div>
                   <span class="spacer"></span>
                   <button type="button" id="composer-cancel">Cancel</button>
-                  <button type="submit" class="primary" id="composer-share">Share</button>
+                  <button type="submit" class="primary" id="composer-share">Post</button>
                 </div>
               </form>
             </div>
@@ -149,7 +149,12 @@
                 <button class="primary" type="submit">Join</button>
               </form>
               <p class="msg" id="join-msg" hidden></p>
+              <label class="town-search" id="town-search-wrap" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                <input type="search" id="town-search" placeholder="Search your towns or who lives there" autocomplete="off" aria-label="Search your towns" />
+              </label>
               <div class="town-strip" id="town-cards"></div>
+              <p class="empty" id="no-town-matches" hidden></p>
               <p class="empty" id="no-towns">You're not in a town yet. Create one and invite friends, or join a friend's when they invite you (it shows up in your <a href="#/inbox">Inbox</a>).</p>
             </div>
 
@@ -212,6 +217,10 @@
       <!-- Inbox: everything waiting on you -->
       <section id="view-inbox" hidden>
         <div class="shell">
+          <div class="card" id="notices-section" hidden>
+            <h3>Updates <span class="badge" id="notice-count"></span></h3>
+            <ul class="people" id="notices"></ul>
+          </div>
           <div class="card" id="plans-section" hidden>
             <h3>Plans waiting on you <span class="badge" id="plan-count"></span></h3>
             <p class="sub">Suggested in your towns. Nothing happens unless everyone says yes and someone approves the plan.</p>
