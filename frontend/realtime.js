@@ -7,7 +7,7 @@ const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 export function startTownBackend(api) {
   const {
     friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-    PLACES, effects, applyTownNames,
+    renderSchedules, PLACES, effects, applyTownNames,
   } = api;
 
   let liveMode = false;
@@ -155,6 +155,7 @@ export function startTownBackend(api) {
     for (const row of actions) applyAction(row);
     const events = [...(data.events || [])].reverse();
     for (const row of events) applyEvent(row);
+    if (renderSchedules) renderSchedules(data.schedules);
   }
 
   function enterLiveMode() {
