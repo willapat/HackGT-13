@@ -28,11 +28,12 @@ const ROADS = TILES
   : [2, 6, 10, 14];
 // ponytail: one CENTER is used for both axes, so the pond should sit on the diagonal (x === y); split into CX/CY if not
 const CENTER = TILES ? (tilesOf('pond')[0]?.[0] ?? Math.floor(N / 2)) : 8; // the park sits at the middle; the skyline rings it
-const PARKISH = new Set(['park', 'pond', 'tree']);
+const PARKISH = new Set(['park', 'pond', 'tree', 'path']); // walkable green (path = grass with a dirt track)
 const inPark = TILES ? (c, r) => PARKISH.has(tileAt(c, r)) : (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
 const isRoad = TILES ? (c, r) => tileAt(c, r) === 'road' : (c, r) => ROADS.includes(c) || ROADS.includes(r);
 // Tile words from backend/town_map.py; any other word is an explicit model (asset path without assets/ and .glb)
-const TILE_KINDS = new Set(['road', 'park', 'pond', 'tree', 'stadium', 'farm', 'home', 'driveway', 'yard', 'lot']);
+const TILE_KINDS = new Set(['road', 'park', 'pond', 'tree', 'path', 'stadium', 'farm', 'home', 'driveway', 'yard', 'lot',
+  'garden', 'picnic', 'plaza', 'patio', 'oak', 'fountain', 'water', 'bench-n', 'bench-s', 'bench-e', 'bench-w']); // all after 'lot' are decorative scenes (DECOR in buildCity)
 const asset = (k) => `assets/${k}.glb`;
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
 
@@ -74,6 +75,7 @@ const NATURE = Object.fromEntries(['bush-01', 'bush-02', 'bush-03', 'pot-bush-bi
   .map((n) => [n, sp(`natures-${n}`)]));
 const ROOF_PROPS = ['antenna', 'solar-panel', 'prop-air', 'prop'].map((n) => sp(`props-roof-${n}`));
 const HELIPAD = sp('props-roof-helipad');
+const PARASOLS = [`${COM}detail-parasol-a.glb`, `${COM}detail-parasol-b.glb`];
 const VEHICLES = [...colors('vehicle-car'), sp('vehicle-taxi'), ...colors('vehicle-suv'), sp('vehicle-police-car'), ...colors('vehicle-pick-up-truck'),
   ...colors('vehicle-bus'), sp('vehicle-ambulance'), ...colors('vehicle-truck'), ...colors('vehicle-container')];
 const STREET = Object.fromEntries(['trash_bin_c', 'trash_bin_c_green', 'trash_bin_c_blue', 'metal_garbage_can_01_medium', 'garbage_collector_green_medium',
@@ -122,6 +124,11 @@ const FRIENDS = TILES ? TOWN.members.filter((m) => m.house_x != null && m.home?.
       home: { model: h.model ? asset(h.model) : fallback.home.model, house: [m.house_x, m.house_y], c: h.driveway[0], r: h.driveway[1], door: h.door },
     };
   }) : DEMO_FRIENDS;
+// Background houses (towns.map.background_homes = {color, homes: [{model, house: [x, y]}]}): plain one-tile
+// houses whose tile holds their model key, all with the same muted roof color. No plot, driveway, fence, car or name tag.
+const BG = TILES ? TOWN.town.map?.background_homes : null;
+const BG_ROOFS = new Set((BG?.homes || []).map((h) => `${h.house[0]},${h.house[1]}`));
+const BG_COLOR = BG?.color || '#b8b2a7';
 // Dark text on light friend colors (yellow, orange), white on the rest
 const inkOn = (hex) => { const c = new THREE.Color(hex); return c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.6 ? '#1f2430' : '#fff'; };
 const TREES = TILES ? tilesOf('tree') : [[7, 7], [9, 7], [7, 9], [9, 9]];
@@ -185,6 +192,7 @@ $('#game').append(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#9fd3ec');
+scene.fog = new THREE.Fog('#9fd3ec', 1000, 2000); // weather haze; `updateSky` sets its range and color
 
 const VIEW = 17; // world units visible vertically at zoom 1
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -234,20 +242,21 @@ Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, n
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-// Base plate under the city
+// Base plate under the city (a hair below the tiles, so they never z-fight)
 const slab = (w, d, top, z) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, d), new THREE.MeshLambertMaterial({ color: '#b98a5a' }));
   m.position.set(0, top - 0.151, z);
   m.receiveShadow = true;
   scene.add(m);
 };
-slab(N + 0.4, N + 0.4, 0, 0);
+slab(N + 0.4, N + 0.4, -0.01, 0);
 
 // Animated low-poly water (the park pond): vertices bob gently
 function water(geometry) {
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: '#3fa7d6', roughness: 0.25, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.92,
   }));
+  SNOW_SKIP.add(mesh.material);
   scene.add(mesh); // no shadows on the moving surface: they shimmer
   const attr = geometry.attributes.position;
   const base = Float32Array.from(attr.array);
@@ -285,6 +294,30 @@ function place(path, c, r, { fit, scale = 1, height = 1, rotY = 0 } = {}) {
   obj.traverse((m) => { if (m.isMesh) { m.castShadow = !flat; m.receiveShadow = true; } });
   scene.add(obj);
   return obj;
+}
+
+// The windmill model's rotor is its own mesh (the part above the tower's base). Re-hang it on a
+// pivot at its hub (the blades' vertex centroid) and turn it, faster when the weather is rough.
+function spinBlades(windmill) {
+  let rotor = null;
+  windmill.traverse((m) => {
+    if (!m.isMesh) return;
+    m.geometry.computeBoundingBox();
+    if (m.geometry.boundingBox.min.y > 5) rotor = m;
+  });
+  if (!rotor) return;
+  const p = rotor.geometry.attributes.position, hub = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) hub.add(new THREE.Vector3().fromBufferAttribute(p, i));
+  hub.divideScalar(p.count);
+  const pivot = new THREE.Object3D();
+  pivot.position.copy(hub);
+  rotor.parent.add(pivot);
+  pivot.add(rotor);
+  rotor.position.sub(hub);
+  animated.add({ update(dt) {
+    const wind = { storm: 3.2, rain: 1.8, snow: 1.4 }[sky.weather] ?? 1;
+    pivot.rotation.z -= dt * 1.1 * wind;
+  } });
 }
 
 // Buildings only go on lots that touch a road, and face it (models face +z). Corner lots pick
@@ -466,6 +499,68 @@ function buildCity() {
     if (m.includes('tree')) addOccluder(g);
   };
 
+  // Decorative tiles: small scenes (props at their normal scale) that fill space between buildings
+  const turn = (c, r) => faceRoad(c, r) ?? ((c + r) % 4) * (Math.PI / 2);
+  const DECOR = {
+    garden: (c, r) => {
+      place(GROUND.grass, c, r);
+      greenery(c, r, c * 3 + r);
+      place(NATURE['bush-03'], c + 0.28, r - 0.26, { scale: 2.4 });
+      place(NATURE['rock-small'], c - 0.3, r + 0.28, { scale: 2 });
+    },
+    picnic: (c, r) => {
+      place(GROUND.grass, c, r);
+      place(PROPS['bench-1'], c, r - 0.15, { scale: 2, rotY: turn(c, r) });
+      place(NATURE['pot-bush-small'], c + 0.32, r + 0.3, { scale: 2.2 });
+      place(NATURE['bush-01'], c - 0.32, r + 0.3, { scale: 2.2 });
+    },
+    plaza: (c, r) => {
+      place(GROUND.paved, c, r);
+      place(STREET.drinking_fountain_01, c + 0.1, r - 0.1, { scale: METER, rotY: turn(c, r) });
+      place(STREET.public_bench_01, c - 0.3, r + 0.25, { scale: METER, rotY: Math.PI / 2 });
+      place(NATURE['pot-bush-big'], c + 0.3, r + 0.3, { scale: 2.2 });
+    },
+    patio: (c, r) => {
+      place(GROUND.paved, c, r);
+      place(PARASOLS[0], c - 0.2, r - 0.2, { fit: 0.38 });
+      place(PARASOLS[1], c + 0.22, r + 0.2, { fit: 0.38 });
+      place(PROPS['coffee-shop-chair'], c + 0.3, r - 0.3, { scale: 1.6 });
+      place(PROPS['coffee-shop-chair'], c - 0.32, r + 0.3, { scale: 1.6 });
+    },
+    // Building blocks for symmetric parks: a big tree, a fountain, and benches facing n/s/e/w
+    oak: (c, r) => {
+      place(GROUND.grass, c, r);
+      addOccluder(place(PARK_TREES[0], c, r, { scale: 2.6 }));
+    },
+    fountain: (c, r) => {
+      place(GROUND.paved, c, r);
+      place(STREET.drinking_fountain_01, c, r, { scale: METER });
+      for (const [dx, dz] of [[-0.32, -0.32], [0.32, -0.32], [-0.32, 0.32], [0.32, 0.32]]) place(NATURE['pot-bush-small'], c + dx, r + dz, { scale: 2.2 });
+    },
+    water: (c, r) => { // a small round pond with a stone rim, like the central park's
+      place(GROUND.grass, c, r);
+      const pool = new THREE.CircleGeometry(0.36, 20);
+      pool.rotateX(-Math.PI / 2);
+      pool.translate(pos(c, r).x, 0.02, pos(c, r).z);
+      water(pool);
+      const rim = new THREE.Mesh(new THREE.RingGeometry(0.36, 0.42, 20), new THREE.MeshLambertMaterial({ color: '#b9ad97' }));
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.copy(pos(c, r)).setY(0.025);
+      scene.add(rim);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        place(NATURE['rock-small'], c + Math.cos(a) * 0.42, r + Math.sin(a) * 0.42, { scale: 1.4, rotY: a });
+      }
+    },
+    ...Object.fromEntries(Object.entries({ n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] }).map(([dir, [fx, fz]]) => [`bench-${dir}`, (c, r) => {
+      // A bench whose long side faces `dir` (bench models face -z at rotY 0), pulled toward that side,
+      // with two small trees behind it
+      place(GROUND.grass, c, r);
+      place(PROPS['bench-1'], c + fx * 0.22, r + fz * 0.22, { scale: 2, rotY: Math.atan2(-fx, -fz) });
+      for (const s of [-1, 1]) addOccluder(place(PARK_TREES[1], c - fx * 0.3 + fz * s * 0.3, r - fz * 0.3 + fx * s * 0.3, { scale: 1.6 }));
+    }])),
+  };
+
   // ---- Roads, lots and buildings
   let roofN = 0, curbN = 0;
   for (let r = 0; r < N; r++) {
@@ -476,9 +571,20 @@ function buildCity() {
       if (onC) { place(ROAD.straight, c, r); continue; }
       if (TILES && tileAt(c, r) === undefined) { blocked.add(key(c, r)); continue; } // outside a non-square map
       if (TILES && isRoad(c, r)) { place(ROAD.straight, c, r, { rotY: isRoad(c - 1, r) || isRoad(c + 1, r) ? Math.PI / 2 : 0 }); continue; } // a road that doesn't span the map
-      if (inPark(c, r)) { place(GROUND.grass, c, r); continue; }
+      if (inPark(c, r)) {
+        place(GROUND.grass, c, r);
+        if (tileAt(c, r) === 'path') { // light brown track, running away from the road it starts at
+          const alongZ = isRoad(c, r - 1) || isRoad(c, r + 1);
+          const track = new THREE.Mesh(new THREE.BoxGeometry(alongZ ? 0.34 : 1, 0.012, alongZ ? 1 : 0.34), new THREE.MeshLambertMaterial({ color: '#c9a878' }));
+          track.position.copy(pos(c, r)).setY(0.008);
+          track.receiveShadow = true;
+          scene.add(track);
+        }
+        continue;
+      }
       blocked.add(key(c, r));
       if (special.has(key(c, r))) { place(STADIUM.tiles.some(([x, y]) => x === c && y === r) ? GROUND.paved : GROUND.grass, c, r); continue; }
+      if (DECOR[tileAt(c, r)]) { DECOR[tileAt(c, r)](c, r); continue; }
 
       const friend = yards.get(key(c, r));
       if (friend) {
@@ -528,6 +634,7 @@ function buildCity() {
       place(suburb ? GROUND.grass : GROUND.paved, c, r);
       const isSP = model.startsWith(SP);
       const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
+      if (BG_ROOFS.has(key(c, r))) paintRoof(b, BG_COLOR);
       b.userData.building = isSP ? 'simplepoly' : 'kenney';
       addOccluder(b);
       if (suburb) { // flush to the street it faces, and to the cross street on a corner
@@ -587,7 +694,7 @@ function buildCity() {
   }
   if (FARM.tiles.length) { // laid out for a 2x2 farm; (fx, fz) shifts it from the demo's corner at (0, 15)
     const fx = Math.min(...FARM.tiles.map(([c]) => c)), fz = Math.min(...FARM.tiles.map(([, r]) => r)) - 15;
-    place(PROPS.windmill, fx + 0.5, fz + 15.6, { scale: 2.2, rotY: Math.PI / 4 });
+    spinBlades(place(PROPS.windmill, fx + 0.5, fz + 15.6, { scale: 2.2, rotY: Math.PI / 4 }));
     for (const [x, z, rot] of [[0.5, 14.62, Math.PI / 2], [0.5, 16.38, Math.PI / 2], [-0.38, 15.5, 0], [1.38, 15.5, 0]]) {
       place(NATURE['grass-fence'], fx + x, fz + z, { scale: 2.4, rotY: rot });
     }
@@ -1368,9 +1475,15 @@ const FADED_OPACITY = 0.1;
 const fadeState = new Map(); // occluder root -> current opacity
 const occRay = new THREE.Raycaster();
 
+// A faded building first writes only its depth, so just its nearest surface blends in. Without it,
+// every wall, floor and pane behind the front one stacks up and glass columns read as solid bars.
+const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true });
+const noRaycast = () => {};
 function setOpacity(root, a) {
-  root.traverse((m) => {
-    if (!m.isMesh) return;
+  const faded = a < 0.999;
+  const meshes = [];
+  root.traverse((m) => { if (m.isMesh && !m.userData.depthPass) meshes.push(m); });
+  for (const m of meshes) {
     if (!m.userData.ownMaterial) { // kit models share materials; buildings may carry [wall, lit window] pairs
       m.material = Array.isArray(m.material)
         ? m.material.map((x) => { const c = x.clone(); if (windowMats.has(x)) windowMats.add(c); return c; })
@@ -1379,10 +1492,20 @@ function setOpacity(root, a) {
     }
     for (const mat of [m.material].flat()) {
       mat.opacity = a;
-      mat.transparent = a < 0.999;
-      mat.depthWrite = a >= 0.999;
+      mat.transparent = faded;
+      mat.depthWrite = !faded;
     }
-  });
+    if (faded && !m.userData.depth) {
+      const d = new THREE.Mesh(m.geometry, depthOnly);
+      Object.assign(d.userData, { depthPass: true });
+      d.raycast = noRaycast; // occlusion rays must only hit the building itself
+      d.renderOrder = 1; // after other see-through things (water, glows), before any faded building's color
+      m.add(d);
+      m.userData.depth = d;
+    }
+    if (m.userData.depth) m.userData.depth.visible = faded;
+    m.renderOrder = faded ? 2 : 0;
+  }
 }
 
 function updateOcclusion(dt) {
@@ -1474,7 +1597,7 @@ const sky = {
   hour: 12, live: true, fast: false, backend: false,
   y: 0, mo: 0, d: 0,
   weather: 'clear', autoWeather: true, nextWeatherAt: 0,
-  cloud: 0, precip: 0, flash: 0, nextFlashAt: 0, night: 0,
+  cloud: 0, precip: 0, haze: 0, flash: 0, nextFlashAt: 0, night: 0, patchAt: 0,
 };
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 function townDateLabel() {
@@ -1483,9 +1606,9 @@ function townDateLabel() {
   const wd = WEEKDAYS[new Date(src.y, src.mo - 1, src.d).getDay()];
   return `${wd} ${String(src.d).padStart(2, '0')}/${String(src.mo).padStart(2, '0')}/${src.y}`;
 }
-const WEATHER = { // cloud cover, precipitation kind
-  clear: { cloud: 0, kind: null }, rain: { cloud: 0.6, kind: 'rain' },
-  storm: { cloud: 0.85, kind: 'rain' }, snow: { cloud: 0.5, kind: 'snow' },
+const WEATHER = { // cloud cover, precipitation kind, haze (how far you can see)
+  clear: { cloud: 0, kind: null, haze: 0 }, rain: { cloud: 0.6, kind: 'rain', haze: 0.35 },
+  storm: { cloud: 0.85, kind: 'rain', haze: 0.6 }, snow: { cloud: 0.5, kind: 'snow', haze: 0.45 },
 };
 const C = (h) => new THREE.Color(h);
 const SKY = { day: C('#9fd3ec'), dusk: C('#f3a36b'), night: C('#1b2b57'), overcastDay: C('#9aa5b3'), overcastNight: C('#232b3d') };
@@ -1499,13 +1622,99 @@ const dropSeed = Float32Array.from({ length: DROPS * 3 }, Math.random);
 const rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute('position', new THREE.BufferAttribute(dropPos, 3));
 const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: '#b9d6ff', transparent: true, opacity: 0.55 }));
-const flakePos = new Float32Array(DROPS * 3);
+// Snow flakes are soft round discs sized in world units, so they grow as the camera zooms in (a
+// plain PointsMaterial stays a fixed few pixels under the orthographic camera and reads as noise).
+const FLAKES = 4000;
+const flakePos = new Float32Array(FLAKES * 3);
+const flakeSeed = Float32Array.from({ length: FLAKES * 4 }, Math.random);
 const snowGeo = new THREE.BufferGeometry();
 snowGeo.setAttribute('position', new THREE.BufferAttribute(flakePos, 3));
-const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 3 * Math.min(devicePixelRatio, 2), sizeAttenuation: false }));
+snowGeo.setAttribute('size', new THREE.BufferAttribute(Float32Array.from({ length: FLAKES }, () => 0.5 + Math.random() ** 2 * 1.3), 1));
+const snow = new THREE.Points(snowGeo, new THREE.ShaderMaterial({
+  uniforms: { world: { value: 0.05 }, halfH: { value: 450 }, color: { value: new THREE.Color('#ffffff') }, opacity: { value: 0.95 } },
+  vertexShader: `
+    attribute float size;
+    uniform float world, halfH;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      float persp = projectionMatrix[3][3] == 0.0 ? 1.0 / -mv.z : 1.0;
+      gl_PointSize = max(1.5, size * world * projectionMatrix[1][1] * halfH * persp);
+    }`,
+  fragmentShader: `
+    uniform vec3 color;
+    uniform float opacity;
+    void main() {
+      float d = length(gl_PointCoord - 0.5);
+      gl_FragColor = vec4(color, opacity * smoothstep(0.5, 0.2, d));
+    }`,
+  transparent: true, depthWrite: false,
+}));
 rain.frustumCulled = snow.frustumCulled = false;
 scene.add(rain, snow);
 let fallT = 0;
+const wrap = (v, lo, hi) => lo + ((((v - lo) % (hi - lo)) + (hi - lo)) % (hi - lo));
+
+// Weather on surfaces, patched into every lit material's shader (one shared program variant):
+// - snow cover: upward faces (grass, roofs, treetops, roads a little) whiten while it snows, melt after
+// - wetness: in rain everything darkens a touch, up-facing ground more, and roads turn glossy
+// - grey: overcast light washes some color out of the town
+// - cloud shadows: soft patches drift across the town while the sun is up
+const WX = {
+  snowCover: { value: 0 }, wet: { value: 0 }, grey: { value: 0 }, cloudShade: { value: 0 },
+  cloudOffset: { value: new THREE.Vector2() },
+};
+const SNOW_SKIP = new Set(); // water stays as it is
+const patched = new WeakSet(); // not userData: clones (see-through buildings) copy that but not the shader hook
+const WX_VERTEX = `
+  vec4 wxWorld = modelMatrix * vec4(transformed, 1.0);
+  vWxXZ = wxWorld.xz;`;
+const WX_FRAGMENT = `
+  float wxUp = smoothstep(0.5, 0.85, vWxUp);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))), grey);
+  float wxWet = wet * wetAmount;
+  diffuseColor.rgb *= 1.0 - wxWet * mix(0.12, 0.38, wxUp);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.95, 0.98), snowCover * snowAmount * wxUp);
+  vec2 wxP = vWxXZ * 0.11 + cloudOffset;
+  float wxN = wxNoise(wxP) * 0.65 + wxNoise(wxP * 2.3 + 7.1) * 0.35;
+  diffuseColor.rgb *= 1.0 - cloudShade * smoothstep(0.48, 0.68, wxN);`;
+const WX_NOISE = `
+  varying float vWxUp;
+  varying vec2 vWxXZ;
+  uniform float snowCover, snowAmount, wet, wetAmount, grey, cloudShade;
+  uniform vec2 cloudOffset;
+  float wxHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float wxNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(wxHash(i), wxHash(i + vec2(1.0, 0.0)), f.x), mix(wxHash(i + vec2(0.0, 1.0)), wxHash(i + 1.0), f.x), f.y);
+  }`;
+function addWeather(mat, { snow = 1, wet = 0.5 } = {}) {
+  if (patched.has(mat) || SNOW_SKIP.has(mat) || !(mat.isMeshStandardMaterial || mat.isMeshLambertMaterial || mat.isMeshPhongMaterial)) return;
+  patched.add(mat);
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, WX, { snowAmount: { value: snow }, wetAmount: { value: wet } });
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vWxUp;\nvarying vec2 vWxXZ;')
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvWxUp = normalize(mat3(modelMatrix) * objectNormal).y;')
+      .replace('#include <project_vertex>', `#include <project_vertex>${WX_VERTEX}`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>${WX_NOISE}`)
+      .replace('#include <map_fragment>', `#include <map_fragment>${WX_FRAGMENT}`)
+      // wet roads gloss up (standard materials only; the others have no roughness)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.28, wxWet * wxUp * step(0.9, wetAmount));');
+  };
+  mat.customProgramCacheKey = () => 'weather';
+  mat.needsUpdate = true;
+}
+function patchWeather() {
+  const roads = new Set();
+  for (const p of [...Object.values(ROAD), GROUND.paved]) models[p].scene.traverse((m) => { if (m.isMesh) [m.material].flat().forEach((x) => roads.add(x)); });
+  scene.traverse((m) => {
+    if (!m.isMesh || m.isSkinnedMesh || m.userData.depthPass) return;
+    for (const mat of [m.material].flat()) addWeather(mat, roads.has(mat) ? { snow: 0.45, wet: 1 } : undefined);
+  });
+}
 
 // Night lighting: a glowing bulb and a pool of light under every street light, and lit windows
 const glowTex = (() => {
@@ -1519,7 +1728,8 @@ const lampGlow = [];
 const LAMPS = []; // every street light placed in buildCity: tile position and rotation
 function addStreetLamps() {
   const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffc27a', transparent: true }); // warm sodium-ish glow
-  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  lampGlow.pools = [];
   for (const { x, z, rotY } of LAMPS) {
     // The lamp's arm reaches 0.207 tiles along its local -x; rotate that to find the bulb
     const head = pos(x - 0.207 * Math.cos(rotY), z + 0.207 * Math.sin(rotY));
@@ -1530,6 +1740,7 @@ function addStreetLamps() {
     pool.position.copy(head).setY(0.025);
     scene.add(bulb, pool);
     lampGlow.push(bulb, pool);
+    lampGlow.pools.push(pool);
   }
   lampGlow.materials = [bulbMat, poolMat];
 }
@@ -1617,19 +1828,17 @@ function updateSky(dt) {
   if (sky.live && !sky.backend) sky.hour = now.getHours() + now.getMinutes() / 60;
   else if (sky.fast) sky.hour = (sky.hour + dt * (24 / 120)) % 24; // a whole day in two minutes
   if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
-    const kinds = ['clear', 'clear', 'rain', 'storm', 'snow'];
-    if (TILES) { // real towns: weather follows a shared wall-clock schedule, so everyone sees the same sky
-      const w = kinds[(Math.imul(Math.floor(Date.now() / 110000), 2654435761) >>> 0) % kinds.length];
-      if (w !== sky.weather) setWeather(w, false);
-      sky.nextWeatherAt = performance.now() + 5000;
-    } else {
-      if (sky.nextWeatherAt) setWeather(kinds[Math.floor(Math.random() * 5)], false);
-      sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
+    setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
+    if (!sky.nextWeatherAt) { // first pick on load: start already in it instead of easing in
+      sky.cloud = WEATHER[sky.weather].cloud;
+      sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
     }
+    sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
   }
   const w = WEATHER[sky.weather];
   sky.cloud += (w.cloud - sky.cloud) * Math.min(1, dt * 0.6);
   sky.precip += ((w.kind ? 1 : 0) - sky.precip) * Math.min(1, dt * 0.5);
+  sky.haze += (w.haze - sky.haze) * Math.min(1, dt * 0.4);
 
   // Sun: rises at 6, sets at 18. `el` is its height (-1..1); twilight glows near the horizon.
   const a = ((sky.hour - 6) / 12) * Math.PI, el = Math.sin(a);
@@ -1643,11 +1852,30 @@ function updateSky(dt) {
   const up = Math.max(el, 0.18);
   if (day > 0.02) sun.position.set(-Math.cos(a) * 14, up * 16, 6);
   else sun.position.set(Math.cos(a) * 10, 12, -4); // moonlight from the other side
-  sun.color.copy(C('#fff4e0')).lerp(C('#ffb070'), twilight).lerp(C('#9fb3ff'), 1 - day);
-  sun.intensity = (0.6 + 1.6 * day) * (1 - 0.7 * sky.cloud) + sky.flash * 2;
-  hemi.intensity = (0.85 + 0.75 * day) * (1 - 0.3 * sky.cloud) + sky.flash * 1.5;
-  hemi.color.copy(C('#8494cc')).lerp(C('#ffffff'), day);
-  hemi.groundColor.copy(C('#34405a')).lerp(C(sky.weather === 'snow' ? '#dfe6ee' : '#8a9a7a'), day);
+  // Under cloud the sun goes cool and weak and shadows soften, so the light is flat and grey; the
+  // sky light carries more of the scene. Snow on the ground bounces light back up.
+  sun.color.copy(C('#fff4e0')).lerp(C('#ffb070'), twilight).lerp(C('#9fb3ff'), 1 - day).lerp(C('#c9d3e2'), sky.cloud * 0.8 * day);
+  sun.intensity = (0.6 + 1.6 * day) * (1 - 0.8 * sky.cloud) + sky.flash * 2.5;
+  sun.shadow.intensity = 1 - 0.75 * sky.cloud;
+  hemi.intensity = (0.85 + 0.75 * day) * (1 - 0.2 * sky.cloud) + sky.flash * 1.5;
+  hemi.color.copy(C('#8494cc')).lerp(C('#ffffff'), day).lerp(C('#c4cfdf'), sky.cloud * 0.7 * day);
+  hemi.groundColor.copy(C('#34405a')).lerp(C('#8a9a7a'), day).lerp(C('#dfe6ee'), WX.snowCover.value * day);
+
+  // Haze: the far side of town fades into the sky color. The range is measured from the camera's
+  // distance to what it looks at, so it reads the same zoomed in, zoomed out or following someone.
+  const look = following ? following.obj.position : controls.target;
+  const d = activeCam.position.distanceTo(look);
+  scene.fog.color.copy(col);
+  scene.fog.near = sky.haze > 0.01 ? d - 4 : 1000;
+  scene.fog.far = sky.haze > 0.01 ? d - 4 + 14 / sky.haze : 2000;
+
+  // Surfaces: wet in rain (dries slowly), a little greyer under cloud, and cloud shadows drifting by
+  // while the sun is up (a few fair-weather clouds even on clear days)
+  WX.wet.value = Math.min(1, Math.max(0, WX.wet.value + (w.kind === 'rain' ? dt / 15 : -dt / 60)));
+  WX.grey.value = sky.cloud * 0.45;
+  WX.cloudShade.value = (sky.weather === 'clear' ? 0.2 : 0.1 + 0.22 * 4 * sky.cloud * (1 - sky.cloud)) * day;
+  WX.cloudOffset.value.x -= dt * 0.035 * (sky.weather === 'storm' ? 3 : 1);
+  WX.cloudOffset.value.y -= dt * 0.02 * (sky.weather === 'storm' ? 3 : 1);
 
   // Lightning in storms: a quick double flash every few seconds
   if (sky.weather === 'storm' && performance.now() > sky.nextFlashAt) {
@@ -1660,28 +1888,45 @@ function updateSky(dt) {
   const lit = smooth(0.35, 0.8, sky.night + sky.cloud * 0.25);
   for (const m of lampGlow.materials ?? []) m.opacity = lit;
   for (const g of lampGlow) g.visible = lit > 0.01;
+  if (lampGlow.materials) lampGlow.materials[1].opacity = lit * (1 + 0.6 * WX.wet.value); // wet streets throw the light back
+  for (const g of lampGlow.pools ?? []) g.scale.setScalar(1 + 0.35 * WX.wet.value);
   for (const m of windowMats) m.emissiveIntensity = lit * 1.4;
 
   // Precipitation: only a share of the drops fall, ramping with the weather
   fallT += dt;
   const kind = w.kind ?? (sky.precip > 0.02 ? (snow.visible ? 'snow' : 'rain') : null);
   const count = Math.floor(DROPS * sky.precip * (sky.weather === 'storm' ? 1 : 0.6));
+  const flakes = Math.floor(FLAKES * sky.precip);
   rain.visible = kind === 'rain' && count > 0;
-  snow.visible = kind === 'snow' && count > 0;
+  snow.visible = kind === 'snow' && flakes > 0;
   const span = VOLUME.z1 - VOLUME.z0;
-  for (let i = 0; i < count; i++) {
+  if (rain.visible) for (let i = 0; i < count; i++) {
     const [sx, sy, sz] = [dropSeed[i * 3], dropSeed[i * 3 + 1], dropSeed[i * 3 + 2]];
     const x = (sx * 2 - 1) * VOLUME.x, z = VOLUME.z0 + sz * span;
-    if (rain.visible) {
-      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 9) % VOLUME.h);
-      dropPos.set([x, y, z, x - 0.04, y + 0.28, z - 0.02], i * 6);
-    } else if (snow.visible) {
-      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 0.7) % VOLUME.h);
-      flakePos.set([x + Math.sin(fallT * 0.8 + sx * 20) * 0.15, y, z + Math.cos(fallT * 0.6 + sz * 20) * 0.15], i * 3);
-    }
+    const y = VOLUME.h - ((sy * VOLUME.h + fallT * 9) % VOLUME.h);
+    dropPos.set([x, y, z, x - 0.04, y + 0.28, z - 0.02], i * 6);
+  }
+  if (snow.visible) for (let i = 0; i < flakes; i++) {
+    // Each flake falls at its own pace, flutters, and drifts with a light breeze (wrapping around the volume)
+    const [sx, sy, sz, sp] = [flakeSeed[i * 4], flakeSeed[i * 4 + 1], flakeSeed[i * 4 + 2], flakeSeed[i * 4 + 3]];
+    const fall = fallT * (0.35 + sp * 0.35);
+    const y = VOLUME.h - ((sy * VOLUME.h + fall) % VOLUME.h);
+    const x = wrap((sx * 2 - 1) * VOLUME.x + fall * 0.35 + Math.sin(fallT * (0.6 + sp) + sx * 40) * 0.25, -VOLUME.x, VOLUME.x);
+    const z = wrap(VOLUME.z0 + sz * span + Math.cos(fallT * (0.5 + sp) + sz * 40) * 0.25, VOLUME.z0, VOLUME.z1);
+    flakePos.set([x, y, z], i * 3);
   }
   rainGeo.setDrawRange(0, count * 2);
-  snowGeo.setDrawRange(0, count);
+  snowGeo.setDrawRange(0, flakes);
+  snow.material.uniforms.halfH.value = renderer.domElement.height / 2;
+  snow.material.uniforms.color.value.setScalar(0.55 + 0.45 * (1 - sky.night)); // flakes dim at night
+
+  // Snow settles while it snows and melts (faster in rain) once it stops
+  const settle = sky.weather === 'snow' ? dt / 30 : -dt / (w.kind === 'rain' ? 12 : 45);
+  WX.snowCover.value = Math.min(1, Math.max(0, WX.snowCover.value + settle));
+  if (performance.now() > sky.patchAt) { // pick up materials cloned since (see-through buildings)
+    patchWeather();
+    sky.patchAt = performance.now() + 2000;
+  }
   rainGeo.attributes.position.needsUpdate = snowGeo.attributes.position.needsUpdate = true;
   rain.material.opacity = sky.weather === 'storm' ? 0.7 : 0.5;
 
@@ -1751,6 +1996,8 @@ function wireSkyControls() {
     setWeather(p.get('weather'));
     sky.cloud = WEATHER[sky.weather].cloud;
     sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
+    if (sky.weather === 'snow') WX.snowCover.value = 1;
+    if (WEATHER[sky.weather].kind === 'rain') WX.wet.value = 1;
   }
 }
 
@@ -1762,13 +2009,14 @@ const allModels = [
   ...FRIENDS.map((f) => `${CH}${f.model}.glb`), ...FRIENDS.map((f) => f.home.model),
   ...Object.values(ROAD), ...Object.values(GROUND), ...PARK_TREES, ...Object.values(PROPS), ...Object.values(NATURE),
   ...ROOF_PROPS, HELIPAD, ...VEHICLES, STADIUM.model,
-  ...Object.values(STREET), ...EXTRA_MODELS.map(([, , m]) => m),
+  ...Object.values(STREET), ...PARASOLS, ...EXTRA_MODELS.map(([, , m]) => m),
 ];
 logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
 addStreetLamps();
 scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.building); });
+patchWeather();
 wireSkyControls();
 spawnFriends();
 renderResidents();

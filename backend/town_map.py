@@ -1,7 +1,8 @@
 """Town maps. Layout lives in three places (see migration 20260926000006):
 
-- `towns.tiles[y][x]`: what's on each tile (road, park, pond, tree, stadium, farm, home, driveway, yard,
-  lot = frontend fills it procedurally, or an explicit building model key).
+- `towns.tiles[y][x]`: what's on each tile (road, park, pond, tree, path, stadium, farm, home, driveway, yard,
+  lot = frontend fills it procedurally, garden/picnic/plaza/patio/oak/fountain/water/bench-n|s|e|w = small decorative scenes,
+  or an explicit building model key).
 - `towns.map.places`: named destinations, {"cafe": {"name", "tile": [x, y], "door": [x, y]}}.
 - `town_members.house_x/house_y` + `.home` ({model, driveway, door, block}): each person's house.
 

@@ -219,9 +219,30 @@ function personRow(p, actions = [], note = '') {
 }
 
 function fillList(ul, rows) {
+  const scroll = ul.scrollTop; // background refreshes shouldn't jump a scrolled list back to the top
   ul.innerHTML = '';
   rows.forEach((r) => ul.append(r));
+  ul.scrollTop = scroll;
 }
+
+// Friends list: scrolls inside its card, with a filter once there are more than a handful
+let allFriends = [];
+const FILTER_AFTER = 5;
+
+function renderFriends() {
+  const filter = $('#friend-filter');
+  const q = filter.value.trim().toLowerCase().replace(/^@/, '');
+  const shown = q ? allFriends.filter((f) => `${f.display_name ?? ''} ${f.username ?? ''}`.toLowerCase().includes(q)) : allFriends;
+  fillList($('#friends'), shown.map((f) => personRow(f, [
+    ['Remove', () => confirm(`Remove ${f.display_name} as a friend?`) && api(`/friends/${f.id}`, { method: 'DELETE' }), 'danger'],
+  ])));
+  filter.hidden = allFriends.length <= FILTER_AFTER && !q;
+  $('#friend-count').textContent = allFriends.length ? `(${allFriends.length})` : '';
+  $('#no-friends').hidden = allFriends.length > 0;
+  $('#no-matches').hidden = !(allFriends.length && !shown.length);
+}
+
+$('#friend-filter').oninput = renderFriends;
 
 async function refreshFriends() {
   let friends, requests;
@@ -231,10 +252,8 @@ async function refreshFriends() {
     return message($('#search-msg'), err.message);
   }
 
-  fillList($('#friends'), friends.map((f) => personRow(f, [
-    ['Remove', () => confirm(`Remove ${f.display_name} as a friend?`) && api(`/friends/${f.id}`, { method: 'DELETE' }), 'danger'],
-  ])));
-  $('#no-friends').hidden = friends.length > 0;
+  allFriends = friends;
+  renderFriends();
 
   fillList($('#incoming'), requests.incoming.map((r) => personRow(r.from_profile, [
     ['Accept', () => api(`/friends/requests/${r.id}/respond`, { method: 'POST', body: { status: 'accepted' } }), 'primary'],

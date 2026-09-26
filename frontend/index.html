@@ -90,6 +90,10 @@
     ul.people .who { flex: 1; min-width: 0; }
     ul.people .name { font-weight: 600; }
     ul.people .actions { display: flex; gap: 6px; }
+    /* Long lists scroll inside their card (about 5 rows) instead of stretching the page */
+    ul.people.scroll { max-height: 290px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+    .filter { margin-bottom: 10px; }
+    h3 .count { color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; }
     .empty { color: var(--muted); font-size: 14px; margin: 0; }
     .badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 12px; text-align: center; margin-left: 6px; vertical-align: 1px; }
     .section + .section { margin-top: 20px; }
@@ -206,9 +210,11 @@
           </div>
 
           <div class="section">
-            <h3>Friends</h3>
-            <ul class="people" id="friends"></ul>
+            <h3>Friends <span class="count" id="friend-count"></span></h3>
+            <input class="filter" id="friend-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
+            <ul class="people scroll" id="friends"></ul>
             <p class="empty" id="no-friends">No friends yet. Search for someone's username above.</p>
+            <p class="empty" id="no-matches" hidden>No friends match that.</p>
           </div>
         </div>
       </div>
