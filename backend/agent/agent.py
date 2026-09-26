@@ -14,7 +14,7 @@ from backend.agent.validate import parse_raw_json, validate_agent_decision
 from backend.config import settings
 from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts, writer
 from backend.interactions.path_score import record_interaction
-from backend.llm import complete
+from backend.llm import available as llm_available, complete
 from backend.calendar_drive import current_trip, estimate_travel_minutes, next_check_iso
 from backend.schedules import label, local_now
 from backend.models.agents import (
@@ -279,8 +279,8 @@ def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | No
                 "user_id", user_id
             ).execute()
             return None
-        if not settings.OPENROUTER_API_KEY:
-            write_idle(db, town_id, user_id, "OPENROUTER_API_KEY missing")
+        if not llm_available():
+            write_idle(db, town_id, user_id, "no LLM key (XAI_API_KEY / OPENROUTER_API_KEY)")
             return None
         raw = complete(
             settings.AGENT_MODEL, build_agent_system_prompt(ctx.display_name), build_agent_user_prompt(ctx), 512

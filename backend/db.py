@@ -56,11 +56,12 @@ def towns_with_unprocessed_signals(db) -> list[str]:
         by_town.setdefault(m["town_id"], []).append(m["user_id"])
     due = []
     for town_id, user_ids in by_town.items():
-        q = db.table("signals").select("id").in_("user_id", user_ids).limit(1)
+        q = db.table("signals").select("value").in_("user_id", user_ids).limit(50)
         since = last_brain_run_at(db, town_id)
         if since:
             q = q.gt("created_at", since)
-        if q.execute().data:
+        # A post scoped to another town doesn't make this one due
+        if any((r.get("value") or {}).get("town_id") in (None, town_id) for r in q.execute().data or []):
             due.append(town_id)
     return due
 

@@ -76,3 +76,18 @@ def test_openrouter_model_ids():
     assert _openrouter_model("google/gemini-2.5-flash") == "google/gemini-2.5-flash"
     assert _openrouter_model("gemini-2.5-flash") == "google/gemini-2.5-flash"
     assert _openrouter_model("gemini-2.5-flash-lite") == "google/gemini-2.5-flash-lite"
+
+
+def test_xai_key_switches_every_ai_feature_to_grok(monkeypatch):
+    from backend import llm
+    monkeypatch.setattr(llm.settings, "LLM_PROVIDER", "")
+    monkeypatch.setattr(llm.settings, "OPENROUTER_API_KEY", "sk-or")
+    monkeypatch.setattr(llm.settings, "XAI_API_KEY", "")
+    assert llm.provider() == "openrouter"
+    monkeypatch.setattr(llm.settings, "XAI_API_KEY", "xai-123")
+    assert llm.provider() == "xai"
+    assert llm._xai_model(llm.settings.BRAIN_MODEL) == llm.settings.XAI_MODEL
+    assert llm._xai_model(llm.settings.AGENT_MODEL) == llm.settings.XAI_FAST_MODEL
+    assert llm._xai_model("grok-4") == "grok-4"
+    monkeypatch.setattr(llm.settings, "LLM_PROVIDER", "openrouter")
+    assert llm.provider() == "openrouter"

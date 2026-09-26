@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from postgrest.exceptions import APIError
 
@@ -8,6 +8,8 @@ from backend.auth import current_user_id
 from backend.db import get_client
 from backend import photos
 from backend.feed import SOCIAL_VERBS, TODAY_WINDOW, build_feed, town_layout
+from backend.post_ideas import build_context, post_ideas
+from backend.posts import post_items
 from backend.profile_stats import WEEK_DAYS, build_stats
 from backend.status import MAX_LENGTH, active_status, calendar_busy
 from backend.models.api import ProfileUpdate, StatusIn
@@ -134,6 +136,17 @@ def my_feed(uid: str = Depends(current_user_id)):
     busy = calendar_busy(db, list({m["user_id"] for m in members}), now)
     feed = build_feed(uid, towns, members, runs, actions, events, now, busy=busy)
     feed["my_calendar_busy"] = busy.get(uid)  # your own ring when you haven't set a status
+    # Posts people wrote themselves, from you, your friends and your townmates, merged in by time
+    friend_ids = [r["to_user"] if r["from_user"] == uid else r["from_user"] for r in
+                  db.table("friend_requests").select("from_user, to_user").or_(f"from_user.eq.{uid},to_user.eq.{uid}")
+                  .eq("status", "accepted").execute().data or []]
+    friends = {p["id"]: p for p in (db.table("profiles").select("*").in_("id", friend_ids).execute().data or [])} if friend_ids else {}
+    authors = list({uid, *friend_ids, *(m["user_id"] for m in members)})
+    sigs = (db.table("signals").select("id, user_id, value, created_at").in_("user_id", authors).eq("source", "manual")
+            .order("created_at", desc=True).limit(60).execute().data or [])
+    people = {(t["id"], r["user_id"]): r for t in feed["towns"] for r in t["residents"]}
+    posts = post_items(uid, sigs, towns, people, friends, now)
+    feed["items"] = sorted(feed["items"] + posts, key=lambda it: it["at"] or "", reverse=True)[:50]
     # The real layout, so town cards can draw each town as it is (roads, parks, friends' houses in their colors)
     layouts = {m["town_id"]: town_layout((m.get("towns") or {}), [x for x in members if x["town_id"] == m["town_id"]]) for m in mine}
     for t in feed["towns"]:
@@ -220,3 +233,67 @@ async def set_photo(request: Request, uid: str = Depends(current_user_id)):
 def delete_photo(uid: str = Depends(current_user_id)):
     """Remove your profile photo; your initials show again."""
     return _replace_photo(uid, None)
+
+
+@router.get("/notifications")
+def my_notifications(uid: str = Depends(current_user_id)):
+    """Notices for you, newest first (e.g. a town you were in was deleted)."""
+    return (get_client().table("notifications").select("*").eq("user_id", uid)
+            .order("created_at", desc=True).limit(30).execute().data or [])
+
+
+@router.delete("/notifications/{notification_id}", status_code=204)
+def dismiss_notification(notification_id: int, uid: str = Depends(current_user_id)):
+    get_client().table("notifications").delete().eq("id", notification_id).eq("user_id", uid).execute()
+
+
+@router.get("/post-ideas")
+def my_post_ideas(local_time: str = Query("", max_length=40, description="the viewer's local time, e.g. Sat 2:40 PM"),
+                  refresh: bool = False, avoid: list[str] = Query([], max_length=8, description="labels on screen now"),
+                  uid: str = Depends(current_user_id)):
+    """A few AI ideas for what to post, from what you can already see in the app (see backend/post_ideas.py)."""
+    db = get_client()
+    prof = (db.table("profiles").select("*").eq("id", uid).limit(1).execute().data or [{}])[0]
+    now = datetime.now(timezone.utc)
+    soon = (now + TODAY_WINDOW).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mine = (db.table("event_participants").select("events!inner(title, start_at, end_at, type)").eq("user_id", uid)
+            .eq("status", "accepted").eq("events.type", "personal").gte("events.end_at", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            .lte("events.start_at", soon).limit(8).execute().data or [])
+    recent = (db.table("signals").select("value").eq("user_id", uid).eq("source", "manual")
+              .order("created_at", desc=True).limit(6).execute().data or [])
+    my_posts = [v["text"] for v in ((r.get("value") or {}) for r in recent)
+                if v.get("text") and v.get("audience") != "private" and v.get("visibility") not in ("mood", "hidden")]
+
+    # Everyone you know: townmates (from the feed, with live free/busy) and friends, with bio and interests
+    feed = my_feed(uid)
+    people: dict[str, dict] = {}
+    for t in feed["towns"]:
+        for r in t["residents"]:
+            if r["user_id"] != uid and r["user_id"] not in people:
+                people[r["user_id"]] = {"user_id": r["user_id"], "name": r["name"], "relation": "townmate",
+                                        "free": (r.get("status") or {}).get("status") == "free"}
+    friend_ids = [r["to_user"] if r["from_user"] == uid else r["from_user"] for r in
+                  db.table("friend_requests").select("from_user, to_user").or_(f"from_user.eq.{uid},to_user.eq.{uid}")
+                  .eq("status", "accepted").execute().data or []]
+    ids = list({*people, *friend_ids})
+    profiles = {p["id"]: p for p in (db.table("profiles").select("*").in_("id", ids).execute().data or [])} if ids else {}
+    bonds = {}
+    for f in db.table("friendships").select("*").or_(f"user_a.eq.{uid},user_b.eq.{uid}").execute().data or []:
+        bonds[f["user_b"] if f["user_a"] == uid else f["user_a"]] = f
+    for pid in ids:
+        p, pr = people.get(pid), profiles.get(pid) or {}
+        if p is None:
+            st = active_status(pr, now)
+            p = people[pid] = {"user_id": pid, "name": pr.get("display_name"), "free": bool(st and st["status"] == "free")}
+        if pid in friend_ids:
+            p["relation"] = "friend"
+        last = (bonds.get(pid) or {}).get("last_interaction_at")
+        p.update(bio=pr.get("bio"), interests=pr.get("interests") or [],
+                 days_since=int((now - datetime.fromisoformat(last.replace("Z", "+00:00"))).total_seconds() // 86400) if last else None)
+
+    status = active_status(prof, now)
+    context = build_context(
+        prof, local_time,
+        sorted([{"title": e["events"]["title"], "start": e["events"]["start_at"]} for e in mine], key=lambda e: e["start"]),
+        status["status"] if status else None, list(people.values()), feed["items"], my_posts)
+    return post_ideas(uid, context, refresh, avoid)
