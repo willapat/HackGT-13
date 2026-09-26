@@ -533,7 +533,15 @@ export function buildCity() {
     const h = f.home;
     const [dc, dr] = [h.door[0] - h.c, h.door[1] - h.r];
     const side = { c: -dr * 0.34, r: dc * 0.34 };
-    tint(place(STREET.mailbox_01_white, h.c + dc * 0.4 + side.c, h.r + dr * 0.4 + side.r, { scale: METER, rotY: Math.atan2(dc, dr) }), f.color, 0.8);
+    const box = tint(place(STREET.mailbox_01_white, h.c + dc * 0.4 + side.c, h.r + dr * 0.4 + side.r, { scale: METER, rotY: Math.atan2(dc, dr) }), f.color, 0.8);
+    // Click a mailbox to leave its owner a note, or to read your own (mail.js). The model is tiny, so it gets a
+    // bigger invisible hit area; a badge floats over it when you have unread mail.
+    const boxHit = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.5, 10), new THREE.MeshBasicMaterial({ visible: false }));
+    boxHit.position.copy(box.position).setY(0.2);
+    boxHit.userData.mailboxOf = f.id;
+    scene.add(boxHit);
+    clickable.push(boxHit);
+    f.mailboxAt = box.position.clone().setY(0.42);
     // Flag on a pole in the front yard; the cloth hangs from a pivot at the pole top so it stays attached
     const flagAt = pos(h.c - dc * 0.3 - side.c, h.r - dr * 0.3 - side.r);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9), new THREE.MeshLambertMaterial({ color: '#eeeeee' }));

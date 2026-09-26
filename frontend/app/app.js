@@ -1144,12 +1144,14 @@ function renderInbox() {
     const li = el('li');
     const who = el('div', 'who');
     const p = n.payload || {};
-    const comment = n.kind === 'post_comment';
+    const comment = n.kind === 'post_comment', mail = n.kind === 'mail';
     const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in`
-      : comment ? `${p.by_name || 'Someone'} commented: “${p.text || ''}”` : 'Something changed';
-    const sub = comment ? (p.post_text ? `on “${p.post_text}”` : 'on your post') : 'its houses, characters and plans are gone';
+      : comment ? `${p.by_name || 'Someone'} commented: “${p.text || ''}”`
+      : mail ? `${p.by_name || 'Someone'} left you a note: “${p.text || ''}”` : 'Something changed';
+    const sub = comment ? (p.post_text ? `on “${p.post_text}”` : 'on your post')
+      : mail ? `in your mailbox in ${p.town_name || 'town'}` : 'its houses, characters and plans are gone';
     who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · ${sub}`));
-    if (comment && p.by_user_id) li.dataset.person = p.by_user_id;
+    if ((comment || mail) && p.by_user_id) li.dataset.person = p.by_user_id;
     const dismiss = el('button', 'small', 'Dismiss');
     dismiss.type = 'button';
     dismiss.onclick = async () => {
@@ -1158,7 +1160,15 @@ function renderInbox() {
       notices = notices.filter((x) => x.id !== n.id);
       renderInbox();
     };
-    li.append(el('div', 'notice-icon', n.kind === 'town_deleted' ? '🏚️' : comment ? '💬' : '🔔'), who, dismiss);
+    const icon = n.kind === 'town_deleted' ? '🏚️' : comment ? '💬' : mail ? '📬' : '🔔';
+    const actions = [dismiss];
+    if (mail && p.town_id) { // open the town to read it in the mailbox
+      const open = el('button', 'small', 'Open mailbox');
+      open.type = 'button';
+      open.onclick = () => enterTown(p.town_id);
+      actions.unshift(open);
+    }
+    li.append(el('div', 'notice-icon', icon), who, ...actions);
     return li;
   }));
   $('#notices-section').hidden = !notices.length;

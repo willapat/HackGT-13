@@ -1,14 +1,15 @@
-// DOM helpers for the town page: the activity feed, cards, and screen-space labels that follow 3D points.
+// DOM helpers for the town page: activity toasts, cards, and screen-space labels that follow 3D points.
 
 export const $ = (s) => document.querySelector(s);
 
+// Town happenings show as short toasts in the corner (the newest few, each fading after a few seconds)
 export function logFeed(text) {
   const li = document.createElement('li');
-  const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  li.innerHTML = `<time>${t}</time>`;
   li.append(text);
-  $('#feed').prepend(li);
-  while ($('#feed').children.length > 60) $('#feed').lastChild.remove();
+  $('#feed').append(li);
+  while ($('#feed').children.length > 3) $('#feed').firstChild.remove();
+  setTimeout(() => li.classList.add('gone'), 5000);
+  setTimeout(() => li.remove(), 5600);
 }
 
 export function showCard({ kind, text, color, actions }) {
@@ -30,12 +31,12 @@ export function showCard({ kind, text, color, actions }) {
 
 // Screen-space labels that follow 3D points
 export const labels = new Set();
-export function addLabel(className, text, getPos) {
+export function addLabel(className, text, getPos, visible = null) {
   const el = document.createElement('div');
   el.className = className;
   el.textContent = text;
   $('#labels').append(el);
-  const l = { el, getPos };
+  const l = { el, getPos, visible };
   labels.add(l);
   return { el, remove: () => { el.remove(); labels.delete(l); } };
 }

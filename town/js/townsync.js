@@ -1,5 +1,5 @@
 // Keeps a real town (town/?town=<id>) in step with the database, as the signed-in user, over Supabase Realtime:
-// the database pushes each change (a character's new placement, a mood, a chat, a schedule or clock change) to
+// the database pushes each change (a character's new placement, a mood, a bubble, a chat, a schedule or clock change) to
 // everyone in the town, instead of every viewer asking the API every 2 seconds. Characters walk client-side
 // between decisions, so rows only change when someone decides, a calendar event starts, or the clock moves.
 // Everything is derived from database rows, so every viewer sees the same town. The time slider is lighting only
@@ -12,10 +12,13 @@ import { api, getSupabase } from '../../frontend/shared/session.js';
 
 const SAFETY_SYNC_MS = 60000; // in case a push was missed (e.g. the laptop slept)
 const livePath = (townId) => `/towns/${townId}?live=1`;
+// A bubble or house mood someone set ({..., until}) shows until it runs out (backend/house.py)
+const active = (x) => (x && Date.parse(x.until) > Date.now() ? x : null);
+// Without a mood of their own, the town brain's mood for them still shows over the house
+const BRAIN_MOOD = { sunny: 'party', rainbow: 'party', rainy: 'rainy', stormy: 'stormy' };
 
 export function startTownSync(townId, initial, t) {
   const placed = {}; // user_id -> action|building|depart already drawn
-  const moodFx = {}; // user_id -> { kind, fx }
   let syncGen = 0;
   let syncTimer = null;
 
@@ -46,18 +49,12 @@ export function startTownSync(townId, initial, t) {
     const houseName = m.home?.name || `${f.name}'s house`; // someone renamed their house: relabel it for everyone
     if (f.home && f.home.name !== houseName) {
       f.home.name = houseName;
-      if (f.homeLabel) f.homeLabel.el.textContent = houseName;
+      t.refreshHouseLabel(f);
     }
     const status = m.activity || m.mood;
     if (status && f.status !== status) t.setStatus(f.id, status);
-    const kind = m.mood === 'sunny' || m.mood === 'rainbow' ? 'party' : m.mood === 'rainy' || m.mood === 'stormy' ? 'rain' : null;
-    if (moodFx[m.user_id]?.kind === kind) return;
-    moodFx[m.user_id]?.fx?.destroy();
-    moodFx[m.user_id] = {
-      kind,
-      fx: kind === 'party' ? t.partyLights(f.home, { focus: false })
-        : kind === 'rain' ? t.rainCloud(f.home, { focus: false }) : null,
-    };
+    t.setHouseMood(f, active(m.home?.mood)?.kind || BRAIN_MOOD[m.mood] || null);
+    t.setPinned(f, active(m.bubble)?.text || null);
   }
 
   function applyTown(data) {

@@ -2,12 +2,14 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from postgrest.exceptions import APIError
 
 from backend.auth import current_user_id, require_member
 from backend.config import settings
 from backend.db import get_client, iso_in, now_iso, writer
+from backend.house import BUBBLE_HOURS, MOOD_HOURS, entry
 from backend.identity import check_identity, suggest_color, town_identities
-from backend.models.api import EventCreate, HouseName, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownGenerate, TownUpdate
+from backend.models.api import BubbleIn, EventCreate, HouseName, MoodIn, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownGenerate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
 from backend.routes.me import plan_town_handoff
 from backend.calendar_drive import destination_for, estimate_travel_minutes, snap_member_to_clock
@@ -224,18 +226,52 @@ def town_identity_options(town_id: UUID, uid: str = Depends(current_user_id)):
 @router.patch("/{town_id}/members/me/home")
 def name_my_house(town_id: UUID, body: HouseName, uid: str = Depends(current_user_id)):
     """Name your house in this town (shown on its label). null or "" goes back to "<your name>'s house"."""
-    db, tid = get_client(), str(town_id)
+    name = (body.name or "").strip()
+    return update_my_home(get_client(), str(town_id), uid,
+                          lambda home: home.update(name=name) if name else home.pop("name", None))
+
+
+def update_my_home(db, tid: str, uid: str, change) -> dict:
     mine = require_member(db, tid, uid)
     if mine.get("house_x") is None:
         raise HTTPException(status_code=409, detail="you don't have a house in this town yet")
     home = dict(mine.get("home") or {})
-    name = (body.name or "").strip()
-    if name:
-        home["name"] = name
-    else:
-        home.pop("name", None)
+    change(home)
     return (
         db.table("town_members").update({"home": home, "updated_at": now_iso()})
+        .eq("town_id", tid).eq("user_id", uid).execute().data[0]
+    )
+
+
+@router.put("/{town_id}/members/me/mood")
+def set_house_mood(town_id: UUID, body: MoodIn, uid: str = Depends(current_user_id)):
+    """Put a mood on your house (drawn over it for everyone in the town) for MOOD_HOURS."""
+    return update_my_home(get_client(), str(town_id), uid,
+                          lambda home: home.update(mood=entry("kind", body.mood, MOOD_HOURS)))
+
+
+@router.delete("/{town_id}/members/me/mood")
+def clear_house_mood(town_id: UUID, uid: str = Depends(current_user_id)):
+    return update_my_home(get_client(), str(town_id), uid, lambda home: home.pop("mood", None))
+
+
+@router.put("/{town_id}/members/me/bubble")
+def set_bubble(town_id: UUID, body: BubbleIn, uid: str = Depends(current_user_id)):
+    """Show a short message or emoji above your character for BUBBLE_HOURS."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    return (
+        db.table("town_members").update({"bubble": entry("text", body.text, BUBBLE_HOURS), "updated_at": now_iso()})
+        .eq("town_id", tid).eq("user_id", uid).execute().data[0]
+    )
+
+
+@router.delete("/{town_id}/members/me/bubble")
+def clear_bubble(town_id: UUID, uid: str = Depends(current_user_id)):
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    return (
+        db.table("town_members").update({"bubble": None, "updated_at": now_iso()})
         .eq("town_id", tid).eq("user_id", uid).execute().data[0]
     )
 
@@ -395,6 +431,10 @@ def leave_town(town_id: UUID, uid: str = Depends(current_user_id)):
             return
         db.table("towns").update({"created_by": transfers[tid]}).eq("id", tid).execute()
     db.table("town_members").delete().eq("town_id", tid).eq("user_id", uid).execute()
+    try:  # your mailbox goes with your house (before migration 000019 there is no table)
+        db.table("mailbox_messages").delete().eq("town_id", tid).eq("to_user", uid).execute()
+    except APIError:
+        pass
     if me.get("house_x") is not None:
         free_home_slot(db, load_town(db, tid), (me["house_x"], me["house_y"]))
 

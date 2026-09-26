@@ -7,8 +7,8 @@ const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownBackend(api) {
   const {
-    friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-    renderSchedules, setCalendars, PLACES, effects, applyTownNames,
+    friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend,
+    setCalendars, PLACES, effects, applyTownNames,
   } = api;
 
   let liveMode = false;
@@ -40,7 +40,6 @@ export function startTownBackend(api) {
       (members || []).map((m) => [m.user_id, (m.name || (m.profiles || {}).display_name || '').trim()]),
     );
     const cast = new Set();
-    let renamed = false;
     for (const [userId, role] of Object.entries(characters)) {
       const f = friends[role];
       if (!f) continue;
@@ -49,7 +48,6 @@ export function startTownBackend(api) {
       cast.add(f.id);
       if (nameOf[userId] && f.name !== nameOf[userId]) {
         renameFriend(f, nameOf[userId]);
-        renamed = true;
       }
       f.obj.visible = true;
       if (f.homeLabel) f.homeLabel.el.style.display = '';
@@ -59,7 +57,6 @@ export function startTownBackend(api) {
       f.obj.visible = false;
       if (f.homeLabel) f.homeLabel.el.style.display = 'none';
     }
-    if (renamed) renderResidents();
   }
 
   function destForBuilding(buildingId, ownerUserId) {
@@ -169,7 +166,6 @@ export function startTownBackend(api) {
     for (const row of actions) applyAction(row);
     const events = [...(data.events || [])].reverse();
     for (const row of events) applyEvent(row);
-    if (renderSchedules) renderSchedules(data.schedules);
   }
 
   function enterLiveMode() {

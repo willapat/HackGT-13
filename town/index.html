@@ -21,25 +21,10 @@
 <body>
   <div id="game"></div>
 
-  <aside id="side" class="panel">
-    <div>
-      <a class="back" href="../frontend/">← Home</a>
-      <div class="title">Luma</div>
-      <div class="sub">Your friends, in town</div>
-    </div>
-    <div>
-      <h2>Residents</h2>
-      <ul id="residents"></ul>
-    </div>
-    <div class="feedwrap">
-      <h2>Schedules</h2>
-      <div id="schedules"><div class="sched-where">Waiting on calendars…</div></div>
-    </div>
-    <div class="feedwrap">
-      <h2>Town feed</h2>
-      <ul id="feed"></ul>
-    </div>
-  </aside>
+  <nav id="top">
+    <a class="back panel" href="../frontend/">← Home</a>
+    <button id="invite-code" class="panel" type="button" hidden title="Copy the invite code"></button>
+  </nav>
 
   <section id="triggers" class="panel">
     <h2>Demo signals</h2>
@@ -95,8 +80,35 @@
     </div>
   </section>
 
+  <section id="mail" class="panel float" hidden aria-live="polite">
+    <div class="float-head">
+      <div class="bld-id">
+        <h2 class="title" id="mail-title"></h2>
+        <div class="meta" id="mail-meta"></div>
+      </div>
+      <button class="close" id="mail-close" type="button" aria-label="Close">×</button>
+    </div>
+    <form id="mail-send" hidden>
+      <textarea id="mail-text" maxlength="500" rows="3" placeholder="Leave a note…" aria-label="Your note"></textarea>
+      <div class="mail-row"><span class="count" id="mail-left">500</span><button type="submit" class="go">Send</button></div>
+    </form>
+    <ul id="mail-list"></ul>
+  </section>
+
+  <div id="me" class="panel" hidden>
+    <form id="say" autocomplete="off">
+      <input id="say-text" maxlength="60" placeholder="Say something over your character…" aria-label="Your bubble" />
+      <span class="quick" id="say-quick"></span>
+      <button type="button" id="say-clear" class="ghost" hidden title="Take your bubble down">✕</button>
+    </form>
+    <button type="button" id="mood-open" title="Put a mood on your house">🏠 <span id="mood-now">Mood</span></button>
+    <button type="button" id="mail-open" title="Your mailbox">📬<span id="mail-count" hidden></span></button>
+  </div>
+  <div id="moods" class="panel" hidden role="menu" aria-label="House moods"></div>
+
+  <ul id="feed" aria-live="polite"></ul>
   <div id="cards"></div>
-  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow · click a building's name for who's there</div>
+  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow · click a building's name for who's there · click a mailbox to leave a note</div>
 
   <div id="labels"></div>
   <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>

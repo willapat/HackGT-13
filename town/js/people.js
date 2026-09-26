@@ -464,11 +464,12 @@ function distanceAlong(from, route, here) {
   return best;
 }
 
-const TRAIL_WIDTH = 0.15; // a little thinner than the last ribbon
+const TRAIL_WIDTH = 0.08; // a slim line with a thin white edge (OUTLINE) so it reads on roads and grass alike
+const OUTLINE = 0.035;
 const TRAIL_Y = 0.09;
 const CORNER = 0.62; // how far a turn eases back from the corner, in tiles
-const ARROW_LEN = 0.4;
-const ARROW_WIDTH = 0.3;
+const ARROW_LEN = 0.24;
+const ARROW_WIDTH = 0.22;
 
 function routeLengthOf(from, route) {
   let n = 0, a = from;
@@ -550,10 +551,10 @@ function roundCorners(pts) {
   return out;
 }
 
-function ribbonGeometry(pts, endDir) {
+function ribbonGeometry(pts, endDir, width) {
   const positions = [];
   const indices = [];
-  const half = TRAIL_WIDTH / 2;
+  const half = width / 2;
   const side = [];
   for (let i = 0; i < pts.length; i++) {
     const prev = pts[Math.max(0, i - 1)];
@@ -583,11 +584,13 @@ function ribbonGeometry(pts, endDir) {
 // Hidden the rest of the time, including once the walk is over.
 function hideTrail(f) {
   if (f.trail) f.trail.visible = false;
-  if (f.trailArrow) f.trailArrow.visible = false;
+  if (f.trailEdge) f.trailEdge.visible = false;
+  if (f.trailEnd) f.trailEnd.visible = false;
 }
 
 // Shaft up to the arrow's base, then a triangle whose back edge is centered on that same point.
-function strokeGeometry(pts) {
+// `grow` widens everything (the white edge drawn under the colored line).
+function strokeGeometry(pts, grow = 0) {
   const tip = pts[pts.length - 1].clone().setY(TRAIL_Y);
   let remain = ARROW_LEN;
   let base = pts[0].clone().setY(TRAIL_Y);
@@ -609,16 +612,17 @@ function strokeGeometry(pts) {
   dir.y = 0;
   if (dir.lengthSq() < 1e-8) return new THREE.BufferGeometry();
   dir.normalize();
-  const geo = shaft.length >= 2 ? ribbonGeometry(shaft, dir) : new THREE.BufferGeometry();
+  const geo = shaft.length >= 2 ? ribbonGeometry(shaft, dir, TRAIL_WIDTH + grow * 2) : new THREE.BufferGeometry();
   const pos = geo.getAttribute('position');
   const positions = pos ? Array.from(pos.array) : [];
   const index = geo.getIndex();
   const indices = index ? Array.from(index.array) : [];
-  const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(ARROW_WIDTH / 2);
-  const left = base.clone().add(side);
-  const right = base.clone().sub(side);
+  const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(ARROW_WIDTH / 2 + grow * 1.6);
+  const left = base.clone().add(side).addScaledVector(dir, -grow);
+  const right = base.clone().sub(side).addScaledVector(dir, -grow);
+  const point = tip.clone().addScaledVector(dir, grow * 1.8);
   const at = positions.length / 3;
-  positions.push(tip.x, TRAIL_Y, tip.z, left.x, left.y, left.z, right.x, right.y, right.z);
+  positions.push(point.x, TRAIL_Y, point.z, left.x, left.y, left.z, right.x, right.y, right.z);
   indices.push(at, at + 1, at + 2);
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -652,28 +656,36 @@ export function syncTrail(f) {
   }
   const { from, route } = ahead;
   const total = routeLengthOf(from, route);
-  if (f.trailArrow) f.trailArrow.visible = false;
   if (!f.trail) {
-    f.trail = new THREE.Mesh(
-      new THREE.BufferGeometry(),
-      new THREE.MeshBasicMaterial({
-        color: f.color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide,
-      }),
-    );
-    f.trail.frustumCulled = false;
-    f.trail.renderOrder = 4;
-    scene.add(f.trail);
+    const mat = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
+    f.trailEdge = new THREE.Mesh(new THREE.BufferGeometry(), mat('#ffffff', 0.85));
+    f.trail = new THREE.Mesh(new THREE.BufferGeometry(), mat(f.color, 0.95));
+    // A soft ring on the door they're heading to, pulsing gently
+    f.trailEnd = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.14, 32), mat(f.color, 0.8));
+    f.trailEnd.rotation.x = -Math.PI / 2;
+    f.trailEdge.frustumCulled = f.trail.frustumCulled = false;
+    f.trailEdge.renderOrder = 3;
+    f.trail.renderOrder = f.trailEnd.renderOrder = 4;
+    scene.add(f.trailEdge, f.trail, f.trailEnd);
   }
-  const geo = strokeGeometry(roundCorners(spanRoute(from, route, 0, total)));
+  const pts = roundCorners(spanRoute(from, route, 0, total));
+  const geo = strokeGeometry(pts);
   if (!geo.getAttribute('position')?.count) {
     geo.dispose();
-    if (f.trail) f.trail.visible = false;
+    hideTrail(f);
     return;
   }
-  const prev = f.trail.geometry;
+  const edge = strokeGeometry(pts, OUTLINE);
+  f.trail.geometry.dispose();
+  f.trailEdge.geometry.dispose();
   f.trail.geometry = geo;
-  prev.dispose();
-  f.trail.visible = true;
+  f.trailEdge.geometry = edge;
+  f.trail.visible = f.trailEdge.visible = true;
+  const pulse = (performance.now() / 1400) % 1;
+  f.trailEnd.position.copy(pts[pts.length - 1]).setY(TRAIL_Y - 0.005);
+  f.trailEnd.scale.setScalar(1 + pulse * 1.2);
+  f.trailEnd.material.opacity = 0.8 * (1 - pulse);
+  f.trailEnd.visible = true;
 }
 
 export function release(f, delay = 0) {
@@ -691,6 +703,14 @@ export function say(f, text, ms = 2600) {
   const b = addLabel('bubble', text, () => f.obj.position.clone().setY(0.75));
   f.bubble = b;
   return wait(ms).then(() => { b.remove(); if (f.bubble === b) f.bubble = null; });
+}
+
+// What a person put above their own character (town_members.bubble): stays until it runs out or they clear it.
+// A passing chat line (say) covers it for a moment.
+export function setPinned(f, text) {
+  if ((f.pinned?.el.textContent ?? null) === (text || null)) return;
+  f.pinned?.remove();
+  f.pinned = text ? addLabel('bubble pinned', text, () => f.obj.position.clone().setY(0.75), () => f.obj.visible && !f.bubble) : null;
 }
 
 export async function meet(a, b, place) {
