@@ -256,8 +256,10 @@ def update_my_identity(town_id: UUID, body: IdentityUpdate, uid: str = Depends(c
 
 
 @router.get("/{town_id}")
-def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
-    """Everything needed to render the town: map, members (with profile and AI-set mood/activity/state), agents."""
+def get_town(town_id: UUID, live: bool = Query(False, description="true: skip the town row (tiles + map); for polling"),
+             uid: str = Depends(current_user_id)):
+    """Everything needed to render the town: map, members (with profile and AI-set mood/activity/state), agents.
+    The 3D town loads the map once (plain call) and then polls with ?live=1: people move, the map doesn't."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
     members = (
@@ -275,12 +277,9 @@ def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
     )
     for ev in schedules:
         ev["display_name"] = names.get(ev["user_id"]) or "Friend"
-    # town_time is the hour these agent rows were placed for. A slow poll must not draw them
-    # under a different hour on the slider.
-    return {
-        "town": load_town(db, tid), "members": members, "agents": agents, "schedules": schedules,
-        "town_time": now.isoformat(), "mode": clock_mode(),
-    }
+    # town_time re-anchors the client's town clock, which places people and walks (the slider is lighting only).
+    view = {"members": members, "agents": agents, "schedules": schedules, "town_time": now.isoformat(), "mode": clock_mode()}
+    return view if live else {"town": load_town(db, tid), **view}
 
 
 @router.patch("/{town_id}")

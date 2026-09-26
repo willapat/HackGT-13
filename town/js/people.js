@@ -7,7 +7,7 @@ import { findPath, walkable } from './city.js';
 import { addLabel, logFeed } from './hud.js';
 import { FRIENDS, inkOn, N, PLACES, pos } from './layout.js';
 import { models } from './models.js';
-import { sky } from './sky.js';
+import { townClockRunning, townMinutesNow } from './sky.js';
 import { scene } from './stage.js';
 
 export const friends = {};
@@ -118,11 +118,6 @@ export function walkTo(f, target, shift = 0, timing = null) {
   return new Promise((resolve) => { f.resolveWalk = resolve; });
 }
 
-function townMinutesNow() {
-  if (!sky.y) return null;
-  return Date.UTC(sky.y, sky.mo - 1, sky.d) / 60000 + sky.hour * 60;
-}
-
 function isoTownMinutes(iso) {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return null;
@@ -143,19 +138,18 @@ export function minutesAway(f) {
   return left > 0 ? Math.round(left) : null;
 }
 
-// 0–1 along the path. depart_at is town time, so the slider hour places them on the route:
-// 8:54 with a 8:50 departure and a 10 minute walk is 40% of the way, not already at the building.
+// 0–1 along the path. depart_at is town time, so the server town clock (never the lighting slider) places them
+// on the route: 8:54 with a 8:50 departure and a 10 minute walk is 40% of the way, not already at the building.
 function walkProgress(f) {
   if (!f.travelMinutes) return null;
-  const clockOn = sky.live || sky.play || sky.fast;
-  // A paused clock does not move calendar walks. A walk you started yourself still plays:
-  // one real second per minute you typed, so "go now" is visible while the slider is stopped.
-  if (f.departAt && (clockOn || !f.holdCalendar)) {
+  // A paused town clock does not move calendar walks. A walk you started yourself still plays:
+  // one real second per minute you typed, so "go now" is visible while the town clock is stopped.
+  if (f.departAt && (townClockRunning() || !f.holdCalendar)) {
     const nowM = townMinutesNow();
     const startM = isoTownMinutes(f.departAt);
     if (nowM != null && startM != null) return Math.max(0, Math.min(1, (nowM - startM) / f.travelMinutes));
   }
-  const ms = f.travelMinutes * 1000 * (sky.fast ? 120 / 1440 : sky.play ? 1 / 60 : 1);
+  const ms = f.travelMinutes * 1000;
   return Math.max(0, Math.min(1, (performance.now() - (f.walkStarted || 0)) / ms));
 }
 

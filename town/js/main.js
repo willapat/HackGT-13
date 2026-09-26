@@ -5,7 +5,7 @@ import { startTownBackend } from './realtime.js';
 import { startTownSync } from './townsync.js';
 import { CH, GROUND, HELIPAD, NATURE, PARASOLS, PARK_TREES, PROPS, ROAD, ROOF_PROPS, STREET, VEHICLES, ZONES } from './assets.js';
 import { activeCam, startFollow, updateCamera } from './camera.js';
-import { buildCity } from './city.js';
+import { buildCity, finishCity } from './city.js';
 import { applyTownNames, renameFriend, setStatus, trigger } from './demo.js';
 import { effects, partyLights, rainCloud } from './effects.js';
 import { $, labels, logFeed, showCard } from './hud.js';
@@ -63,13 +63,14 @@ const allModels = [
 // can show the laptop's time.
 fetch(`${window.LUMA_BACKEND || 'http://127.0.0.1:8000'}/demo/clock`)
   .then((r) => (r.ok ? r.json() : null))
-  .then((data) => { if (data) applyTownTime(data.town_time, data.mode, 'boot'); })
+  .then((data) => { if (data) applyTownTime(data.town_time, data.mode); })
   .catch(() => {});
 logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
 addStreetLamps();
 scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.building); });
+finishCity(); // all tall scenery can fade; static scenery stops recomputing transforms
 patchWeather();
 wireSkyControls();
 spawnFriends();
@@ -85,14 +86,12 @@ if (TOWN) {
   document.querySelectorAll('#triggers [data-trigger], #triggers h2:first-child, #triggers .note').forEach((e) => { e.hidden = true; });
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
-  const sync = startTownSync(TOWN_ID, TOWN, {
+  startTownSync(TOWN_ID, TOWN, {
     friends, placeAgent, setCalendars, setStatus, say, partyLights, rainCloud, logFeed, PLACES, applyTownTime,
   });
-  townApi.pushClock = sync.pushClock;
 } else {
   logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
-  const { triggerViaBackend, pushClock } = startTownBackend(townApi);
-  townApi.pushClock = pushClock;
+  const { triggerViaBackend } = startTownBackend(townApi);
   document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => triggerViaBackend(b.dataset.trigger); });
   const params = new URLSearchParams(location.search);
   if (friends[params.get('follow')]) startFollow(friends[params.get('follow')]);

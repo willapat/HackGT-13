@@ -21,6 +21,7 @@ function spinBlades(windmill) {
   for (let i = 0; i < p.count; i++) hub.add(new THREE.Vector3().fromBufferAttribute(p, i));
   hub.divideScalar(p.count);
   const pivot = new THREE.Object3D();
+  pivot.userData.animated = true; // spins every frame: finishCity() must not freeze it
   pivot.position.copy(hub);
   rotor.parent.add(pivot);
   pivot.add(rotor);
@@ -681,4 +682,24 @@ export function findPath(from, to, roadsOnly = false) {
     }
   }
   return null;
+}
+
+// After the city, lamps and lit windows are in: every placed model tall enough to hide a person (buildings, trees,
+// lamp posts, signals, the bus stop, parked vehicles, roof props via their building) can fade when it covers
+// someone, and all static scenery stops recomputing its transform every frame.
+export function finishCity() {
+  const covered = new Set(occluders);
+  for (const obj of scene.children) {
+    if (!obj.userData.placed) continue;
+    if (!covered.has(obj) && !obj.userData.flat && obj.userData.height > 0.2) addOccluder(obj);
+    freeze(obj);
+  }
+}
+
+function freeze(obj) {
+  if (obj.userData.animated) return; // e.g. the windmill's rotor: keeps updating
+  obj.updateMatrix();
+  obj.matrixAutoUpdate = false;
+  obj.updateMatrixWorld(true);
+  for (const child of obj.children) freeze(child);
 }

@@ -8,11 +8,13 @@ import { models } from './models.js';
 import { markCurrentScheduleItems } from './panels.js';
 import { controls, hemi, renderer, scene, SNOW_SKIP, sun } from './stage.js';
 
-// Time follows GET /demo/clock (live, fast, or the slider). Weather drifts on its own
-// every couple of minutes until a weather button pins it.
+// Two clocks. townClock is the server's town time (town_clock row, via /towns/{id} and /demo/clock): it alone
+// decides where people are and how far along a walk they are. sky.hour is only the lighting: Live follows
+// townClock, while the slider, Fast and Play change the look on this screen and never touch the server.
+// Weather drifts on its own every couple of minutes until a weather button pins it.
 
 export const sky = {
-  hour: 12, live: true, fast: false, play: false, backend: false,
+  hour: 12, live: true, fast: false, play: false,
   y: 0, mo: 0, d: 0,
   weather: 'clear', autoWeather: true, nextWeatherAt: 0,
   cloud: 0, precip: 0, haze: 0, flash: 0, nextFlashAt: 0, night: 0, patchAt: 0,
@@ -241,20 +243,14 @@ function setWeather(w, pinned = true) {
 }
 
 export function updateSky(dt) {
-  // The label follows the server clock. Live ticks forward from the last GET /demo/clock;
-  // Fast day uses the same rate as the backend (a full day in two minutes). The laptop clock
-  // is not the town clock — that was showing 11:46 while the server was still on 9:03.
-  if (sky.backend && sky.syncedAt && sky.live) {
-    sky.hour = sky.syncedHour + (performance.now() - sky.syncedAt) / 3600000;
-  } else if (sky.backend && sky.syncedAt && sky.fast) {
-    sky.hour = sky.syncedHour + (performance.now() - sky.syncedAt) * (24 / 120000);
-  } else if (sky.backend && sky.syncedAt && sky.play) {
-    sky.hour = sky.syncedHour + (performance.now() - sky.syncedAt) / 60000;
+  const townM = townMinutesNow();
+  if (sky.live && townM != null) {
+    sky.hour = (townM - Date.UTC(sky.y, sky.mo - 1, sky.d) / 60000) / 60 % 24;
   } else if (sky.fast) {
     sky.hour = (sky.hour + dt * (24 / 120)) % 24;
   } else if (sky.play) {
     sky.hour = (sky.hour + dt / 60) % 24;
-  } // Fast: a whole day in two minutes. Play: one game minute per real second.
+  } // Fast: a whole day in two minutes. Play: one game minute per real second. Both local lighting only.
   if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
     const kinds = { snowy: ['clear', 'snow', 'snow'], desert: ['clear'] }[LANDSCAPE]
       || ['clear', 'clear', 'rain', 'storm', 'snow'];
@@ -384,130 +380,40 @@ function hourFromIso(iso) {
   return m ? +m[1] + +m[2] / 60 + +m[3] / 3600 : null;
 }
 
-// False while a drag is in flight, or this page is showing a different hour than `townTime`.
-// Placements from that response belong to the other hour, so drawing them teleports people.
-export function placementsMatchScreen(townTime, mode) {
-  if (sky.pendingScrub) return false;
-  if (!sky.backend) return true;
-  if (sky.live && mode && mode !== 'live') return false;
-  if (sky.fast && mode && mode !== 'fast') return false;
-  if (sky.play && mode && mode !== 'play') return false;
-  if (!sky.live && !sky.fast && !sky.play) {
-    const serverHour = hourFromIso(townTime);
-    if (serverHour != null && Math.abs(serverHour - sky.hour) > 1 / 60) return false;
-  }
-  return true;
-}
-
 function dateFromIso(iso) {
   const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null;
 }
 
-export function applyTownTime(iso, mode, source = 'boot') {
-  const ymd = dateFromIso(iso);
-  if (ymd) { sky.y = ymd.y; sky.mo = ymd.mo; sky.d = ymd.d; }
+// Town minutes per real millisecond for each town_clock mode (fast: a day in two minutes; play: a minute a second).
+const RATE = { live: 1 / 60000, fast: 1440 / 120000, play: 1 / 1000 };
+const townClock = { hour: null, at: 0, rate: 0 };
+
+// Every server reading lands here, whatever the slider shows: the town clock is never local.
+export function applyTownTime(iso, mode) {
   const hour = hourFromIso(iso);
-  if (hour == null) return;
-  sky.backend = true;
-  // A background poll must not undo Live / Fast, and must not steal the slider mid-drag.
-  if (source === 'poll' && sky.pendingScrub) return;
-  if (source === 'poll' && sky.live && mode !== 'live') return;
-  if (source === 'poll' && sky.fast && mode !== 'fast') return;
-  if (source === 'poll' && sky.play && mode !== 'play') return;
-  if (document.activeElement === document.querySelector('#time')) return;
-  // The slider owns the clock until Live / Fast / Play is clicked. Don't snap back to "live".
-  if (!sky.live && !sky.fast && !sky.play && mode === 'live') return;
-  // A late poll from before the drag must not move the label back to the old hour.
-  if (source === 'poll' && !sky.live && !sky.fast && !sky.play && Math.abs(hour - sky.hour) > 1 / 60) return;
-  sky.hour = hour;
-  if (mode === 'live' || mode === 'fast' || mode === 'play') {
-    sky.syncedHour = hour;
-    sky.syncedAt = performance.now();
-  } else {
-    sky.syncedAt = 0;
-  }
-  if (mode === 'live') { sky.live = true; sky.fast = false; sky.play = false; }
-  if (mode === 'fast') { sky.live = false; sky.fast = true; sky.play = false; }
-  if (mode === 'play') { sky.live = false; sky.fast = false; sky.play = true; }
-  if (mode === 'scrub') { sky.live = false; sky.fast = false; sky.play = false; }
+  const ymd = dateFromIso(iso);
+  if (hour == null || !ymd) return;
+  sky.y = ymd.y; sky.mo = ymd.mo; sky.d = ymd.d;
+  Object.assign(townClock, { hour, at: performance.now(), rate: RATE[mode] || 0 });
 }
+
+// Server town time now, in minutes on the same scale as people.js isoTownMinutes. Null before the first reading.
+export function townMinutesNow() {
+  if (townClock.hour == null) return null;
+  return Date.UTC(sky.y, sky.mo - 1, sky.d) / 60000 + townClock.hour * 60 + (performance.now() - townClock.at) * townClock.rate;
+}
+export const townClockRunning = () => townClock.rate > 0;
 
 export function wireSkyControls() {
   const slider = document.querySelector('#time');
-  let clockTimer = null;
-  let clockSeq = 0;
-  let clockChain = Promise.resolve();
-  // Posts run one at a time. Live bumps clockSeq and drops any slider post that has not
-  // started yet, then sends {live:true} after the one already on the wire, so a drag
-  // cannot land last and put the clock back inside the café and library hours.
-  const sendClock = (body) => {
-    if (!townApi.pushClock) return;
-    const seq = ++clockSeq;
-    clockChain = clockChain.then(async () => {
-      if (seq !== clockSeq) return;
-      await townApi.pushClock(body);
-    }).catch(() => {});
-  };
-  slider.oninput = () => {
-    sky.live = false;
-    sky.fast = false;
-    sky.play = false;
-    sky.syncedAt = 0;
-    sky.pendingScrub = true;
-    sky.hour = +slider.value;
-    const seq = ++clockSeq;
-    clearTimeout(clockTimer);
-    clockTimer = setTimeout(() => {
-      if (seq !== clockSeq || sky.live || sky.fast || sky.play) return;
-      sky.pendingScrub = false;
-      sendClock({ hour: sky.hour, live: false, fast: false });
-    }, 80);
-  };
-  slider.onchange = () => {
-    if (sky.live || sky.fast || sky.play) return;
-    clearTimeout(clockTimer);
-    sky.pendingScrub = false;
-    sendClock({ hour: sky.hour, live: false, fast: false });
-  };
-  document.querySelector('#time-live').onclick = () => {
-    clearTimeout(clockTimer);
-    sky.pendingScrub = false;
-    clockSeq++;
-    sky.live = true;
-    sky.fast = false;
-    sky.play = false;
-    sendClock({ live: true });
-  };
-  document.querySelector('#time-fast').onclick = () => {
-    clearTimeout(clockTimer);
-    sky.pendingScrub = false;
-    clockSeq++;
-    sky.live = false;
-    sky.fast = true;
-    sky.play = false;
-    sendClock({ fast: true });
-  };
-  // Play runs from the minute on screen; pressing it again pauses there (same as a slider stop).
+  const local = (mode) => { sky.live = mode === 'live'; sky.fast = mode === 'fast'; sky.play = mode === 'play'; };
+  slider.oninput = () => { local(null); sky.hour = +slider.value; };
+  document.querySelector('#time-live').onclick = () => local('live'); // lighting back on the town clock
+  document.querySelector('#time-fast').onclick = () => local('fast');
+  // Play runs the lighting from the minute on screen; pressing it again pauses there.
   const playBtn = document.querySelector('#time-play');
-  if (playBtn) playBtn.onclick = () => {
-    clearTimeout(clockTimer);
-    sky.pendingScrub = false;
-    clockSeq++;
-    sky.live = false;
-    sky.fast = false;
-    if (sky.play) {
-      sky.play = false;
-      sky.syncedAt = 0;
-      sky.hour %= 24;
-      sendClock({ hour: sky.hour, live: false, fast: false });
-      return;
-    }
-    sky.play = true;
-    sky.syncedHour = sky.hour;
-    sky.syncedAt = sky.backend ? performance.now() : 0;
-    sendClock({ play: true });
-  };
+  if (playBtn) playBtn.onclick = () => { local(sky.play ? null : 'play'); sky.hour %= 24; };
   document.querySelectorAll('[data-weather]').forEach((b) => {
     b.onclick = () => {
       if (b.dataset.weather === 'auto') { sky.autoWeather = true; sky.nextWeatherAt = 1; setWeather(sky.weather, false); return; }

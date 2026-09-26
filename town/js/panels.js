@@ -3,7 +3,7 @@ import { focusFriend } from './camera.js';
 import { $ } from './hud.js';
 import { PLACES } from './layout.js';
 import { friends } from './people.js';
-import { sky, WEEKDAYS } from './sky.js';
+import { townMinutesNow, WEEKDAYS } from './sky.js';
 
 export function renderResidents() {
   const ul = $('#residents');
@@ -111,9 +111,8 @@ export function renderSchedules(rows) {
 }
 
 export function markCurrentScheduleItems() {
-  const now = sky.y
-    ? new Date(sky.y, sky.mo - 1, sky.d, Math.floor(sky.hour), Math.floor((sky.hour % 1) * 60)).getTime()
-    : Date.now();
+  const townM = townMinutesNow(); // Eastern town minutes (see people.js isoTownMinutes) back to a UTC timestamp
+  const now = townM == null ? Date.now() : townM * 60000 + 4 * 60 * 60 * 1000;
   document.querySelectorAll('#schedules .sched-item').forEach((el) => {
     const s = Date.parse(el.dataset.start || ''), e = Date.parse(el.dataset.end || '');
     el.classList.toggle('now', Number.isFinite(s) && Number.isFinite(e) && s <= now && now < e);

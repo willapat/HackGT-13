@@ -95,7 +95,14 @@ function placeModel(path, c, r, { fit, scale = 1, height = 1, rotY = 0 } = {}) {
   obj.rotation.y = rotY;
   obj.position.copy(pos(c, r));
   const flat = Object.values(ROAD).includes(path) || Object.values(GROUND).includes(path);
-  obj.traverse((m) => { if (m.isMesh) { m.castShadow = !flat; m.receiveShadow = true; } });
+  // Only models big enough to throw a noticeable shadow cast one (buildings, trees). Lamps, signs, cars, benches
+  // and other small props skip the shadow pass, which roughly halves it on a big town.
+  const [h, w] = [size.y * obj.scale.y, Math.max(size.x, size.z) * obj.scale.x];
+  const shadow = !flat && h > 0.4 && w > 0.3;
+  obj.traverse((m) => { if (m.isMesh) { m.castShadow = shadow; m.receiveShadow = true; } });
+  obj.userData.placed = true; // static scenery: finishCity() freezes its transforms
+  obj.userData.flat = flat;
+  obj.userData.height = h;
   scene.add(obj);
   return obj;
 }
