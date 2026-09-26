@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from backend.config import settings
 from backend.db import get_client
 from backend.models.enums import EventStatus, EventType, ParticipantStatus
-from backend.calendar_drive import estimate_travel_minutes
+from backend.calendar_drive import destination_for, estimate_travel_minutes
 from backend.schedules import CALENDAR_SOURCE, CALENDAR_TYPE, local_now
 
 SEED_TAG = "demo_schedule"
@@ -35,7 +35,7 @@ SCHEDULE = [
     (0, "bob", "09:00", "12:00", "Shift at the market", "work", "market", None, []),
     (0, "bob", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
     (0, "bob", "19:00", "21:00", "Dinner with Romeer Dhillon", "social", "downtown", None, ["Romeer Dhillon"]),
-    (0, "patrik", "13:00", "14:00", "Appointment", "appointment", None, None, []),
+    (0, "patrik", "13:00", "14:00", "Appointment", "appointment", "downtown", None, []),
     (0, "patrik", "17:00", "19:00", "Cooking night at home", "activity", None, "home", []),
     # Day 1 — Sunday
     (1, "Drew", "11:00", "12:30", "Brunch with patrik", "social", "cafe", None, ["patrik"]),
@@ -47,14 +47,14 @@ SCHEDULE = [
     (1, "patrik", "11:00", "12:30", "Brunch with Drew", "social", "cafe", None, ["Drew"]),
     (1, "patrik", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
     # Day 2 — Monday
-    (2, "Drew", "09:30", "10:45", "Intro to Psychology", "class", None, "campus", []),
-    (2, "Drew", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
+    (2, "Drew", "09:30", "10:45", "Intro to Psychology", "class", "library", "campus", []),
+    (2, "Drew", "14:00", "15:15", "Linear Algebra", "class", "library", "campus", []),
     (2, "Drew", "17:00", "21:00", "Shift at Bean There Café", "work", "cafe", None, []),
     (2, "Romeer Dhillon", "09:00", "17:00", "Internship", "work", "downtown", None, []),
-    (2, "bob", "11:00", "12:15", "Data Structures", "class", None, "campus", []),
-    (2, "bob", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
+    (2, "bob", "11:00", "12:15", "Data Structures", "class", "library", "campus", []),
+    (2, "bob", "14:00", "15:15", "Linear Algebra", "class", "library", "campus", []),
     (2, "bob", "18:30", "20:00", "Dinner with patrik", "social", "cafe", None, ["patrik"]),
-    (2, "patrik", "10:00", "14:00", "Research lab", "work", None, "campus", []),
+    (2, "patrik", "10:00", "14:00", "Research lab", "work", "library", "campus", []),
     (2, "patrik", "18:30", "20:00", "Dinner with bob", "social", "cafe", None, ["bob"]),
 ]
 
@@ -69,9 +69,11 @@ def build_signals(ids: dict[str, str], today: datetime) -> list[dict]:
     rows = []
     for day, person, start, end, title, kind, building_id, place, with_ in SCHEDULE:
         date = today + timedelta(days=day)
-        value = {"title": title, "kind": kind, "start": _at(date, start), "end": _at(date, end), "seed": SEED_TAG}
-        if building_id:
-            value["building_id"] = building_id
+        dest = destination_for({"building_id": building_id, "text": place, "kind": kind}, ids[person])
+        value = {
+            "title": title, "kind": kind, "start": _at(date, start), "end": _at(date, end),
+            "building_id": dest, "seed": SEED_TAG,
+        }
         if place:
             value["place"] = place
         if with_:
@@ -102,6 +104,7 @@ def build_personal_events(ids: dict[str, str], today: datetime, town_id: str) ->
             continue
         seen.add(key)
         date = today + timedelta(days=day)
+        dest = destination_for({"building_id": building_id, "text": place, "kind": kind}, ids[person])
         rows.append({
             "town_id": town_id,
             "type": EventType.personal.value,
@@ -110,8 +113,8 @@ def build_personal_events(ids: dict[str, str], today: datetime, town_id: str) ->
             "kind": kind,
             "start_at": _at(date, start),
             "end_at": _at(date, end),
-            "building_id": building_id,
-            "travel_minutes": estimate_travel_minutes(building_id, place),
+            "building_id": dest,
+            "travel_minutes": estimate_travel_minutes(dest, place),
             "status": EventStatus.active.value,
             "_people": [ids[n] for n in names],
         })

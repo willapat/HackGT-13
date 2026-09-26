@@ -68,7 +68,7 @@ spawnFriends();
 renderResidents();
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, liveMode: Boolean(TOWN),
+  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, placeAgent, liveMode: Boolean(TOWN),
 });
 if (TOWN) {
   // A real town: no scripted wandering or demo snapshot; residents move only as the database says
@@ -77,7 +77,10 @@ if (TOWN) {
   document.querySelectorAll('#triggers [data-trigger], #triggers h2:first-child, #triggers .note').forEach((e) => { e.hidden = true; });
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
-  startTownSync(TOWN_ID, TOWN, { friends, placeAgent, setStatus, say, partyLights, rainCloud, logFeed, PLACES });
+  const sync = startTownSync(TOWN_ID, TOWN, {
+    friends, placeAgent, setStatus, say, partyLights, rainCloud, logFeed, PLACES, applyTownTime,
+  });
+  townApi.pushClock = sync.pushClock;
 } else {
   logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
   const { triggerViaBackend, pushClock } = startTownBackend(townApi);

@@ -7,7 +7,8 @@ from backend.db import get_client, iso_in, now_iso
 from backend.identity import check_identity, suggest_color, town_identities
 from backend.models.api import EventCreate, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
-from backend.calendar_drive import estimate_travel_minutes
+from backend.calendar_drive import destination_for, estimate_travel_minutes
+from backend.schedules import local_now
 from backend.town_map import buildings, house_building_id, in_bounds
 
 router = APIRouter(prefix="/towns", tags=["towns"])
@@ -178,7 +179,11 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
         raise HTTPException(status_code=409, detail="that building has no position yet (no map, or house not placed)")
     home = body.building_id == house_building_id(uid)
     action = AgentAction.go_home.value if home else AgentAction.walk_to.value
-    target = {"building_id": dest["id"], "x": dest["x"], "y": dest["y"], "door": dest["door"], "by": "user"}
+    target = {
+        "building_id": dest["id"], "x": dest["x"], "y": dest["y"], "door": dest["door"], "by": "user",
+        "travel_minutes": estimate_travel_minutes(dest["id"]),
+        "depart_at": local_now().isoformat(),
+    }
     row = (
         db.table("agents").update(
             {"x": body.from_x, "y": body.from_y, "action": action, "target": target,
@@ -227,6 +232,9 @@ def propose_event(town_id: UUID, body: EventCreate, uid: str = Depends(current_u
     members = {m["user_id"] for m in db.table("town_members").select("user_id").eq("town_id", tid).execute().data or []}
     if not others <= members:
         raise HTTPException(status_code=422, detail="every participant must be in this town")
+    dest = destination_for(
+        {"building_id": body.building_id, "text": body.text, "kind": body.kind}, uid
+    )
     event = (
         db.table("events").insert(
             {
@@ -237,8 +245,8 @@ def propose_event(town_id: UUID, body: EventCreate, uid: str = Depends(current_u
                 "kind": body.kind,
                 "start_at": body.start,
                 "end_at": body.end,
-                "building_id": body.building_id,
-                "travel_minutes": body.travel_minutes or estimate_travel_minutes(body.building_id, body.text),
+                "building_id": dest,
+                "travel_minutes": body.travel_minutes or estimate_travel_minutes(dest, body.text),
                 "status": EventStatus.active.value,
             }
         ).execute().data[0]

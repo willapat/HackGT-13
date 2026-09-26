@@ -4,7 +4,7 @@ Where a character is = agents.target.building_id (kept across actions that don't
 Writes: agents, agent_actions (chat bubbles in details.lines), friendships.path_score.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from random import uniform
 
 from backend.identity import member_name
@@ -15,7 +15,7 @@ from backend.config import settings
 from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts
 from backend.interactions.path_score import record_interaction
 from backend.llm import complete
-from backend.calendar_drive import current_trip, next_check_iso
+from backend.calendar_drive import current_trip, estimate_travel_minutes, next_check_iso
 from backend.schedules import label, local_now
 from backend.models.agents import (
     ActiveEventSummary,
@@ -39,9 +39,20 @@ def location(agent_row: dict) -> str | None:
     return (agent_row.get("target") or {}).get("building_id")
 
 
+def _event_is_now(event: dict, now: datetime) -> bool:
+    """True only during the walk there and the event itself, not for a class later today."""
+    try:
+        start, end = parse_ts(event["start_at"]), parse_ts(event["end_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    travel = int(event.get("travel_minutes") or 12)
+    return start - timedelta(minutes=travel) <= now < end
+
+
 def write_idle(db, town_id: str, user_id: str, reason: str) -> None:
+    # Leave updated_at alone so a failed model call doesn't restart the walk the calendar just started.
     db.table("agents").update(
-        {"action": AgentAction.idle.value, "next_decision_at": jittered_next_decision(), "updated_at": now_iso()}
+        {"action": AgentAction.idle.value, "next_decision_at": jittered_next_decision()}
     ).eq("town_id", town_id).eq("user_id", user_id).execute()
     db.table("agent_actions").insert(
         {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": reason}}
@@ -110,6 +121,7 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
                 end=e.get("end_at"),
             )
             for e in mine
+            if _event_is_now(e, local_now())
         ],
         available_actions=[a.value for a in AgentAction],
         available_buildings=buildings(town_map, members),
@@ -140,13 +152,19 @@ def next_building(decision: AgentDecisionOutput, user_id: str, current: str | No
 
 
 def commit_decision(
-    db, town_id: str, user_id: str, decision: AgentDecisionOutput, ctx: AgentDecisionInput, lines: list[dict]
+    db, town_id: str, user_id: str, decision: AgentDecisionOutput, ctx: AgentDecisionInput, lines: list[dict],
+    walk: dict | None = None,
 ) -> None:
     building_id = next_building(decision, user_id, ctx.current_location_building_id)
     spot = next((b for b in ctx.available_buildings if b["id"] == building_id), {})
     # Same target shape as user moves (routes/towns.py move_me): building plus its tile, when known.
     target = {"building_id": building_id, "x": spot.get("x"), "y": spot.get("y"), "door": spot.get("door"),
               "user_id": decision.target_user_id}
+    if decision.action in {AgentAction.walk_to.value, AgentAction.go_home.value, AgentAction.visit.value, AgentAction.knock.value}:
+        mins = (walk or {}).get("travel_minutes") or estimate_travel_minutes(building_id)
+        depart = (walk or {}).get("depart_at") or local_now()
+        target["travel_minutes"] = mins
+        target["depart_at"] = depart.isoformat() if hasattr(depart, "isoformat") else depart
     target = {k: v for k, v in target.items() if v is not None}
     change = {"action": decision.action, "target": target or None, "next_decision_at": jittered_next_decision(),
               "updated_at": now_iso()}
@@ -172,6 +190,33 @@ def commit_decision(
         record_interaction(db, user_id, decision.target_user_id, InteractionVia.in_town.value)
 
 
+def _stay_home(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict) -> AgentDecisionOutput:
+    """Park this character at their own door and do not ask the model where to go."""
+    home = house_building_id(user_id)
+    decision = AgentDecisionOutput(action=AgentAction.idle.value, target_building_id=home, reason="Nothing on the calendar right now.")
+    if location(me) == home and (me.get("action") or AgentAction.idle.value) == AgentAction.idle.value:
+        db.table("agents").update({"next_decision_at": jittered_next_decision()}).eq("town_id", town_id).eq(
+            "user_id", user_id
+        ).execute()
+        return decision
+    spot = next((b for b in ctx.available_buildings if b["id"] == home), {})
+    door = spot.get("door")
+    target = {k: v for k, v in {"building_id": home, "x": spot.get("x"), "y": spot.get("y"), "door": door}.items() if v is not None}
+    change = {
+        "action": AgentAction.idle.value,
+        "target": target or None,
+        "next_decision_at": jittered_next_decision(),
+        "updated_at": now_iso(),
+    }
+    if door:
+        change["x"], change["y"] = door
+    db.table("agents").update(change).eq("town_id", town_id).eq("user_id", user_id).execute()
+    db.table("agent_actions").insert(
+        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": decision.reason}}
+    ).execute()
+    return decision
+
+
 def follow_calendar(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict) -> AgentDecisionOutput | None:
     """If this person has a calendar block now, walk there / stay there. Not an LLM call."""
     now = local_now()
@@ -184,22 +229,32 @@ def follow_calendar(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me:
     mine = [e for e in rows if user_id in {p["user_id"] for p in (e.get("event_participants") or [])}]
     trip = current_trip(mine, user_id, now)
     if trip is None:
-        return None
+        # Before the first event of the day there is no trip. Stay home — don't keep the last place
+        # they walked to (that left Romeer at the library at 8:54, three hours early).
+        return _stay_home(db, town_id, user_id, ctx, me)
     dest = trip["building_id"]
     if location(me) == dest and (me.get("action") or AgentAction.idle.value) == trip["action"]:
         db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
             "user_id", user_id
         ).execute()
-        return None
+        # Return a decision so the model is not asked to walk them somewhere else.
+        return AgentDecisionOutput(action=trip["action"], target_building_id=dest, reason="Already where the calendar says.")
     title = trip["event"].get("title") or "an event"
     if trip["phase"] == "walking":
         reason = f"Leaving for {title} ({trip['travel_minutes']} min walk, starts {label(trip['start_at'])})."
-    else:
+    elif trip["phase"] == "there":
         reason = f"At {title} until {label(trip['end_at'])}."
+    elif trip["phase"] == "going_home":
+        reason = f"Heading home after {title}."
+    else:
+        reason = f"Home after {title}."
     decision = AgentDecisionOutput(
         action=trip["action"], target_building_id=dest, reason=reason, fact_ids=[trip["event"]["id"]]
     )
-    commit_decision(db, town_id, user_id, decision, ctx, [])
+    commit_decision(
+        db, town_id, user_id, decision, ctx, [],
+        walk={"travel_minutes": trip["travel_minutes"], "depart_at": trip.get("depart_at")},
+    )
     db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
         "user_id", user_id
     ).execute()

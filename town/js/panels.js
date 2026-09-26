@@ -21,11 +21,13 @@ export function renderResidents() {
 }
 
 function placeName(ev) {
-  if (ev.building_id && PLACES[ev.building_id]) return PLACES[ev.building_id].name;
+  const b = ev.building_id || '';
+  if (b.startsWith('house:')) return 'Home';
+  if (b && PLACES[b]) return PLACES[b].name;
   const place = (ev.place || '').toLowerCase();
   if (place === 'home') return 'Home';
   if (place === 'campus') return 'Campus';
-  return ev.place || '';
+  return ev.place || b || '';
 }
 
 function townWall(iso) {

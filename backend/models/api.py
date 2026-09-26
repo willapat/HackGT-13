@@ -123,7 +123,7 @@ class EventCreate(BaseModel):
     kind: str = Field(default="activity", max_length=40)  # class, work, social, activity, appointment
     start: str  # ISO timestamp
     end: str
-    building_id: str | None = None
+    building_id: str | None = Field(default=None, max_length=80)  # filled from text/kind if omitted
     travel_minutes: int | None = Field(default=None, ge=1, le=120)
     participant_ids: list[UUID] = Field(default_factory=list, max_length=10)  # other people going, besides you
 
