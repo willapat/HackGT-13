@@ -41,20 +41,20 @@ grid of many narrow streets, 3 = balanced (default), 4 = big chunky blocks.
 
 PLACES: 4-8 named destinations that AI characters (and friends) visit and meet at. Each needs:
   - id: short lowercase slug (letters, digits, underscore), e.g. "cafe", "library", "climbing_gym".
-    Prefer these familiar ids when they fit: cafe, library, gym, market, downtown. Don't use "park" or
-    "outerpark" (those are the two parks).
+    Prefer these familiar ids when they fit: cafe, library, university, gym, market, restaurant, bar, pharmacy,
+    mall, hospital, airport, townpark, church, barber, sportsfield, office, downtown. Don't use "park" or
+    "outerpark" (those are the two parks every town already has; a picked Park is "townpark").
   - name: a warm, specific, on-theme name, e.g. "Bean There Café", "Tidepool Library".
   - model: a building from the catalog that looks like what it is (coffee-shop for a café, books-shop for
     a library, super-market or fruits-shop for a market, ...).
-  Places should give friends reasons to hang out in real life: cafés, gyms, libraries, markets, music
-  venues, bakeries, arcades... Match the user's theme.
+  Places should give friends reasons to hang out in real life: cafés, gyms, libraries, markets, parks,
+  malls... Match the user's theme.
   THE USER MAY HAVE PICKED THEIR PLACES. If "requested_places" or "custom_places" in the request is
   non-empty, the user chose the town's places themselves: the engine adds exactly those, named plainly by
   their type ("Library", "Gym") or by the user's own words ("Hospital"). Return "places": [] and don't add
   others, but let the picks inform the theme and the rest of your design.
 
-LANDMARKS: a list with any of "farm" (a windmill farm in a suburb corner, good for rural/cozy towns) and
-"stadium" (a big stadium in the city, good for sporty/big towns; needs block_width 3+ to fit), or [].
+LANDMARKS: "stadium" (a big stadium in the city, good for sporty/big towns; needs block_width 3+ to fit), or [].
 If the request has "requested_landmarks", the engine uses exactly those.
 
 DECOR: which small scenes to scatter through the suburbs, any of "garden", "picnic", "plaza", "patio",

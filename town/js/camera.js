@@ -39,7 +39,7 @@ export function startFollow(f) {
   $('#follow').hidden = false;
 }
 
-function stopFollow() {
+export function stopFollow() {
   if (!following) return;
   focusOn(following.obj.position);
   following = null;
@@ -70,11 +70,15 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   raycaster.setFromCamera(ndc, activeCam);
   const targets = Object.values(friends).filter((f) => f.obj.visible).map((f) => f.obj);
   const hit = raycaster.intersectObjects(targets, true).find((h) => h.object.userData.friendId);
-  if (hit) return focusFriend(hit.object.userData.friendId);
+  if (hit) {
+    dispatchEvent(new CustomEvent('town:close-building'));
+    return focusFriend(hit.object.userData.friendId);
+  }
   // Otherwise a named building (a place or a friend's house) opens its card (buildings.js)
   for (let o = raycaster.intersectObjects(clickable, true)[0]?.object; o; o = o.parent) {
     if (o.userData.buildingId) return dispatchEvent(new CustomEvent('town:building', { detail: o.userData.buildingId }));
   }
+  dispatchEvent(new CustomEvent('town:close-building'));
 });
 addEventListener('keydown', (e) => { if (e.key === 'Escape') stopFollow(); });
 

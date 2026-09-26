@@ -13,7 +13,7 @@ WALKABLE = {"road", "park"}
 
 # Place ids agents know by type. A town with no places yet gets these (no coordinates) so agents still have
 # somewhere to go; any other id in towns.map.places is just type "place".
-PLACE_TYPES = {"library": "library", "gym": "gym", "cafe": "cafe", "market": "market", "park": "park", "downtown": "square"}
+PLACE_TYPES = {"library": "library", "university": "university", "gym": "gym", "cafe": "cafe", "market": "market", "park": "park", "downtown": "square"}
 
 
 def house_building_id(user_id: str) -> str:

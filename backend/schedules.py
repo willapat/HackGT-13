@@ -84,7 +84,7 @@ def _remember(row: dict) -> dict:
     return row
 
 
-def _load_clock_row() -> dict:
+def _load_clock_row() -> dict | None:
     global _clock_cache, _clock_cached_at
     if _clock_cache is not None and time.monotonic() - _clock_cached_at < _CACHE_SECONDS:
         return _clock_cache
@@ -95,6 +95,9 @@ def _load_clock_row() -> dict:
     rows = db.table("town_clock").select("*").eq("town_id", town_id).limit(1).execute().data or []
     if rows:
         return _remember(rows[0])
+    # A stale DEMO_TOWN_ID must not insert a clock row the towns table will reject.
+    if not db.table("towns").select("id").eq("id", town_id).limit(1).execute().data:
+        return None
     real = datetime.now(timezone.utc)
     anchor = _bootstrap_anchor()
     row = {
@@ -122,13 +125,15 @@ def local_now() -> datetime:
     """Town-local time from the town_clock row the app last set."""
     if not settings.DEMO_TOWN_ID:
         return datetime.now(TOWN_TZ)
-    return _row_time(_load_clock_row())
+    row = _load_clock_row()
+    return _row_time(row) if row else datetime.now(TOWN_TZ)
 
 
 def clock_rate() -> float:
     if not settings.DEMO_TOWN_ID:
         return 1.0
-    return float(_load_clock_row()["rate"])
+    row = _load_clock_row()
+    return float(row["rate"]) if row else 1.0
 
 
 def clock_mode() -> str:
@@ -148,6 +153,9 @@ def set_town_clock(
     real = datetime.now(timezone.utc)
     if not settings.DEMO_TOWN_ID:
         return project_town_time(anchor, real, rate, real)
+    db = get_client()
+    if not db.table("towns").select("id").eq("id", settings.DEMO_TOWN_ID).limit(1).execute().data:
+        return project_town_time(anchor, real, rate, real)
     row = {
         "town_id": settings.DEMO_TOWN_ID,
         "mode": mode_for_rate(rate),
@@ -156,7 +164,7 @@ def set_town_clock(
         "rate": rate,
         "updated_at": now_iso(),
     }
-    get_client().table("town_clock").upsert(row, on_conflict="town_id").execute()
+    db.table("town_clock").upsert(row, on_conflict="town_id").execute()
     _remember(row)
     return project_town_time(anchor, real, rate, datetime.now(timezone.utc))
 

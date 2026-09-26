@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     CALENDAR_SYNC_INTERVAL_SECONDS: float = 300
     CALENDAR_SYNC_DAYS: int = 7
+    # Model picks the building for events whose words don't name a place (false = word match only).
+    CALENDAR_AI: bool = True
+    CALENDAR_AI_MAX_CALLS: int = 40  # per person per sync
 
 
 @lru_cache

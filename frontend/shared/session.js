@@ -9,8 +9,11 @@ export function getSupabase() {
   clientPromise ??= (async () => {
     let cfg;
     try {
-      cfg = await fetch(`${BACKEND}/demo/config`).then((r) => r.json());
-    } catch {
+      const res = await fetch(`${BACKEND}/demo/config`);
+      cfg = await res.json();
+      if (!res.ok) throw new Error(typeof cfg.detail === 'string' ? cfg.detail : `Backend responded ${res.status}`);
+    } catch (e) {
+      if (e instanceof Error && e.message && !e.message.startsWith('Failed to fetch')) throw e;
       throw new Error(`Can't reach the Luma backend at ${BACKEND}. Is it running?`);
     }
     if (!cfg.supabase_url || !cfg.supabase_publishable_key) {

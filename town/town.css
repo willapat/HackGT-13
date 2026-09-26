@@ -132,8 +132,8 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 }
 #building .meta { margin-top: 2px; color: var(--muted); font-size: 13px; font-weight: 500; }
 #building .close {
-  flex: none; width: 32px; height: 32px; margin: -4px -4px 0 0; border: none; border-radius: 50%;
-  background: var(--soft); color: var(--ink); font-size: 18px; line-height: 1; cursor: pointer;
+  flex: none; width: 44px; height: 44px; margin: -6px -6px 0 0; border: none; border-radius: 50%;
+  background: var(--soft); color: var(--ink); font-size: 22px; line-height: 1; cursor: pointer;
 }
 #building .close:hover { background: var(--soft-hover); }
 #building .close:focus-visible, #building form button:focus-visible, #building form input:focus-visible {
@@ -195,5 +195,4 @@ ul.who .who-status.away { color: var(--accent); }
 ul.who .pip { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 @media (max-width: 800px) {
   #building .bld-body { max-height: min(28vh, 220px); }
-  #building .close { width: 36px; height: 36px; }
 }

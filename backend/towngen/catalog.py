@@ -26,30 +26,31 @@ HOUSES = [KS + f"building-type-{c}" for c in "abcdefghijklmnopqrstu"] + [
 STADIUM = SP + "building-stadium"
 
 # Named places users can pick when creating a town: id -> (label, building model). The label is also the
-# place's name in town ("Library", "Gym").
-# Anything else a user asks for ("Hospital") becomes a custom place on a random building (towngen.add_custom_places).
+# place's name in town ("Library", "Gym"). Models are the closest building already in the catalog.
+# "townpark" is a place you can visit; id "park" is the central park every town already has.
+# Anything else a user asks for ("Bowling alley") becomes a custom place on a random building.
 PLACE_TYPES = {
     "cafe": ("Café", SP + "building-coffee-shop"),
     "library": ("Library", SP + "building-books-shop"),
+    "university": ("University", SP + "building-residential-color01"),
     "gym": ("Gym", KC + "building-j"),
     "market": ("Market", SP + "building-super-market"),
-    "bakery": ("Bakery", SP + "building-bakery"),
-    "pizza": ("Pizzeria", SP + "building-pizza"),
     "restaurant": ("Restaurant", SP + "building-restaurant"),
-    "fastfood": ("Fast food", SP + "building-fast-food"),
-    "chicken": ("Chicken shop", SP + "building-chicken-shop"),
     "bar": ("Bar", SP + "building-bar"),
-    "music": ("Music store", SP + "building-music-store"),
-    "clothing": ("Clothing store", SP + "building-clothing"),
-    "shoes": ("Shoe store", SP + "building-shoes-shop"),
-    "gifts": ("Gift shop", SP + "building-gift-shop"),
     "pharmacy": ("Pharmacy", SP + "building-drug-store"),
     "grocer": ("Fruit stand", SP + "building-fruits-shop"),
     "gas": ("Gas station", SP + "building-gas-station"),
-    "garage": ("Auto shop", SP + "building-auto-service"),
     "factory": ("Factory", SP + "building-factory"),
+    "mall": ("Mall", KC + "building-m"),
+    "hospital": ("Hospital", SP + "building-residential-color02"),
+    "airport": ("Airport", SP + "building-sky-small-color01"),
+    "townpark": ("Park", KC + "building-n"),
+    "church": ("Church", KC + "building-c"),
+    "barber": ("Barber", SP + "building-shoes-shop"),
+    "sportsfield": ("Sports Field", KC + "building-e"),
+    "office": ("Office", KC + "building-skyscraper-a"),
 }
-LANDMARKS = {"stadium": "Stadium", "farm": "Farm with a windmill"}
+LANDMARKS = {"stadium": "Stadium"}
 MAX_PLACES = 12
 BUILDINGS = set(TALL) | set(MID) | set(SMALL)
 DECOR = ("garden", "picnic", "plaza", "patio", "tree")

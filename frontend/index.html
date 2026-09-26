@@ -434,7 +434,7 @@
             <div class="pane" data-pane="calendar" hidden>
               <div class="card">
                 <h2>Google Calendar</h2>
-                <p class="sub">Your character goes where your calendar says: an event that names a place in your town (like "Market" or "Gym") sends them there, anything else sends them home. Townmates only see the place ("At the Market"), never your event titles. Checked every few minutes.</p>
+                <p class="sub">Your character goes where your calendar says. Luma reads every calendar under My calendars. It picks the building each event belongs to by name, and asks an AI model when the name doesn't say (for example "CS 1332" → University), so your event titles and locations are sent to that model. Events it can't place count as around town. Townmates only see the place ("At the University"), never your event titles. Checked every few minutes.</p>
                 <div class="kv">
                   <div><div class="k">Status</div><div class="v" id="cal-status">Checking…</div></div>
                 </div>
@@ -602,7 +602,7 @@
       <h2>Create a town</h2>
       <p>Describe the town you'd like and the town planner will build it for you. It starts small and grows as friends move in.</p>
       <label>What should it be like?
-        <textarea id="create-prompt" rows="4" maxlength="1000" placeholder="A cozy seaside village with a climbing gym, a bakery and lots of trees"></textarea>
+        <textarea id="create-prompt" rows="4" maxlength="1000" placeholder="A cozy seaside village with a climbing gym, a park and lots of trees"></textarea>
         <span class="hint" id="create-prompt-hint"></span>
       </label>
       <label>Town name <span class="hint">(optional: leave blank and the planner names it)</span>

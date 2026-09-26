@@ -2138,7 +2138,10 @@ const appearance = (() => {
 
 // Calendar: connect Google Calendar (events, read-only). Google sends people back to ?calendar=google with a
 // refresh token in the session exactly once; it goes straight to the backend, which does all the syncing.
-const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.events.readonly';
+const GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  'https://www.googleapis.com/auth/calendar.events.readonly',
+].join(' ');
 const calendarPane = (() => {
   // Read before supabase-js tidies the URL: are we coming back from Google, and did it fail?
   const query = new URLSearchParams(location.search), fragment = new URLSearchParams(location.hash.slice(1));

@@ -16,6 +16,7 @@ TRAVEL_MINUTES = {
     "gym": 12,
     "market": 10,
     "library": 12,
+    "university": 15,
     "park": 10,
     "downtown": 15,
 }

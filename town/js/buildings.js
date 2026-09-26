@@ -3,8 +3,8 @@
 // already left. Only your own house's card offers a rename (townsync.js updates other labels). Real towns only.
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
-import { activeCam } from './camera.js';
-import { OPEN_ZOOM } from './stage.js';
+import { activeCam, focusOn, stopFollow } from './camera.js';
+import { renderer } from './stage.js';
 import { topOf } from './city.js';
 import { $, logFeed } from './hud.js';
 import { inkOn, key, PLACES, pos, TOWN, TOWN_ID } from './layout.js';
@@ -22,12 +22,13 @@ const townTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric'
 
 // Known place ids (towngen catalog, plus the parks and landmarks a town can name). Anything else stays "Place".
 const KIND = {
-  cafe: 'Café', library: 'Library', gym: 'Gym', market: 'Market', bakery: 'Bakery',
-  pizza: 'Pizzeria', restaurant: 'Restaurant', fastfood: 'Fast food', chicken: 'Chicken shop',
-  bar: 'Bar', music: 'Music store', clothing: 'Clothing store', shoes: 'Shoe store',
-  gifts: 'Gift shop', pharmacy: 'Pharmacy', grocer: 'Fruit stand', gas: 'Gas station',
-  garage: 'Auto shop', factory: 'Factory', park: 'Park', downtown: 'Downtown',
-  outerpark: 'Park', stadium: 'Stadium', farm: 'Farm',
+  cafe: 'Café', library: 'Library', university: 'University', gym: 'Gym', market: 'Market',
+  restaurant: 'Restaurant', bar: 'Bar', pharmacy: 'Pharmacy', grocer: 'Fruit stand', gas: 'Gas station',
+  factory: 'Factory', mall: 'Mall', hospital: 'Hospital', airport: 'Airport', townpark: 'Park',
+  church: 'Church', barber: 'Barber', sportsfield: 'Sports Field', office: 'Office',
+  park: 'Park', downtown: 'Downtown', outerpark: 'Park', stadium: 'Stadium', farm: 'Farm',
+  bakery: 'Bakery', pizza: 'Pizzeria', fastfood: 'Fast food', chicken: 'Chicken shop',
+  music: 'Music store', clothing: 'Clothing store', shoes: 'Shoe store', gifts: 'Gift shop', garage: 'Auto shop',
 };
 
 const kindOf = (id) => (isHouse(id) ? (id === `house:${meId}` ? 'Your house' : 'House') : KIND[id] || 'Place');
@@ -118,8 +119,8 @@ async function loadHistory() {
   }
 }
 
-// The card floats above its building. Its on-screen size follows the map zoom, capped at the
-// size it has when the town first opens, so scrolling out does not leave a huge card over a small town.
+// The card floats above its building at a fixed size, so the close button stays clickable
+// however far the map is zoomed.
 function anchorOf(id) {
   const [c, r] = isHouse(id) ? houseOwner(id)?.home?.house ?? [] : [PLACES[id]?.c, PLACES[id]?.r];
   return c == null ? null : pos(c, r).setY((topOf[key(c, r)] ?? 1) + 0.35);
@@ -133,9 +134,14 @@ function follow() {
     card.style.visibility = behind ? 'hidden' : '';
     card.style.left = `${(screen.x * 0.5 + 0.5) * innerWidth}px`;
     card.style.top = `${(-screen.y * 0.5 + 0.5) * innerHeight}px`;
-    const zoom = activeCam.isOrthographicCamera ? activeCam.zoom : OPEN_ZOOM;
-    const scale = Math.min(1, zoom / OPEN_ZOOM);
-    card.style.transform = `translate(-50%, calc(-100% - 14px)) scale(${scale})`;
+    card.style.transform = 'translate(-50%, calc(-100% - 14px))';
+    // Keep the whole card, including the close button, inside the window.
+    const box = card.getBoundingClientRect();
+    let dx = 0, dy = 0;
+    if (box.top < 12) dy = 12 - box.top;
+    if (box.left < 12) dx = 12 - box.left;
+    if (box.right > innerWidth - 12) dx = innerWidth - 12 - box.right;
+    if (dx || dy) card.style.transform = `translate(calc(-50% + ${dx}px), calc(-100% - 14px + ${dy}px))`;
   }
   requestAnimationFrame(follow);
 }
@@ -148,6 +154,7 @@ function open(id) {
   earlier = [];
   $('#bld-rename-input').value = isHouse(id) ? houseOwner(id)?.home?.name || '' : '';
   card.hidden = false;
+  if (anchor) { stopFollow(); focusOn(anchor); } // center once; panning still works with the card open
   if (!wasOpen) requestAnimationFrame(follow);
   render();
   loadHistory();
@@ -158,6 +165,7 @@ function open(id) {
 }
 
 function close() {
+  if (!openId) return;
   openId = null;
   card.hidden = true;
   clearInterval(liveTimer);
@@ -165,8 +173,24 @@ function close() {
 }
 
 addEventListener('town:building', (e) => open(e.detail));
+addEventListener('town:close-building', () => close());
 $('#bld-close').onclick = close;
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && openId) close(); });
+
+// A click that isn't the card, and isn't a place name (that click opens one), closes it.
+// The map itself is handled in camera.js so a drag there doesn't count as a click.
+let press = null;
+addEventListener('pointerdown', (e) => { press = [e.clientX, e.clientY, e.target]; });
+addEventListener('pointerup', (e) => {
+  if (!openId || !press) return;
+  const [x, y, target] = press;
+  press = null;
+  if (Math.hypot(e.clientX - x, e.clientY - y) > 6) return;
+  if (card.contains(target) || card.contains(e.target)) return;
+  if (target === renderer.domElement || e.target === renderer.domElement) return;
+  if (target.closest?.('.lbl.place') || e.target.closest?.('.lbl.place')) return;
+  close();
+});
 
 // Rename your own house: saved for everyone (town_members.home.name); an empty name goes back to the default
 $('#bld-rename').onsubmit = async (e) => {

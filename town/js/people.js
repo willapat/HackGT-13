@@ -196,7 +196,7 @@ function finishWalk(f, ok) {
 
 // Calendar walks follow the town clock, not the next agents-row write. Leave travel_minutes
 // (from the event) before it starts, from wherever they are standing, and arrive as it begins.
-const TRAVEL_DEFAULT = { cafe: 8, gym: 12, market: 10, library: 12, park: 10, downtown: 15 };
+const TRAVEL_DEFAULT = { cafe: 8, gym: 12, market: 10, library: 12, university: 15, park: 10, downtown: 15 };
 
 function travelMinutesOf(ev) {
   const n = Number(ev.travel_minutes);

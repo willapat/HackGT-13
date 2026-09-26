@@ -1,13 +1,14 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
+from postgrest.exceptions import APIError
 
 from backend.identity import member_name
 from backend.config import settings
 from backend.db import get_client
 from backend.models.api import ClockIn
 from backend.calendar_drive import snap_town_to_clock
-from backend.schedules import clock_mode, events_for_users, local_now, set_town_clock
+from backend.schedules import TOWN_TZ, clock_mode, events_for_users, local_now, set_town_clock
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -118,12 +119,22 @@ def _nudge_agents(db, town_id: str) -> None:
 
 @router.get("/config")
 def demo_config():
+    # Login only needs the Supabase keys. A clock or town-id problem must not hide them.
+    try:
+        clock = _clock_view()
+    except APIError:
+        now = datetime.now(TOWN_TZ)
+        clock = {
+            "town_time": now.isoformat(),
+            "hour": now.hour + now.minute / 60 + now.second / 3600,
+            "mode": "live",
+        }
     return {
         "supabase_url": settings.SUPABASE_URL,
         "supabase_publishable_key": settings.SUPABASE_PUBLISHABLE_KEY,
         "demo_town_id": settings.DEMO_TOWN_ID,
         "backend_ok": True,
-        **_clock_view(),
+        **clock,
     }
 
 

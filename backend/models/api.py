@@ -94,9 +94,9 @@ class TownGenerate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=60)  # None = the planner names it
     me: MemberIdentity
     invite_user_ids: list[UUID] = Field(default_factory=list, max_length=23)  # friends to invite as soon as it exists
-    places: list[str] = Field(default_factory=list, max_length=19)  # ids from GET /towns/place-options; [] = planner picks
+    places: list[str] = Field(default_factory=list, max_length=20)  # ids from GET /towns/place-options; [] = planner picks
     custom_places: list[Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v), Field(min_length=1, max_length=40)]] = Field(
-        default_factory=list, max_length=8)  # anything else, by name ("Hospital"): placed on a random building
+        default_factory=list, max_length=8)  # anything else, by name ("Bowling alley"): placed on a random building
     landmarks: list[Literal["farm", "stadium"]] = Field(default_factory=list)
 
     @model_validator(mode="after")
