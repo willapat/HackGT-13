@@ -597,7 +597,10 @@ function renderFeed() {
   none.hidden = !(summaries.length && !shown.length);
   none.textContent = `No towns match "${townQuery.trim()}".`;
 
+  // Keep your place in a comment you're typing when the feed refreshes under you
+  const typing = document.activeElement?.dataset?.commentFor;
   $('#feed').replaceChildren(...feed.items.map(post));
+  if (typing) document.querySelector(`[data-comment-for="${typing}"]`)?.focus();
   $('#feed-empty').hidden = feed.items.length > 0;
 
   $('#today').replaceChildren(...feed.today.map((t) => {
@@ -721,21 +724,163 @@ function writtenPost(item) {
     card.append(el('p', 'hint', "Only your towns' AI read this. Your character's mood may change; nobody sees these words."));
     return card;
   }
+  if (!item.mine) who.firstChild.dataset.person = item.actor.user_id; // the name opens their profile too
+  const redraw = () => card.replaceWith(writtenPost(item));
+  const reactions = item.reactions || [];
+  const total = reactions.reduce((n, r) => n + r.count, 0);
+  const comments = item.comments || [];
+  if (total || comments.length) {
+    const summary = el('div', 'post-summary');
+    const emojis = el('span', 'reaction-summary');
+    if (total) emojis.append(el('span', 'emojis', reactions.slice(0, 3).map((r) => r.emoji).join('')), ` ${total}`);
+    summary.append(emojis);
+    if (comments.length) {
+      const count = el('button', 'link', `${comments.length} ${comments.length === 1 ? 'comment' : 'comments'}`);
+      count.type = 'button';
+      count.onclick = () => { openComments.add(item.id); redraw(); };
+      summary.append(count);
+    }
+    card.append(summary);
+  }
   const actions = el('div', 'post-actions');
+  const like = el('button', `react${item.my_reaction ? ' on' : ''}`, item.my_reaction ? `${item.my_reaction} ${REACTION_NAMES[item.my_reaction] || 'Liked'}` : '🤍 Like');
+  like.type = 'button';
+  like.title = 'Like, or hold for more reactions';
+  like.setAttribute('aria-pressed', String(!!item.my_reaction));
+  const picker = el('div', 'reaction-picker');
+  picker.hidden = true;
+  picker.setAttribute('role', 'toolbar');
+  picker.setAttribute('aria-label', 'Reactions');
+  for (const emoji of REACTIONS) {
+    const b = el('button', emoji === item.my_reaction ? 'on' : '', emoji);
+    b.type = 'button';
+    b.title = REACTION_NAMES[emoji];
+    b.onclick = (e) => { e.stopPropagation(); react(item, emoji === item.my_reaction ? null : emoji, redraw); };
+    picker.append(b);
+  }
+  // Tap = like (or take back your reaction); hold, right-click or hover a moment = pick a reaction
+  let held = false, holdTimer, hoverTimer;
+  const openPicker = () => { held = true; picker.hidden = false; };
+  like.onpointerdown = () => { held = false; holdTimer = setTimeout(openPicker, 450); };
+  like.onpointerup = like.onpointerleave = () => clearTimeout(holdTimer);
+  like.oncontextmenu = (e) => { e.preventDefault(); openPicker(); };
+  like.onclick = () => { if (held) return; react(item, item.my_reaction ? null : '❤️', redraw); };
+  const wrap = el('div', 'react-wrap');
+  wrap.onpointerenter = (e) => { if (e.pointerType !== 'touch') hoverTimer = setTimeout(openPicker, 600); };
+  wrap.onpointerleave = () => { clearTimeout(hoverTimer); picker.hidden = true; };
+  wrap.append(picker, like);
+  const comment = el('button', '', '💬 Comment');
+  comment.type = 'button';
+  comment.onclick = () => { openComments.add(item.id); redraw(); document.querySelector(`[data-comment-for="${item.id}"]`)?.focus(); };
+  actions.append(wrap, comment);
   if (item.audience === 'town') {
-    const visit = el('button', '', `Visit ${item.town.name}`);
+    const visit = el('button', '', `🏘️ Visit ${item.town.name}`);
     visit.type = 'button';
     visit.onclick = () => enterTown(item.town.id);
     actions.append(visit);
   }
-  if (!item.mine) {
-    const profile = el('button', '', `See ${item.actor.name}'s profile`);
-    profile.type = 'button';
-    profile.onclick = () => openPerson(item.actor.user_id);
-    actions.append(profile);
-  }
-  if (actions.children.length) card.append(actions);
+  card.append(actions);
+  if (comments.length || openComments.has(item.id)) card.append(commentThread(item, redraw));
   return card;
+}
+
+const REACTIONS = ['❤️', '😂', '🎉', '😮', '😢', '👏']; // matches backend/posts.py REACTIONS
+const REACTION_NAMES = { '❤️': 'Liked', '😂': 'Haha', '🎉': 'Yay', '😮': 'Wow', '😢': 'Sad', '👏': 'Proud' };
+const openComments = new Set(); // posts whose whole comment thread is shown
+const commentDrafts = new Map(); // post id -> what you've typed so far (survives the feed refreshing)
+const signalId = (item) => item.id.replace(/^post:/, '');
+
+// emoji = null takes your reaction back. Shows the change right away and puts it back if the request fails.
+async function react(item, emoji, redraw) {
+  const before = { reactions: item.reactions, my_reaction: item.my_reaction };
+  const counts = new Map((item.reactions || []).map((r) => [r.emoji, r.count]));
+  if (item.my_reaction) counts.set(item.my_reaction, counts.get(item.my_reaction) - 1);
+  if (emoji) counts.set(emoji, (counts.get(emoji) || 0) + 1);
+  item.reactions = [...counts].filter(([, n]) => n > 0).map(([e, n]) => ({ emoji: e, count: n })).sort((a, b) => b.count - a.count);
+  item.my_reaction = emoji;
+  redraw();
+  try {
+    const path = `/posts/${signalId(item)}/reaction`;
+    Object.assign(item, emoji ? await api(path, { method: 'PUT', body: { emoji } }) : await api(path, { method: 'DELETE' }));
+  } catch (err) {
+    Object.assign(item, before);
+    toast(err.message, 'error');
+  }
+  redraw();
+}
+
+// Comments under a post: the latest two until you open the thread, then all of them and a box to add yours
+function commentThread(item, redraw) {
+  const wrap = el('div', 'comments');
+  const all = item.comments || [];
+  const open = openComments.has(item.id);
+  const shown = open ? all : all.slice(-2);
+  if (shown.length < all.length) {
+    const more = el('button', 'link more-comments', `View all ${all.length} comments`);
+    more.type = 'button';
+    more.onclick = () => { openComments.add(item.id); redraw(); };
+    wrap.append(more);
+  }
+  for (const c of shown) {
+    const row = el('div', 'comment');
+    const body = el('div', 'comment-body');
+    const bubble = el('div', 'bubble');
+    const name = el('b', '', c.mine ? 'You' : c.author.name);
+    if (!c.mine) name.dataset.person = c.author.user_id;
+    bubble.append(name, el('span', 'comment-text', c.text));
+    const meta = el('div', 'comment-meta');
+    meta.append(el('span', '', timeAgo(c.at)));
+    if (c.can_delete) {
+      const del = el('button', 'link', 'Delete');
+      del.type = 'button';
+      del.onclick = async () => {
+        if (!await confirmDialog({ title: 'Delete this comment?', body: c.text, confirmLabel: 'Delete', danger: true })) return;
+        const keep = item.comments;
+        item.comments = keep.filter((x) => x.id !== c.id);
+        redraw();
+        try { await api(`/posts/${signalId(item)}/comments/${c.id}`, { method: 'DELETE' }); }
+        catch (err) { item.comments = keep; redraw(); toast(err.message, 'error'); }
+      };
+      meta.append(' · ', del);
+    }
+    body.append(bubble, meta);
+    row.append(personAvatar(c.author), body);
+    wrap.append(row);
+  }
+  if (open || !all.length) {
+    const form = el('form', 'comment-form');
+    const input = el('input');
+    input.placeholder = item.mine ? 'Reply to your friends…' : `Write something to ${item.actor.name}…`;
+    input.maxLength = 500;
+    input.value = commentDrafts.get(item.id) || '';
+    input.dataset.commentFor = item.id;
+    input.setAttribute('aria-label', 'Write a comment');
+    input.oninput = () => { commentDrafts.set(item.id, input.value); send.disabled = !input.value.trim(); };
+    const send = el('button', 'small', 'Send');
+    send.type = 'submit';
+    send.disabled = !input.value.trim();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      send.disabled = input.disabled = true;
+      try {
+        const c = await api(`/posts/${signalId(item)}/comments`, { method: 'POST', body: { text } });
+        item.comments = [...(item.comments || []), c];
+        commentDrafts.delete(item.id);
+        redraw();
+        document.querySelector(`[data-comment-for="${item.id}"]`)?.focus();
+      } catch (err) {
+        send.disabled = input.disabled = false;
+        toast(err.message, 'error');
+      }
+    };
+    const self = el('div', 'avatar sm');
+    paintAvatar(self, me);
+    form.append(self, input, send);
+    wrap.append(form);
+  }
+  return wrap;
 }
 
 function post(item) {
@@ -988,8 +1133,12 @@ function renderInbox() {
     const li = el('li');
     const who = el('div', 'who');
     const p = n.payload || {};
-    const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in` : 'Something changed';
-    who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · its houses, characters and plans are gone`));
+    const comment = n.kind === 'post_comment';
+    const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in`
+      : comment ? `${p.by_name || 'Someone'} commented: “${p.text || ''}”` : 'Something changed';
+    const sub = comment ? (p.post_text ? `on “${p.post_text}”` : 'on your post') : 'its houses, characters and plans are gone';
+    who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · ${sub}`));
+    if (comment && p.by_user_id) li.dataset.person = p.by_user_id;
     const dismiss = el('button', 'small', 'Dismiss');
     dismiss.type = 'button';
     dismiss.onclick = async () => {
@@ -998,7 +1147,7 @@ function renderInbox() {
       notices = notices.filter((x) => x.id !== n.id);
       renderInbox();
     };
-    li.append(el('div', 'notice-icon', n.kind === 'town_deleted' ? '🏚️' : '🔔'), who, dismiss);
+    li.append(el('div', 'notice-icon', n.kind === 'town_deleted' ? '🏚️' : comment ? '💬' : '🔔'), who, dismiss);
     return li;
   }));
   $('#notices-section').hidden = !notices.length;
