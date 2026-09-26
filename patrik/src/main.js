@@ -1,4 +1,4 @@
-// Tiny Town rendering sandbox: Phaser 3 + Kenney isometric tiles.
+// Tiny Town (city) rendering sandbox: Phaser 3 + Kenney isometric tiles.
 // Character behavior is scripted/random here; it stands in for the real character agents.
 
 const TILE_W = 132; // Kenney tile top face is 132x66
@@ -11,58 +11,54 @@ const DPR = Math.min(window.devicePixelRatio || 1, 3);
 const A = 'assets/';
 const TEX = {
   grass: A + 'isometric-tiles-landscape/PNG/landscapeTiles_067.png',
-  roadC: A + 'isometric-tiles-landscape/PNG/landscapeTiles_074.png', // runs along columns (screen down-right)
-  roadR: A + 'isometric-tiles-landscape/PNG/landscapeTiles_082.png', // runs along rows (screen down-left)
-  cross: A + 'isometric-tiles-landscape/PNG/landscapeTiles_090.png',
-  pave: A + 'isometric-tiles-city/PNG/cityTiles_066.png',
+  roadC: A + 'isometric-tiles-city/PNG/cityTiles_073.png', // runs along columns (screen down-right)
+  roadR: A + 'isometric-tiles-city/PNG/cityTiles_081.png', // runs along rows (screen down-left)
+  cross: A + 'isometric-tiles-city/PNG/cityTiles_089.png',
   fountain: A + 'isometric-tiles-city/PNG/cityTiles_043.png',
-  planter: A + 'isometric-tiles-city/PNG/cityTiles_067.png',
   tree: A + 'isometric-tiles-city/Details/cityDetails_010.png',
 };
-for (const n of [4, 14, 18, 21, 29, 33, 36, 37, 101, 108, 113, 124]) {
+// Full-tile Kenney buildings (the others in the pack are upper floors/roofs)
+const BUILDINGS = [1, 2, 3, 4, 9, 10, 11, 12, 14, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 33, 34, 35, 36, 37,
+  40, 41, 42, 46, 85, 92, 93, 99, 100, 101, 106, 107, 108, 109, 113, 114, 115, 116, 117, 122, 123, 124, 125];
+// Upper-floor piece that matches each ground floor (found by pixel-matching the pack)
+const FLOOR_FOR = { 1: 16, 2: 16, 3: 24, 4: 50, 9: 16, 10: 16, 11: 56, 12: 53, 14: 32, 17: 16, 18: 45, 19: 56, 20: 50, 21: 38, 22: 39, 25: 52, 26: 49, 27: 56, 28: 53, 29: 44, 30: 45, 33: 52, 34: 45, 35: 56, 36: 49, 37: 50, 40: 52, 41: 49, 42: 53, 46: 52, 85: 56, 92: 52, 93: 56, 99: 49, 100: 56, 101: 55, 106: 52, 107: 56, 108: 50, 109: 24, 113: 52, 114: 56, 115: 48, 116: 24, 117: 31, 122: 56, 123: 16, 124: 24, 125: 24 };
+const FLOOR_H = 30; // vertical step between stacked floors
+for (const n of new Set([...BUILDINGS, ...Object.values(FLOOR_FOR)])) {
   TEX['b' + n] = `${A}isometric-tiles-buildings/PNG/buildingTiles_${String(n).padStart(3, '0')}.png`;
 }
 
-// ---- Town layout -----------------------------------------------------------
+// ---- City layout -------------------------------------------------------------
+// Road grid on rows/cols 2, 6, 10. Every other tile is a building, except the park block.
+
+const ROADS = [2, 6, 10];
+const inPark = (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
 
 const PLACES = {
-  library: { name: 'Library', tex: 'b124', c: 1, r: 3, door: [1, 4] },
-  gym: { name: 'Boulder Gym', tex: 'b113', c: 3, r: 3, door: [3, 4] },
-  cafe: { name: 'Bean There Café', tex: 'b4', c: 8, r: 3, door: [8, 4] },
-  market: { name: 'Market', tex: 'b108', c: 10, r: 3, door: [10, 4] },
-  square: { name: 'Town Square', door: [9, 6] },
-  park: { name: 'the park', door: [1, 10] },
-  lawn: { name: 'the lawn', door: [6, 9] },
+  library: { name: 'Library', tex: 'b124', c: 3, r: 1, door: [3, 2] },
+  gym: { name: 'Boulder Gym', tex: 'b113', c: 5, r: 1, door: [5, 2] },
+  cafe: { name: 'Bean There Café', tex: 'b4', c: 7, r: 3, door: [6, 3] },
+  market: { name: 'Market', tex: 'b108', c: 9, r: 5, door: [9, 6] },
+  park: { name: 'Central Park', door: [7, 8] },
+  downtown: { name: 'downtown', door: [6, 6] },
 };
 
 const FRIENDS = [
-  { id: 'maya', name: 'Maya', color: 0xf0616d, tint: 0xffc9cc, home: { tex: 'b29', c: 2, r: 5, door: [2, 4] } },
-  { id: 'jordan', name: 'Jordan', color: 0x4f8ef7, tint: 0xc9dcff, home: { tex: 'b14', c: 4, r: 5, door: [4, 4] } },
-  { id: 'sam', name: 'Sam', color: 0x2fb36d, tint: 0xc8f5d8, home: { tex: 'b37', c: 3, r: 7, door: [3, 6] } },
-  { id: 'priya', name: 'Priya', color: 0xf2a33a, tint: 0xffe4b8, home: { tex: 'b36', c: 10, r: 10, door: [10, 9] } },
-  { id: 'leo', name: 'Leo', color: 0x9b6cf0, tint: 0xe0d0ff, home: { tex: 'b21', c: 4, r: 1, door: [5, 1] } },
+  { id: 'maya', name: 'Maya', color: 0xf0616d, tint: 0xffc9cc, home: { tex: 'b29', c: 1, r: 3, door: [2, 3] } },
+  { id: 'jordan', name: 'Jordan', color: 0x4f8ef7, tint: 0xc9dcff, home: { tex: 'b14', c: 3, r: 5, door: [3, 6] } },
+  { id: 'sam', name: 'Sam', color: 0x2fb36d, tint: 0xc8f5d8, home: { tex: 'b37', c: 5, r: 7, door: [6, 7] } },
+  { id: 'priya', name: 'Priya', color: 0xf2a33a, tint: 0xffe4b8, home: { tex: 'b36', c: 11, r: 7, door: [10, 7] } },
+  { id: 'leo', name: 'Leo', color: 0x9b6cf0, tint: 0xe0d0ff, home: { tex: 'b21', c: 1, r: 9, door: [2, 9] } },
 ];
 
-const DECOR_BUILDINGS = [
-  { tex: 'b101', c: 8, r: 1 },
-  { tex: 'b18', c: 10, r: 1 },
-  { tex: 'b33', c: 1, r: 1 },
-];
-const TREES = [
-  [0, 0], [2, 0], [7, 0], [11, 0], [0, 5], [0, 7], [5, 7], [5, 10], [7, 11],
-  [11, 6], [11, 8], [4, 11], [8, 11], [11, 11], [2, 2], [7, 6], [1, 8], [0, 10], [2, 11], [2, 9], [0, 11],
-];
+const TREES = [[9, 7], [7, 9], [9, 9]];
 
 function buildGround() {
   const g = [];
   for (let r = 0; r < N; r++) {
     g.push([]);
     for (let c = 0; c < N; c++) {
-      let t = 'grass';
-      if (r === 4) t = 'roadC';
-      if (c === 6) t = r === 4 ? 'cross' : 'roadR';
-      if (c >= 8 && c <= 10 && r >= 6 && r <= 8) t = 'pave';
-      g[r].push(t);
+      const onR = ROADS.includes(r), onC = ROADS.includes(c);
+      g[r].push(onR && onC ? 'cross' : onR ? 'roadC' : onC ? 'roadR' : inPark(c, r) ? 'grass' : 'lot');
     }
   }
   return g;
@@ -152,6 +148,7 @@ class TownScene extends Phaser.Scene {
   drawGround() {
     for (let r = 0; r < N; r++) {
       for (let c = 0; c < N; c++) {
+        if (this.ground[r][c] === 'lot') continue; // buildings bring their own base
         const { x, y } = iso(c, r);
         this.add.image(x, y - HALF_H, this.ground[r][c]).setOrigin(0.5, 0).setDepth(y / 1000);
       }
@@ -169,9 +166,22 @@ class TownScene extends Phaser.Scene {
   drawObjects() {
     for (const p of Object.values(PLACES)) if (p.tex) this.placeBlock(p.tex, p.c, p.r);
     for (const f of FRIENDS) this.placeBlock(f.home.tex, f.home.c, f.home.r);
-    for (const b of DECOR_BUILDINGS) this.placeBlock(b.tex, b.c, b.r);
-    this.placeBlock('fountain', 9, 7).setOrigin(0.5, 0).setY(iso(9, 7).y - HALF_H);
-    for (const [c, r] of [[8, 6], [10, 8]]) this.placeBlock('planter', c, r).setOrigin(0.5, 0).setY(iso(c, r).y - HALF_H);
+    // Fill every remaining lot with a building (deterministic pick so the city looks the same each load)
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        if (this.ground[r][c] !== 'lot' || this.blocked.has(`${c},${r}`)) continue;
+        const n = BUILDINGS[(c * 7 + r * 13 + c * r) % BUILDINGS.length];
+        const base = this.placeBlock('b' + n, c, r);
+        // Taller toward downtown (the center), with a little deterministic variation
+        const dist = Math.hypot(c - 5.5, r - 5.5);
+        const floors = Math.max(0, Math.round(5 - dist * 0.8 + ((c * 3 + r * 5) % 3) - 1));
+        for (let k = 1; k <= floors; k++) {
+          this.add.image(base.x - base.width / 2 + 16, base.y - base.height - k * FLOOR_H, 'b' + FLOOR_FOR[n])
+            .setOrigin(0, 0).setDepth(base.depth + k * 0.01);
+        }
+      }
+    }
+    this.placeBlock('fountain', 8, 8).setOrigin(0.5, 0).setY(iso(8, 8).y - HALF_H);
     for (const [c, r] of TREES) {
       const { x, y } = iso(c, r);
       this.add.image(x, y + 6, 'tree').setOrigin(0.5, 1).setScale(1.5).setDepth(1000 + y);
@@ -408,9 +418,11 @@ class TownScene extends Phaser.Scene {
       this.effects.goodNews = this.partyLights(FRIENDS[0].home);
       const [maya, leo, sam] = this.claim('maya', 'leo', 'sam');
       const door = maya.home.door;
+      const [spotA, spotB = door] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+        .map(([dc, dr]) => [door[0] + dc, door[1] + dr]).filter((n) => this.walkable(...n));
       await this.walkTo(maya, door);
       this.say(maya, '🎉🎉🎉', 3000);
-      await Promise.all([this.walkTo(leo, [door[0] + 1, door[1]]), this.walkTo(sam, [door[0] - 1, door[1]])]);
+      await Promise.all([this.walkTo(leo, spotA), this.walkTo(sam, spotB)]);
       this.face(leo, maya); this.face(sam, maya); this.face(maya, leo);
       await this.say(leo, 'Congrats Maya!!', 2000);
       await this.say(sam, 'Huge news 🥳', 2000);
