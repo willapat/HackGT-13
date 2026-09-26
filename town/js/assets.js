@@ -28,7 +28,7 @@ for (const z of ZONES) {
   if (!a.length || !b.length) continue;
   z.models = Array.from({ length: Math.max(a.length, b.length) * 2 }, (_, i) => (i % 2 ? b : a)[Math.floor(i / 2) % (i % 2 ? b : a).length]);
 }
-export const ROAD = { straight: sp('road-lane-01'), cross: sp('road-intersection-01') };
+export const ROAD = { straight: sp('road-lane-01'), cross: sp('road-intersection-01'), corner: sp('road-corner-01'), tee: sp('road-t-intersection-01'), plain: sp('road-tile') };
 export const GROUND = { grass: sp('natures-grass-tile'), paved: sp('road-concrete-tile') };
 export const PARK_TREES = [sp('natures-big-tree'), sp('natures-fir-tree'), sp('natures-cube-tree')];
 export const PROPS = Object.fromEntries(['street-light', 'bench-1', 'bench-2', 'traffic-signal-big', 'traffic-signal-small', 'traffic-sign-stop',

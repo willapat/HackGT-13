@@ -118,12 +118,18 @@ def _nudge_agents(db, town_id: str) -> None:
 
 @router.get("/config")
 def demo_config():
+    """What the web app needs to sign in. Never fails over the demo clock: without these keys no page loads."""
+    try:
+        clock = _clock_view()
+    except Exception as exc:
+        print(f"[demo] clock unavailable for /demo/config: {exc}", flush=True)
+        clock = {}
     return {
         "supabase_url": settings.SUPABASE_URL,
         "supabase_publishable_key": settings.SUPABASE_PUBLISHABLE_KEY,
         "demo_town_id": settings.DEMO_TOWN_ID,
         "backend_ok": True,
-        **_clock_view(),
+        **clock,
     }
 
 

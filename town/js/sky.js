@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { GROUND, ROAD } from './assets.js';
 import { activeCam, following } from './camera.js';
 import { logFeed } from './hud.js';
-import { N, pos, townApi } from './layout.js';
+import { LANDSCAPE, N, pos, townApi } from './layout.js';
 import { models } from './models.js';
 import { markCurrentScheduleItems } from './panels.js';
 import { controls, hemi, renderer, scene, SNOW_SKIP, sun } from './stage.js';
@@ -256,7 +256,9 @@ export function updateSky(dt) {
     sky.hour = (sky.hour + dt / 60) % 24;
   } // Fast: a whole day in two minutes. Play: one game minute per real second.
   if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
-    setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
+    const kinds = { snowy: ['clear', 'snow', 'snow'], desert: ['clear'] }[LANDSCAPE]
+      || ['clear', 'clear', 'rain', 'storm', 'snow'];
+    setWeather(kinds[Math.floor(Math.random() * kinds.length)], false);
     if (!sky.nextWeatherAt) { // first pick on load: start already in it instead of easing in
       sky.cloud = WEATHER[sky.weather].cloud;
       sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
@@ -350,7 +352,7 @@ export function updateSky(dt) {
 
   // Snow settles while it snows and melts (faster in rain) once it stops
   const settle = sky.weather === 'snow' ? dt / 30 : -dt / (w.kind === 'rain' ? 12 : 45);
-  WX.snowCover.value = Math.min(1, Math.max(0, WX.snowCover.value + settle));
+  WX.snowCover.value = Math.min(1, Math.max(LANDSCAPE === 'snowy' ? 0.85 : 0, WX.snowCover.value + settle)); // a snowy town stays white
   if (performance.now() > sky.patchAt) { // pick up materials cloned since (see-through buildings)
     patchWeather();
     sky.patchAt = performance.now() + 2000;

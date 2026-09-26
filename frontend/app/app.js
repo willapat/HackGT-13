@@ -1833,6 +1833,21 @@ const createTown = (() => {
   // Places: a toggle chip per supported place type and landmark (GET /towns/place-options), plus "other
   // buildings" typed by name (the backend puts each on a random building, under the name as typed)
   let options = null, chosen = new Set(), custom = [];
+  // Look: one pick (or none) per row; the planner fills in whatever is left unpicked
+  const LOOK_ROWS = { landscape: ['#create-landscape', 'landscapes'], style: ['#create-style', 'styles'], greenery: ['#create-greenery', 'greenery'] };
+  let look = {};
+  function renderLook() {
+    for (const [key, [box, list]] of Object.entries(LOOK_ROWS)) {
+      $(box).replaceChildren(...(options[list] || []).map((o) => {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: 'chip toggle', textContent: o.label });
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(look[key] === o.id));
+        b.setAttribute('aria-pressed', String(look[key] === o.id));
+        b.onclick = () => { look[key] = look[key] === o.id ? null : o.id; renderLook(); };
+        return b;
+      }));
+    }
+  }
   const customInput = $('#create-custom');
   const isLandmark = (id) => options.landmarks.some((l) => l.id === id);
   const placeCount = () => [...chosen].filter((id) => !isLandmark(id)).length + custom.length;
@@ -1906,8 +1921,10 @@ const createTown = (() => {
     }
     chosen = new Set();
     custom = [];
+    look = {};
     customInput.value = '';
     renderPlaces();
+    renderLook();
     prompt.value = '';
     $('#create-name').value = '';
     message($('#create-msg'), '');
@@ -1924,23 +1941,109 @@ const createTown = (() => {
     const body = {
       prompt: prompt.value.trim(), name: $('#create-name').value.trim() || null, invite_user_ids: picker.picked(),
       places: [...chosen].filter((id) => !isLandmark(id)), landmarks: [...chosen].filter(isLandmark), custom_places: custom,
+      landscape: look.landscape || null, style: look.style || null, greenery: look.greenery || null,
     };
     dialog.close();
-    let created = null;
-    const picked = await identityDialog.open({
-      title: body.name ? `You in ${body.name}` : 'You in your new town',
-      confirmLabel: 'Create town',
-      busyLabel: 'Building your town…',
-      options: { taken: [], mine: null, suggested_color: Colors.freeColor([]) },
-      save: async (you) => { created = await api('/towns/generate', { method: 'POST', body: { ...body, me: you } }); },
-    });
-    if (!picked) return dialog.showModal(); // cancelled: back to the description, nothing lost
-    await reloadMe();
-    refreshAll();
-    const invited = created.invited ? ` Invited ${created.invited} friend${created.invited === 1 ? '' : 's'}.` : '';
-    const built = Object.entries(created.map?.places || {}).filter(([id]) => id !== 'park' && id !== 'outerpark').map(([, p]) => p.name);
-    toast(`${created.name} is ready!${built.length ? ` Built with: ${built.join(', ')}.` : ''}${invited}`);
+    review.open(body);
   };
+
+  // Review the design before anything is created: the whole map (drawn from its tiles), its places, and a box for
+  // changes. "Redo with changes" sends the design back with the notes; "Create" builds exactly this design
+  // (`design`: the preview's plan, no model call), after you pick your name and color there.
+  const review = (() => {
+    const dlg = $('#review-dialog'), feedback = $('#review-feedback'), msg = $('#review-msg');
+    let body = null, shown = null, run = 0;
+    const sync = (working) => {
+      $('#review-revise').disabled = working || !shown || !feedback.value.trim();
+      $('#review-fresh').disabled = $('#review-ok').disabled = working || !shown;
+    };
+    feedback.oninput = () => sync(false);
+
+    function show(made) {
+      shown = made;
+      $('#review-title').textContent = made.name;
+      $('#review-theme').textContent = made.map.theme || body.prompt;
+      // Home plots as houses: yours (the first plot) in purple, the ones friends will get in gray
+      const tiles = made.tiles.map((row) => [...row]);
+      const homes = (made.map.home_slots || []).map((sl, i) => {
+        tiles[sl.house[1]][sl.house[0]] = 'home';
+        tiles[sl.driveway[1]][sl.driveway[0]] = 'driveway';
+        return { x: sl.house[0], y: sl.house[1], color: i ? '#cfd4dc' : '#7a5cff' };
+      });
+      const img = Object.assign(new Image(), { alt: `Map of ${made.name}` });
+      img.src = drawTown({ tiles, homes, background_color: made.map.background_homes?.color, landscape: made.map.landscape }, { whole: true });
+      $('#review-art').replaceChildren(img);
+      $('#review-key').hidden = !homes.length;
+      const label = (list, id) => (options?.[list] || []).find((o) => o.id === id)?.label || id;
+      const lookChips = [['landscapes', made.plan?.landscape], ['styles', made.plan?.style], ['greenery', made.plan?.greenery]]
+        .filter(([, id]) => id).map(([list, id]) => el('span', 'chip look', label(list, id)));
+      $('#review-places').replaceChildren(...lookChips, ...Object.values(made.map.places || {}).map((p) => el('span', 'chip', p.name)));
+    }
+
+    async function design(extra = {}, note = '') {
+      const mine = ++run;
+      sync(true);
+      message(msg, '');
+      $('#review-art').innerHTML = `<div class="busy-note"><div class="spinner"></div>${shown ? 'Redrawing your town…' : 'Designing your town…'}<br>This takes about half a minute.</div>`;
+      try {
+        const made = await api('/towns/generate', { method: 'POST', body: { ...body, preview: true, ...extra } });
+        if (mine !== run) return; // they went back or asked again meanwhile
+        show(made);
+        $('#review-changed').hidden = !note;
+        $('#review-changed').textContent = note ? `Changed: ${note}` : '';
+        if (note) feedback.value = '';
+      } catch (err) {
+        if (mine !== run) return;
+        message(msg, `Couldn't design it: ${err.message}`);
+        if (shown) show(shown); // keep the design they had
+        else $('#review-art').replaceChildren();
+      }
+      sync(false);
+    }
+
+    $('#review-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const action = e.submitter?.value;
+      if (action === 'back') { run++; dlg.close(); return dialog.showModal(); } // the description, as they left it
+      if (action === 'fresh') return design();
+      if (action === 'revise') {
+        const text = feedback.value.trim();
+        return design({ revise: { tiles: shown.tiles, map: shown.map, feedback: text } }, text);
+      }
+      if (action !== 'ok' || !shown) return;
+      dlg.close();
+      const approved = shown;
+      let created = null;
+      const picked = await identityDialog.open({
+        title: `You in ${approved.name}`,
+        confirmLabel: 'Create town',
+        busyLabel: 'Building your town…',
+        options: { taken: [], mine: null, suggested_color: Colors.freeColor([]) },
+        save: async (you) => {
+          created = await api('/towns/generate', { method: 'POST', body: { ...body, design: approved.plan, me: you } });
+        },
+      });
+      if (!picked) return dlg.showModal(); // cancelled: back to the design, nothing lost
+      await reloadMe();
+      refreshAll();
+      const invited = created.invited ? ` Invited ${created.invited} friend${created.invited === 1 ? '' : 's'}.` : '';
+      toast(`${created.name} is ready!${invited}`);
+    };
+
+    return {
+      open(b) {
+        body = b;
+        shown = null;
+        feedback.value = '';
+        $('#review-changed').hidden = true;
+        $('#review-places').replaceChildren();
+        $('#review-title').textContent = b.name || 'Your new town';
+        $('#review-theme').textContent = b.prompt;
+        dlg.showModal();
+        design();
+      },
+    };
+  })();
 
   $('#create-town').onclick = open;
 })();

@@ -123,4 +123,6 @@ def town_layout(town: dict, members: list[dict]) -> dict | None:
         return None
     homes = [{"x": m["house_x"], "y": m["house_y"], "block": (m.get("home") or {}).get("block"), "color": m.get("color")}
              for m in members if m.get("house_x") is not None and m.get("house_y") is not None]
-    return {"tiles": tiles, "homes": homes, "background_color": ((town.get("map") or {}).get("background_homes") or {}).get("color")}
+    town_map = town.get("map") or {}
+    return {"tiles": tiles, "homes": homes, "background_color": (town_map.get("background_homes") or {}).get("color"),
+            "landscape": town_map.get("landscape") or "green"}

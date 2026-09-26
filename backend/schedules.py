@@ -105,7 +105,10 @@ def _load_clock_row() -> dict:
         "rate": 1,
         "updated_at": now_iso(),
     }
-    db.table("town_clock").upsert(row, on_conflict="town_id").execute()
+    try:
+        db.table("town_clock").upsert(row, on_conflict="town_id").execute()
+    except Exception as exc:  # DEMO_TOWN_ID names a town that no longer exists: run on this clock, unsaved
+        print(f"[clock] can't save town_clock for DEMO_TOWN_ID {town_id}: {exc}", flush=True)
     return _remember(row)
 
 

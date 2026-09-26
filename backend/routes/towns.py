@@ -15,7 +15,7 @@ from backend.schedules import TOWN_TZ, clock_mode, events_for_users, local_now
 from backend.writer import stamp
 from backend.town_map import buildings, house_building_id, in_bounds
 from backend.towngen import generate_town, grow, needs_to_grow
-from backend.towngen.catalog import LANDMARKS, MAX_PLACES, PLACE_TYPES
+from backend.towngen.catalog import GREENERY, LANDMARKS, LANDSCAPES, MAX_PLACES, PLACE_TYPES, STYLES
 from backend.routes.friends import are_friends
 
 router = APIRouter(prefix="/towns", tags=["towns"])
@@ -54,14 +54,18 @@ def create_town(body: TownCreate, uid: str = Depends(current_user_id)):
 def generate(body: TownGenerate, uid: str = Depends(current_user_id)):
     """Create a town from a description. Gemini designs it (name, buildings, places); backend/towngen lays it out so
     the town rules always hold. It starts sized for 1 member and grows as friends join (see admit). You get the
-    first home plot, and every friend in `invite_user_ids` gets an invite. `preview: true` returns the design unsaved."""
+    first home plot, and every friend in `invite_user_ids` gets an invite. `preview: true` returns the design unsaved;
+    `revise` redraws a preview with the user's notes; `design` (a preview's `plan`) builds that exact town."""
     db = get_client()
     invitees = list(dict.fromkeys(str(i) for i in body.invite_user_ids if str(i) != uid))
     strangers = [i for i in invitees if not are_friends(db, uid, i)]
     if strangers:  # checked before the (slow) generation so nothing is half-made
         raise HTTPException(status_code=422, detail="you can only invite your friends")
+    if not body.preview and body.me is None:
+        raise HTTPException(status_code=422, detail="pick your name and color in the town first")
     made = generate_town(body.prompt, members=1, name=body.name, places=body.places, custom=body.custom_places,
-                         landmarks=body.landmarks)
+                         landmarks=body.landmarks, revision=body.revise.model_dump() if body.revise else None,
+                         design=body.design, look={"landscape": body.landscape, "style": body.style, "greenery": body.greenery})
     if body.preview:
         return made
     town = db.table("towns").insert(
@@ -81,6 +85,9 @@ def place_options(uid: str = Depends(current_user_id)):
     return {
         "places": [{"id": pid, "label": label} for pid, (label, _) in PLACE_TYPES.items()],
         "landmarks": [{"id": lid, "label": label} for lid, label in LANDMARKS.items()],
+        "landscapes": [{"id": k, "label": v} for k, v in LANDSCAPES.items()],
+        "styles": [{"id": k, "label": v} for k, v in STYLES.items()],
+        "greenery": [{"id": k, "label": v} for k, v in GREENERY.items()],
         "max_places": MAX_PLACES,
     }
 

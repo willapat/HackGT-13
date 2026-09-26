@@ -65,7 +65,7 @@ fetch(`${window.LUMA_BACKEND || 'http://127.0.0.1:8000'}/demo/clock`)
   .then((r) => (r.ok ? r.json() : null))
   .then((data) => { if (data) applyTownTime(data.town_time, data.mode, 'boot'); })
   .catch(() => {});
-logFeed('Loading cityâ€¦');
+logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
 addStreetLamps();

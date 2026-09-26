@@ -50,6 +50,10 @@ PLACE_TYPES = {
     "factory": ("Factory", SP + "building-factory"),
 }
 LANDMARKS = {"stadium": "Stadium", "farm": "Farm with a windmill"}
+# Look-and-feel choices in the create form: id -> label
+LANDSCAPES = {"green": "Green", "autumn": "Autumn", "snowy": "Snowy", "desert": "Desert"}
+STYLES = {"city": "City (skyscrapers)", "town": "Town", "suburbs": "Suburbs (no skyscrapers)", "village": "Village"}
+GREENERY = {"less": "Less greenery", "normal": "Some greenery", "lots": "Lots of greenery"}
 MAX_PLACES = 12
 BUILDINGS = set(TALL) | set(MID) | set(SMALL)
 DECOR = ("garden", "picnic", "plaza", "patio", "tree")
@@ -58,7 +62,8 @@ DECOR = ("garden", "picnic", "plaza", "patio", "tree")
 class PlacePlan(BaseModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{1,23}$")  # what AI characters call it, e.g. "cafe"
     name: str = Field(min_length=1, max_length=40)       # shown in town, e.g. "Bean There Café"
-    model: str                                           # one of BUILDINGS
+    model: str | None = None                             # one of BUILDINGS or HOUSES; None = an outdoor spot (drawn maps only)
+    at: list[float] | None = Field(default=None, min_length=2, max_length=2)  # [x, y] on a drawn map
 
 
 class TownPlan(BaseModel):
@@ -80,3 +85,15 @@ class TownPlan(BaseModel):
     outer_park_name: str = Field(default="Pocket Park", max_length=40)
     landmarks: list[Literal["farm", "stadium"]] = Field(default_factory=list)
     decor: list[Literal["garden", "picnic", "plaza", "patio", "tree"]] = Field(default_factory=lambda: list(DECOR))
+    # A drawn map (towngen/freeform.py): the model's own layout, one string per row in freeform.LEGEND characters.
+    # Empty = the engine lays out the classic city (layout.py) from the fields above.
+    rows: list[str] = Field(default_factory=list, max_length=31)
+    buildings: list[str] = Field(default_factory=list)  # models for "b" tiles
+    houses: list[str] = Field(default_factory=list)     # models for "h" tiles and friends' homes
+    outskirts: str = Field(default=".", max_length=1)   # what fills new ground when the town grows
+    exact_landmarks: bool = False                       # the user picked landmarks: keep exactly those
+    # How the classic town looks (layout.py + the 3D town): the model picks from the description, the user's
+    # picks in the create form win. None = decided by size, as before.
+    landscape: Literal["green", "autumn", "snowy", "desert"] = "green"
+    style: Literal["city", "town", "suburbs", "village"] | None = None
+    greenery: Literal["less", "normal", "lots"] = "normal"

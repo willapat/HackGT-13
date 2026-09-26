@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CURBSIDE, GROUND, HELIPAD, HOUSES, METER, NATURE, PARASOLS, PARK_TREES, PROPS, ROAD, ROOF_PROPS, SP, STREET, VEHICLES, ZONES } from './assets.js';
 import { addLabel } from './hud.js';
-import { BG_COLOR, BG_ROOFS, CENTER, EXTRA_MODELS, FARM, FRIENDS, inkOn, inPark, isRoad, key, N, PLACES, pos, ROADS, STADIUM, tileAt, TILES, tilesOf, TREES } from './layout.js';
+import { BG_COLOR, BG_ROOFS, CENTER, DRAWN, EXTRA_MODELS, FARM, FRIENDS, inkOn, inPark, isRoad, key, N, PLACES, pos, ROADS, STADIUM, tileAt, TILES, tilesOf, TREES } from './layout.js';
 import { place } from './models.js';
 import { LAMPS, sky } from './sky.js';
 import { animated, scene, water } from './stage.js';
@@ -37,8 +37,10 @@ const roadSides = (c, r) => [[0, 1], [1, 0], [0, -1], [-1, 0]].filter(([dc, dr])
   const [x, y] = [c + dc, r + dr];
   return x >= 0 && y >= 0 && x < N && y < N && isRoad(x, y);
 });
+// In drawn towns a building may stand by a trail, a beach or a lawn instead of a road: it faces that
+const walkSides = (c, r) => [[0, 1], [1, 0], [0, -1], [-1, 0]].filter(([dc, dr]) => tileAt(c + dc, r + dr) !== undefined && inPark(c + dc, r + dr));
 function faceRoad(c, r) {
-  const sides = roadSides(c, r);
+  const sides = roadSides(c, r).length || !DRAWN ? roadSides(c, r) : walkSides(c, r);
   if (!sides.length) return null;
   const [dc, dr] = sides[(c + r) % sides.length];
   return Math.atan2(dc, dr);
@@ -174,6 +176,86 @@ function blockFence(f) {
   side(c0, r0, c1, r0); side(c0, r1, c1, r1); side(c0, r0, c0, r1); side(c1, r0, c1, r1);
 }
 
+// Road tiles pick their piece from which neighbours are road too: straight, corner, T or crossing
+// (N, E, S, W = r-1, c+1, r+1, c-1). A turn of +90deg about y takes the model's south side to the east.
+const ROAD_TURN = { corner: 0, tee: 0 }; // rotY offsets (in quarter turns) that line each model up; both 0, checked by eye
+function roadPiece(c, r) {
+  // Part of a road area two or more tiles wide (a square, a wide avenue): plain asphalt, no lane markings
+  if ([[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([x, y]) => [[0, 0], [1, 0], [0, 1], [1, 1]].every(([dx, dy]) => isRoad(c + x + dx, r + y + dy)))) {
+    return place(ROAD.plain, c, r);
+  }
+  const arms = [isRoad(c, r - 1), isRoad(c + 1, r), isRoad(c, r + 1), isRoad(c - 1, r)];
+  const n = arms.filter(Boolean).length;
+  const turn = (from, to) => ((from - to) * Math.PI) / 2;
+  if (n === 4) return place(ROAD.cross, c, r);
+  if (n === 3) return place(ROAD.tee, c, r, { rotY: turn(ROAD_TURN.tee, arms.indexOf(false)) });
+  const bend = [0, 1, 2, 3].find((d) => arms[d] && arms[(d + 1) % 4]);
+  if (n === 2 && bend !== undefined) return place(ROAD.corner, c, r, { rotY: turn(ROAD_TURN.corner, bend) });
+  return place(ROAD.straight, c, r, { rotY: arms[1] || arms[3] ? Math.PI / 2 : 0 }); // model runs along z
+}
+// A flat colored ground tile (sand, lake shore)
+function flat(c, r, color, size = 1, y = 0.004) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(size, 0.008, size), new THREE.MeshLambertMaterial({ color }));
+  m.position.copy(pos(c, r)).setY(y);
+  m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+// A dirt trail: a light brown track from the tile's middle toward every neighbouring trail, road or doorway.
+// A trail that ends here runs on through the tile, so it fades into the grass instead of stopping short.
+const trailDoors = new Set(); // "building c,r>door c,r": a place or driveway that opens onto a trail tile
+function trail(c, r) {
+  const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  const joins = dirs.map(([dc, dr]) => ['path', 'road', 'bridge'].includes(tileAt(c + dc, r + dr)) || trailDoors.has(`${key(c + dc, r + dr)}>${key(c, r)}`));
+  if (joins.filter(Boolean).length === 1) { const d = joins.indexOf(true); joins[(d + 2) % 4] = true; }
+  if (!joins.some(Boolean)) joins[0] = joins[2] = true;
+  const mat = new THREE.MeshLambertMaterial({ color: '#c9a878' });
+  const isTrail = (x, y) => tileAt(x, y) === 'path';
+  if ([[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([x, y]) => [[0, 0], [1, 0], [0, 1], [1, 1]].every(([dx, dy]) => isTrail(c + x + dx, r + y + dy)))) {
+    flat(c, r, '#c9a878', 1, 0.008); // part of a wide trail area (a clearing, a village square): all dirt
+    return;
+  }
+  const add = (w, d, x, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.012, d), mat);
+    m.position.copy(pos(c + x, r + z)).setY(0.008);
+    m.receiveShadow = true;
+    scene.add(m);
+  };
+  add(0.34, 0.34, 0, 0);
+  dirs.forEach(([dc, dr], i) => { if (joins[i]) add(0.34, 0.34, dc * 0.33, dr * 0.33); });
+}
+
+// A road bridge: the road piece lifted a little over the water, with a railing along each side
+function bridge(c, r) {
+  const ew = isRoad(c - 1, r) || isRoad(c + 1, r);
+  const deck = place(ROAD.straight, c, r, { rotY: ew ? Math.PI / 2 : 0 });
+  deck.position.y = 0.05;
+  const mat = new THREE.MeshLambertMaterial({ color: '#d9d4ca' });
+  for (const side of [-0.47, 0.47]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(ew ? 1 : 0.05, 0.09, ew ? 0.05 : 1), mat);
+    rail.position.copy(pos(c + (ew ? 0 : side), r + (ew ? side : 0))).setY(0.1);
+    rail.castShadow = true;
+    scene.add(rail);
+  }
+}
+
+// Wooden planks on posts, running the way the trail does
+function dock(c, r) {
+  const along = ['path', 'road', 'sand', 'park'];
+  const ew = along.includes(tileAt(c - 1, r)) || along.includes(tileAt(c + 1, r));
+  const ns = along.includes(tileAt(c, r - 1)) || along.includes(tileAt(c, r + 1));
+  const wood = new THREE.MeshLambertMaterial({ color: '#a8743f' });
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(ew || !ns ? 1.02 : 0.5, 0.035, ns ? 1.02 : 0.5), wood);
+  deck.position.copy(pos(c, r)).setY(0.05);
+  deck.castShadow = deck.receiveShadow = true;
+  scene.add(deck);
+  for (const [x, z] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.1, 6), new THREE.MeshLambertMaterial({ color: '#7a5230' }));
+    post.position.copy(pos(c + x, r + z)).setY(0.03);
+    scene.add(post);
+  }
+}
+
 export function buildCity() {
   const reserved = new Map();
   const placeIdAt = new Map(Object.entries(PLACES).filter(([, p]) => p.model).map(([id, p]) => [key(p.c, p.r), id]));
@@ -184,6 +266,8 @@ export function buildCity() {
   for (const f of FRIENDS) for (const t of f.block) yards.set(key(...t), f);
   const special = new Set([...STADIUM.tiles, ...FARM.tiles].map((t) => key(...t)));
   const doors = new Set([...Object.values(PLACES), ...FRIENDS.map((f) => f.home)].map((a) => key(...a.door)));
+  for (const p of Object.values(PLACES)) if (p.model) trailDoors.add(`${key(p.c, p.r)}>${key(...p.door)}`);
+  for (const f of FRIENDS) trailDoors.add(`${key(f.home.c, f.home.r)}>${key(...f.home.door)}`);
   const hash = (c, r) => ((c * 37 + r * 91 + c * r * 7) % 100) / 100;
   // Suburban blocks get 2-3 houses, only on lots that touch a road; the rest are gardens
   const group = (v) => ROADS.filter((x) => x < v).length;
@@ -215,6 +299,58 @@ export function buildCity() {
   // Decorative tiles: small scenes (props at their normal scale) that fill space between buildings
   const turn = (c, r) => faceRoad(c, r) ?? ((c + r) % 4) * (Math.PI / 2);
   const DECOR = {
+    // Scenery for drawn towns (backend/towngen/freeform.py): pine forest, lakes, boulders, campfires
+    forest: (c, r) => {
+      place(GROUND.grass, c, r);
+      [[-0.24, -0.2], [0.22, -0.16], [-0.02, 0.24]].forEach(([x, z], i) => {
+        const h = hash(c * 7 + i * 13, r * 5 + i * 3);
+        addOccluder(place(PARK_TREES[1], c + x + (h - 0.5) * 0.12, r + z + (hash(r + i, c) - 0.5) * 0.12, { scale: 1.7 + h * 0.9, rotY: h * 6 }));
+      });
+      if (hash(c, r * 3) < 0.4) place(NATURE['bush-02'], c + 0.3, r + 0.3, { scale: 2 });
+    },
+    lake: (c, r) => {
+      flat(c, r, '#d8c796'); // shore: shows where the water pulls back from the land
+      const land = (dc, dr) => tileAt(c + dc, r + dr) !== undefined && !['lake', 'bridge'].includes(tileAt(c + dc, r + dr));
+      const [w, e, n, so] = [land(-1, 0), land(1, 0), land(0, -1), land(0, 1)].map((l) => (l ? 0.1 : 0));
+      const g = new THREE.PlaneGeometry(1 - w - e, 1 - n - so, 4, 4);
+      g.rotateX(-Math.PI / 2);
+      g.translate(pos(c, r).x + (w - e) / 2, 0.02, pos(c, r).z + (n - so) / 2);
+      water(g);
+    },
+    rocks: (c, r) => {
+      flat(c, r, hash(c, r) < 0.5 ? '#aaa79c' : '#9e9b91'); // bare stone: a mountainside or a rocky point
+      place(NATURE['rock-big'], c - 0.12, r - 0.08, { scale: 2.6, rotY: hash(c, r) * 6 });
+      place(NATURE['rock-small'], c + 0.28, r + 0.2, { scale: 2.2, rotY: hash(r, c) * 6 });
+      place(NATURE['rock-small'], c - 0.3, r + 0.3, { scale: 1.6 });
+      place(NATURE['bush-01'], c + 0.25, r - 0.3, { scale: 1.8 });
+    },
+    campfire: (c, r) => {
+      place(GROUND.grass, c, r);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        place(NATURE['rock-small'], c + Math.cos(a) * 0.17, r + Math.sin(a) * 0.17, { scale: 1.1, rotY: a });
+      }
+      const wood = new THREE.MeshLambertMaterial({ color: '#7a4a2a' });
+      for (let i = 0; i < 3; i++) {
+        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.24, 6), wood);
+        log.rotation.set(Math.PI / 2 - 0.35, (i / 3) * Math.PI * 2, 0, 'YXZ');
+        log.position.copy(pos(c, r)).setY(0.05);
+        log.castShadow = true;
+        scene.add(log);
+      }
+      const fire = new THREE.Group();
+      fire.position.copy(pos(c, r)).setY(0.02);
+      for (const [color, rad, h] of [['#ff7a1a', 0.08, 0.2], ['#ffd34d', 0.045, 0.13]]) {
+        const flame = new THREE.Mesh(new THREE.ConeGeometry(rad, h, 7), new THREE.MeshBasicMaterial({ color }));
+        flame.position.y = h / 2;
+        fire.add(flame);
+      }
+      scene.add(fire);
+      const phase = c * 1.7 + r;
+      animated.add({ update() { const t = performance.now() / 120 + phase; fire.scale.set(1 + Math.sin(t * 1.3) * 0.08, 1 + Math.sin(t) * 0.18, 1 + Math.cos(t * 1.1) * 0.08); } });
+      place(PROPS['bench-1'], c, r - 0.38, { scale: 1.6, rotY: Math.PI }); // benches face -z: both look at the fire
+      place(PROPS['bench-1'], c, r + 0.38, { scale: 1.6 });
+    },
     garden: (c, r) => {
       place(GROUND.grass, c, r);
       greenery(c, r, c * 3 + r);
@@ -229,6 +365,16 @@ export function buildCity() {
     },
     plaza: (c, r) => {
       place(GROUND.paved, c, r);
+      // Part of a big plaza (a square, a quad): mostly open paving, one fountain in the middle, the odd bench
+      const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dc, dr]) => tileAt(c + dc, r + dr) === 'plaza').length;
+      if (around >= 2) {
+        if (around === 4 && hash(c * 3, r * 7) < 0.3) {
+          place(STREET.drinking_fountain_01, c, r, { scale: METER });
+          for (const [dx, dz] of [[-0.32, -0.32], [0.32, 0.32]]) place(NATURE['pot-bush-small'], c + dx, r + dz, { scale: 2.2 });
+        } else if (hash(c, r * 5) < 0.3) place(STREET.public_bench_01, c + 0.3, r, { scale: METER, rotY: Math.PI / 2 });
+        else if (hash(r, c * 5) < 0.2) place(NATURE['pot-bush-big'], c, r, { scale: 2.2 });
+        return;
+      }
       place(STREET.drinking_fountain_01, c + 0.1, r - 0.1, { scale: METER, rotY: turn(c, r) });
       place(STREET.public_bench_01, c - 0.3, r + 0.25, { scale: METER, rotY: Math.PI / 2 });
       place(NATURE['pot-bush-big'], c + 0.3, r + 0.3, { scale: 2.2 });
@@ -278,21 +424,21 @@ export function buildCity() {
   let roofN = 0, curbN = 0;
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
-      const onR = ROADS.includes(r), onC = ROADS.includes(c);
-      if (onR && onC) { place(ROAD.cross, c, r); continue; }
-      if (onR) { place(ROAD.straight, c, r, { rotY: Math.PI / 2 }); continue; } // model runs along z
-      if (onC) { place(ROAD.straight, c, r); continue; }
+      if (!TILES) {
+        const onR = ROADS.includes(r), onC = ROADS.includes(c);
+        if (onR && onC) { place(ROAD.cross, c, r); continue; }
+        if (onR) { place(ROAD.straight, c, r, { rotY: Math.PI / 2 }); continue; } // model runs along z
+        if (onC) { place(ROAD.straight, c, r); continue; }
+      }
       if (TILES && tileAt(c, r) === undefined) { blocked.add(key(c, r)); continue; } // outside a non-square map
-      if (TILES && isRoad(c, r)) { place(ROAD.straight, c, r, { rotY: isRoad(c - 1, r) || isRoad(c + 1, r) ? Math.PI / 2 : 0 }); continue; } // a road that doesn't span the map
+      if (tileAt(c, r) === 'bridge') { DECOR.lake(c, r); bridge(c, r); continue; } // a road over water
+      if (TILES && isRoad(c, r)) { roadPiece(c, r); continue; }
       if (inPark(c, r)) {
-        place(GROUND.grass, c, r);
-        if (tileAt(c, r) === 'path') { // light brown track, running away from the road it starts at
-          const alongZ = isRoad(c, r - 1) || isRoad(c, r + 1);
-          const track = new THREE.Mesh(new THREE.BoxGeometry(alongZ ? 0.34 : 1, 0.012, alongZ ? 1 : 0.34), new THREE.MeshLambertMaterial({ color: '#c9a878' }));
-          track.position.copy(pos(c, r)).setY(0.008);
-          track.receiveShadow = true;
-          scene.add(track);
-        }
+        const wet = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dc, dr]) => tileAt(c + dc, r + dr) === 'lake').length;
+        if (tileAt(c, r) === 'path' && wet >= 2) { DECOR.lake(c, r); dock(c, r); continue; } // a trail over water is a dock
+        if (tileAt(c, r) === 'sand') flat(c, r, '#ecd9a6');
+        else place(GROUND.grass, c, r);
+        if (tileAt(c, r) === 'path') trail(c, r);
         continue;
       }
       blocked.add(key(c, r));
@@ -487,10 +633,18 @@ export function buildCity() {
     if (onC) place(model, c + side * 0.33, r, { scale: 1.4, rotY: side > 0 ? 0 : Math.PI });
     else place(model, c, r + side * 0.33, { scale: 1.4, rotY: side > 0 ? -Math.PI / 2 : Math.PI / 2 });
   }
-  // A bus stop by the park, café chairs out front, and roadwork on the east side
-  if (ROADS.length > 2) place(PROPS['bus-stop'], CENTER + 1, ROADS[2] + 0.41, { scale: 1.6, rotY: Math.PI });
+  // Drawn towns: lamps along their own roads and trails (the classic city's come from its full-width roads above),
+  // set at the edge facing in, never on a doorway
+  if (DRAWN) for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const k = tileAt(c, r);
+    if (doors.has(key(c, r)) || !((k === 'road' && hash(c * 3, r * 5) < 0.22) || (k === 'path' && hash(c * 5, r * 3) < 0.16))) continue;
+    const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dc, dr]) => !['road', 'path'].includes(tileAt(c + dc, r + dr)));
+    if (edge) lamp(c + edge[0] * 0.42, r + edge[1] * 0.42, Math.atan2(-edge[1], edge[0]));
+  }
+  // A bus stop by the park, café chairs out front, and roadwork on the east side (classic city only)
+  if (ROADS.length > 2 && !DRAWN) place(PROPS['bus-stop'], CENTER + 1, ROADS[2] + 0.41, { scale: 1.6, rotY: Math.PI });
   if (PLACES.cafe) for (const dz of [-0.35, 0.3]) place(PROPS['coffee-shop-chair'], PLACES.cafe.door[0] + 0.4, PLACES.cafe.door[1] + dz, { scale: 1.6 });
-  const rw = ROADS[3];
+  const rw = DRAWN ? undefined : ROADS[3];
   if (rw !== undefined) {
   place(PROPS['traffic-control-barrier-fence'], rw + 0.3, 4, { scale: 2, rotY: Math.PI / 2 });
   place(STREET.concrete_jersey_barrier_01_medium, rw + 0.3, 4.45, { scale: METER, rotY: Math.PI / 2 });
@@ -502,8 +656,8 @@ export function buildCity() {
   }
 
   for (const [id, p] of Object.entries(PLACES)) {
-    if (!p.model) continue;
-    const at = pos(p.c, p.r).setY(topOf[key(p.c, p.r)] + 0.15);
+    if (!p.model && !DRAWN) continue; // drawn towns name their outdoor spots too (a campfire circle, a dock)
+    const at = pos(p.c, p.r).setY(p.model ? topOf[key(p.c, p.r)] + 0.15 : 0.5);
     p.label = addLabel('lbl place', p.name, () => at);
     p.label.el.onclick = () => openBuilding(id);
   }

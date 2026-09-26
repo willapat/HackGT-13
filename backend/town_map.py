@@ -2,6 +2,7 @@
 
 - `towns.tiles[y][x]`: what's on each tile (road, park, pond, tree, path, stadium, farm, home, driveway, yard,
   lot = frontend fills it procedurally, garden/picnic/plaza/patio/oak/fountain/water/bench-n|s|e|w = small decorative scenes,
+  sand and bridge (walkable), forest/lake/rocks/campfire (drawn towns, backend/towngen/freeform.py),
   or an explicit building model key).
 - `towns.map.places`: named destinations, {"cafe": {"name", "tile": [x, y], "door": [x, y]}}.
 - `town_members.house_x/house_y` + `.home` ({model, driveway, door, block}): each person's house.
@@ -9,7 +10,7 @@
 Building ids are place ids ("cafe") and `house:{user_id}`. Doors are where characters stand when visiting.
 """
 
-WALKABLE = {"road", "park"}
+WALKABLE = {"road", "park", "path", "sand", "bridge"}
 
 # Place ids agents know by type. A town with no places yet gets these (no coordinates) so agents still have
 # somewhere to go; any other id in towns.map.places is just type "place".

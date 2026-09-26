@@ -662,3 +662,12 @@ button.pin-toggle { display: inline-flex; align-items: center; gap: 5px; }
 button.pin-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 button.pin-toggle.on { color: var(--accent); background: var(--accent-soft); }
 button.pin-toggle.on svg { fill: currentColor; }
+
+/* Create-town review: the whole designed map, drawn from its tiles (townart.js) */
+.review-art { aspect-ratio: 760 / 470; border-radius: 14px; background: linear-gradient(180deg, #9fd0f5, #e3f1fb); display: grid; place-items: center; overflow: hidden; margin: 4px 0 8px; }
+.review-art img { width: 100%; height: 100%; display: block; }
+.review-art .busy-note { color: #3b4a5c; font-size: 14px; text-align: center; }
+.review-art .busy-note .spinner { margin: 0 auto 12px; }
+#review-places { margin-bottom: 10px; }
+.look-row { margin-bottom: 6px; }
+#review-places .chip.look { font-weight: 600; }
