@@ -79,6 +79,15 @@ call PATCH "/towns/$TOWN_ID" 403 "$BEN" '{"name":"Hijacked"}'
 call GET "/towns/$TOWN_ID" 200 "$BEN"
 echo "     members=$(jq '.members | length' <<<"$BODY") agents=$(jq '.agents | length' <<<"$BODY")"
 
+echo "--- move (walk to a building on the map)"
+call POST "/towns/$TOWN_ID/members/me/move" 200 "$BEN" '{"building_id":"cafe","from_x":0,"from_y":2}'
+echo "     action=$(jq -r .action <<<"$BODY") target=$(jq -c .target <<<"$BODY")"
+call POST "/towns/$TOWN_ID/members/me/move" 422 "$BEN" '{"building_id":"gym","from_x":0,"from_y":2}'
+call POST "/towns/$TOWN_ID/members/me/move" 422 "$BEN" '{"building_id":"cafe","from_x":9,"from_y":9}'
+call POST "/towns/$TOWN_ID/members/me/move" 409 "$ANA" "{\"building_id\":\"house:${UIDS[0]}\",\"from_x\":1,\"from_y\":1}"
+call POST "/towns/$TOWN_ID/members/me/move" 200 "$BEN" "{\"building_id\":\"house:$BEN_ID\",\"from_x\":1.5,\"from_y\":1}"
+echo "     action=$(jq -r .action <<<"$BODY") from=($(jq -r .x <<<"$BODY"), $(jq -r .y <<<"$BODY"))"
+
 echo "--- town invites (creator only, friends only)"
 new_user Cy; CY=$TOKEN; CY_ID=${UIDS[2]}
 call PATCH /me 200 "$CY" "{\"username\":\"cy_$TAG\"}"

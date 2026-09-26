@@ -37,6 +37,12 @@ class HouseUpdate(BaseModel):
     house_y: int = Field(ge=0)
 
 
+class MoveIn(BaseModel):
+    building_id: str = Field(min_length=1, max_length=80)  # a place id ("cafe") or "house:<user_id>"
+    from_x: float = Field(ge=0)  # where your character is right now (fractional mid-walk is fine)
+    from_y: float = Field(ge=0)
+
+
 class SignalIn(BaseModel):
     source: str = Field(min_length=1, max_length=40)  # 'manual', 'calendar', 'music', ...
     type: str = Field(min_length=1, max_length=40)

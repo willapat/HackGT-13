@@ -145,14 +145,14 @@ def demo_snapshot():
     db, tid = get_client(), settings.DEMO_TOWN_ID
     members = (
         db.table("town_members")
-        .select("user_id, mood, activity, state, joined_at, profiles(display_name)")
+        .select("user_id, mood, activity, state, house_x, house_y, joined_at, profiles(display_name)")
         .eq("town_id", tid)
         .order("joined_at")
         .execute()
         .data
         or []
     )
-    agents = db.table("agents").select("user_id, action, target, updated_at").eq("town_id", tid).execute().data or []
+    agents = db.table("agents").select("user_id, x, y, action, target, updated_at").eq("town_id", tid).execute().data or []
     actions = (
         db.table("agent_actions")
         .select("id, user_id, action, details, created_at")
@@ -173,8 +173,10 @@ def demo_snapshot():
         .data
         or []
     )
+    tiles = (db.table("towns").select("tiles").eq("id", tid).limit(1).execute().data or [{}])[0].get("tiles") or []
     return {
         "town_id": tid,
+        "tiles": tiles,
         "members": members,
         "characters": primary_roles(cast_roles(_as_cast_members(members))) if members else {},
         "agents": agents,

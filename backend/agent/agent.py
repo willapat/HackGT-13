@@ -11,7 +11,7 @@ from backend.agent.conversation import generate_lines
 from backend.agent.prompt import build_agent_system_prompt, build_agent_user_prompt
 from backend.agent.validate import parse_raw_json, validate_agent_decision
 from backend.config import settings
-from backend.db import buildings_for_town, get_client, house_building_id, iso_in, now_iso, parse_ts, recent_facts
+from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts
 from backend.interactions.path_score import record_interaction
 from backend.llm import complete
 from backend.models.agents import (
@@ -22,6 +22,7 @@ from backend.models.agents import (
     RelevantFact,
 )
 from backend.models.enums import AgentAction, EventStatus, InteractionVia
+from backend.town_map import buildings, house_building_id
 
 COMMITTED_ACTIONS = {AgentAction.walk_to.value, AgentAction.visit.value}
 SOCIAL_ACTIONS = {AgentAction.visit.value, AgentAction.chat.value, AgentAction.knock.value, AgentAction.leave_gift.value}
@@ -58,9 +59,10 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
     if me is None:
         return None
     members = (
-        db.table("town_members").select("user_id, mood, activity, profiles(display_name)")
+        db.table("town_members").select("user_id, mood, activity, house_x, house_y, profiles(display_name)")
         .eq("town_id", town_id).execute().data or []
     )
+    tiles = (db.table("towns").select("tiles").eq("id", town_id).limit(1).execute().data or [{}])[0].get("tiles")
     names = {m["user_id"]: (m.get("profiles") or {}).get("display_name") or "Friend" for m in members}
     events = (
         db.table("events").select("id, title, status").eq("town_id", town_id).eq("type", "quest")
@@ -91,7 +93,7 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
         ],
         active_events=[ActiveEventSummary(**e) for e in events],
         available_actions=[a.value for a in AgentAction],
-        available_buildings=buildings_for_town(list(names)),
+        available_buildings=buildings(tiles, members),
     )
     return ctx, me
 
@@ -119,10 +121,13 @@ def next_building(decision: AgentDecisionOutput, user_id: str, current: str | No
 
 
 def commit_decision(
-    db, town_id: str, user_id: str, decision: AgentDecisionOutput, current: str | None, lines: list[dict]
+    db, town_id: str, user_id: str, decision: AgentDecisionOutput, ctx: AgentDecisionInput, lines: list[dict]
 ) -> None:
-    target = {"building_id": next_building(decision, user_id, current), "user_id": decision.target_user_id}
-    target = {k: v for k, v in target.items() if v}
+    building_id = next_building(decision, user_id, ctx.current_location_building_id)
+    spot = next((b for b in ctx.available_buildings if b["id"] == building_id), {})
+    # Same target shape as user moves (routes/towns.py move_me): building plus its tile, when known.
+    target = {"building_id": building_id, "x": spot.get("x"), "y": spot.get("y"), "user_id": decision.target_user_id}
+    target = {k: v for k, v in target.items() if v is not None}
     db.table("agents").update(
         {"action": decision.action, "target": target or None, "next_decision_at": jittered_next_decision(),
          "updated_at": now_iso()}
@@ -170,7 +175,7 @@ def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | No
         if fresh:
             decision = freshness_downgrade(decision, fresh[0])
         lines = generate_lines(ctx, decision) if decision.action == AgentAction.chat.value else []
-        commit_decision(db, town_id, user_id, decision, ctx.current_location_building_id, lines)
+        commit_decision(db, town_id, user_id, decision, ctx, lines)
         return decision
     except Exception as exc:
         print(f"[agent] town={town_id} user={user_id} error={exc!r}", flush=True)
