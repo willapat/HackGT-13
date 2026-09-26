@@ -32,7 +32,7 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Tech Stack
 
-- Rendering: Three.js with an orthographic camera + Kenney 3D kits (city buildings, roads, trees, characters), which read as isometric. Code in `patrik/3d/`. (2D Phaser prototype was tried and dropped.)
+- Rendering: Three.js with an orthographic camera + Kenney 3D kits (city buildings, roads, trees, characters), which read as isometric. Code in `frontend/`. (2D Phaser prototype was tried and dropped.)
 - Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), Anthropic SDK. Town Brain + action agent: `claude-sonnet-4-6`. Character agents: `claude-haiku-4-5-20251001`. Two asyncio loops; no Redis/Celery.
 - Database: Supabase (Postgres + Auth + Realtime).
 
@@ -55,22 +55,22 @@ Hackathon-simple on purpose: 10 core tables, add more only when a feature needs 
 Migrations `20260926000000`-`000003` added 10 more tables (facts, news, inventory, etc.); `20260926000004` reverts them. **`backend/` still references those removed tables and needs updating to the core schema** (e.g. conversations -> `agent_actions.details.lines`, news -> `events` with `type = 'news'`, facts -> `brain_runs.output` / `town_members.state`).
 
 **Conventions**
-- **Assets are not in the database.** Files live in the frontend with a code manifest; the DB stores manifest keys only. Building ids used by agents (`gym`, `cafe`, `house:{user_id}`) match the `PLACES` keys in `patrik/3d/main.js`.
+- **Assets are not in the database.** Files live in the frontend with a code manifest; the DB stores manifest keys only. Building ids used by agents (`gym`, `cafe`, `house:{user_id}`) match the `PLACES` keys in `frontend/main.js`.
 - **Agents act on the town hall AI's output**, not on raw signals.
 - **Live movement is client-side.** `agents` rows update only when an agent decides, not per frame.
 - **Access:** the backend uses the secret key (bypasses RLS) for all AI/agent writes. The frontend (publishable key) can read everything in towns it belongs to, edit its own profile, add its own signals, and accept/decline its own events. Join a town with `supabase.rpc('join_town', { code })`; creating a town auto-adds the creator. Keys live in `.env` (gitignored); see `.env.example`.
 - Realtime is on for `town_members`, `agents`, `agent_actions`, `events`, `event_participants`.
 - The agent action menu is the `agent_action` enum; adding an action means a migration.
-- Run backend from repo root: `py -3 -m uvicorn backend.main:app --reload`. Serve `patrik/` with `py -3 -m http.server` and open `/3d/`.
+- Run backend from repo root: `py -3 -m uvicorn backend.main:app --reload`. Serve `frontend/` with `py -3 -m http.server`.
 
 ## Demo Plan
 
-`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. The 3D frontend is not wired to it yet (the 2D Phaser version was); its buttons run the scripted `trigger()` in `patrik/3d/main.js`. Demo town members must be named Maya, Jordan, Sam, Priya, Leo; set `DEMO_TOWN_ID`.
+`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. The 3D frontend is not wired to it yet (the 2D Phaser version was); its buttons run the scripted `trigger()` in `frontend/main.js`. Demo town members must be named Maya, Jordan, Sam, Priya, Leo; set `DEMO_TOWN_ID`.
 
 ## Status
 
 - [x] Repo scaffolding / stack chosen (FastAPI + Three.js)
-- [x] Town rendering + camera (`patrik/3d/`)
+- [x] Town rendering + camera (`frontend/`)
 - [x] Database schema (10 core tables)
 - [ ] Update `backend/` to the core schema (it still expects the reverted tables)
 - [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2)
@@ -82,8 +82,8 @@ Migrations `20260926000000`-`000003` added 10 more tables (facts, news, inventor
 
 ## Decisions Log
 
-- 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `patrik/3d/`.
-- 2026-09-25: `patrik/3d/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.
+- 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `frontend/`.
+- 2026-09-25: `frontend/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.
 - 2026-09-25: Real character agents, grounded by the town brain, fixed action menu.
 - 2026-09-25: Supabase. Condensed schema to 10 core tables. Assets are files; DB stores keys.
 - 2026-09-26: Backend in `backend/`. Plan names map to live tables (`agents`, `town_members`). Extra loop tables are new migrations; `20260925000000_initial_schema.sql` is untouched. Postgres `agent_action` uses `walk_to` (`walk_to_building` is a validation alias). Invite-join max-uses and `purge_expired_signals` remain P1.
