@@ -38,22 +38,29 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Database
 
-Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. Apply with `supabase db push --db-url "$SUPABASE_DB_URL"` (after loading `.env`); add `--dry-run` first.
+Hackathon-simple on purpose: 10 core tables, add more only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. The Supabase GitHub integration applies new migrations on `main` automatically, so **never change the schema by hand in the dashboard**. Preview locally with `supabase db push --db-url "$SUPABASE_DB_URL" --dry-run`.
 
-**Live tables (initial schema)**
-- `profiles`, `towns`, `town_members` (mood/activity/state = member_state), `friendships`, `signals`, `brain_runs`, `events`, `event_participants`, `agents` (agent_state), `agent_actions`.
+**Tables**
+- `profiles`: one per user, auto-created on signup. Avatar (JSON of asset keys) and `interests` (text array).
+- `towns`: name, `invite_code`, and `tiles`, a 2D JSON array of asset manifest keys indexed `tiles[y][x]` (e.g. `[["grass","road"],["cafe","grass"]]`). Buildings are just tiles.
+- `town_members`: who's in which town, their house position, and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
+- `friendships`: one row per pair (`user_a < user_b`) with `path_score`.
+- `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
+- `brain_runs`: each town hall AI run's `input` and `output`.
+- `events`: quests, storylines, town events, news.
+- `event_participants`: per-person `suggested`/`accepted`/`declined`. The approval gate.
+- `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
+- `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
 
-**Added for the backend (migrations `20260926*`)**
-- RPCs: `claim_due_agents`, `towns_with_unprocessed_signals`
-- `facts`, `visibility_rules`, `consents`, `inventory`, `news`, `agent_conversations`, `action_tasks`, `notifications`, `interactions`, `path_score_history`
-- `events.details`, `signals.expires_at`
-- Starting `gift` inventory on new profiles
+Migrations `20260926000000`-`000003` added 10 more tables (facts, news, inventory, etc.); `20260926000004` reverts them. **`backend/` still references those removed tables and needs updating to the core schema** (e.g. conversations -> `agent_actions.details.lines`, news -> `events` with `type = 'news'`, facts -> `brain_runs.output` / `town_members.state`).
 
 **Conventions**
-- Building ids used by agents (`gym`, `cafe`, `house:{user_id}`) match `patrik/` place keys.
-- Agents act on Brain output, not raw signals.
-- Live movement is client-side; `agents` rows update on decisions.
-- Backend uses the secret key. Frontend uses the publishable key + Realtime.
+- **Assets are not in the database.** Files live in the frontend with a code manifest; the DB stores manifest keys only. Building ids used by agents (`gym`, `cafe`, `house:{user_id}`) match `patrik/` place keys.
+- **Agents act on the town hall AI's output**, not on raw signals.
+- **Live movement is client-side.** `agents` rows update only when an agent decides, not per frame.
+- **Access:** the backend uses the secret key (bypasses RLS) for all AI/agent writes. The frontend (publishable key) can read everything in towns it belongs to, edit its own profile, add its own signals, and accept/decline its own events. Join a town with `supabase.rpc('join_town', { code })`; creating a town auto-adds the creator. Keys live in `.env` (gitignored); see `.env.example`.
+- Realtime is on for `town_members`, `agents`, `agent_actions`, `events`, `event_participants`.
+- The agent action menu is the `agent_action` enum; adding an action means a migration.
 - Run backend from repo root: `py -3 -m uvicorn backend.main:app --reload`. Serve `patrik/` with `py -3 -m http.server`.
 
 ## Demo Plan
@@ -64,7 +71,8 @@ Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go 
 
 - [x] Repo scaffolding / stack chosen (FastAPI + Phaser)
 - [x] Town rendering + camera (`patrik/`)
-- [x] Database schema (initial + backend support migrations)
+- [x] Database schema (10 core tables)
+- [ ] Update `backend/` to the core schema (it still expects the reverted tables)
 - [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2)
 - [x] Town brain pipeline
 - [x] Character agent loop + action menu
@@ -78,3 +86,4 @@ Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go 
 - 2026-09-25: Real character agents, grounded by the town brain, fixed action menu.
 - 2026-09-25: Supabase. Condensed schema to 10 core tables. Assets are files; DB stores keys.
 - 2026-09-26: Backend in `backend/`. Plan names map to live tables (`agents`, `town_members`). Extra loop tables are new migrations; `20260925000000_initial_schema.sql` is untouched. Postgres `agent_action` uses `walk_to` (`walk_to_building` is a validation alias). Invite-join max-uses and `purge_expired_signals` remain P1.
+- 2026-09-26: Reverted the backend's extra tables (migration `20260926000004`); schema stays at the 10 core tables. Backend must adapt to it.
