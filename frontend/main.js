@@ -698,7 +698,8 @@ function findPath(from, to, roadsOnly = false) {
 
 const friends = {};
 const eventOwned = new Set();
-const WALK_SPEED = 0.9; // tiles per second: an unhurried stroll (the town is 17 tiles across)
+const WALK_SPEED = 0.9; // tiles per second when no travel_minutes is set
+// One second of walking per backend travel minute (8 min → 8s). Town-clock walks use the real minutes.
 
 function spawnFriends() {
   FRIENDS.forEach((def, i) => {
@@ -780,18 +781,91 @@ function axisAligned(from, route) {
   return out;
 }
 
-function walkTo(f, target, shift = 0) {
+function walkTo(f, target, shift = 0, timing = null) {
   f.obj.visible = true;
   f.resolveWalk?.(false);
   const here = toTile(f.obj.position);
   const start = [Math.round(here.x), Math.round(here.z)];
   const tiles = (walkable(...start) && findPath(start, target.door)) || [];
   const route = [...tiles.map(([c, r]) => ({ x: c + f.off.x, z: r + f.off.z })), sidewalkPoint(target, shift)];
-  f.path = axisAligned(here, route).map(toWorld);
+  f.walkFrom = f.obj.position.clone();
+  f.route = axisAligned(here, route).map(toWorld);
+  f.path = f.route.slice();
+  f.travelMinutes = timing?.travelMinutes || null;
+  f.departAt = timing?.departAt || null;
+  f.walkStarted = performance.now();
   return new Promise((resolve) => { f.resolveWalk = resolve; });
 }
 
+function townMinutesNow() {
+  if (!sky.y) return null;
+  return Date.UTC(sky.y, sky.mo - 1, sky.d) / 60000 + sky.hour * 60;
+}
+
+function isoTownMinutes(iso) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  // Postgres returns UTC. The town clock is Eastern (EDT in September), same offset as townWall.
+  const et = new Date(t - 4 * 60 * 60 * 1000);
+  return Date.UTC(et.getUTCFullYear(), et.getUTCMonth(), et.getUTCDate()) / 60000
+    + et.getUTCHours() * 60 + et.getUTCMinutes() + et.getUTCSeconds() / 60;
+}
+
+// 0–1 along the path. depart_at is town time, so the slider hour places them on the route:
+// 8:54 with a 8:50 departure and a 10 minute walk is 40% of the way, not already at the building.
+function walkProgress(f) {
+  if (!f.travelMinutes) return null;
+  if (f.departAt) {
+    const nowM = townMinutesNow();
+    const startM = isoTownMinutes(f.departAt);
+    if (nowM != null && startM != null) return Math.max(0, Math.min(1, (nowM - startM) / f.travelMinutes));
+  }
+  const ms = f.travelMinutes * 1000 * (sky.fast ? 120 / 1440 : 1);
+  return Math.max(0, Math.min(1, (performance.now() - (f.walkStarted || 0)) / ms));
+}
+
+function routeLength(from, route) {
+  let n = 0, p = from;
+  for (const q of route) { n += p.distanceTo(q); p = q; }
+  return n;
+}
+
+function pointAlong(from, route, t) {
+  const total = routeLength(from, route);
+  const last = route[route.length - 1] || from;
+  if (total < 1e-6) return { pos: last.clone(), face: null, done: true };
+  let d = total * Math.max(0, Math.min(1, t));
+  let a = from;
+  for (const b of route) {
+    const len = a.distanceTo(b);
+    if (d <= len) return { pos: a.clone().lerp(b, len ? d / len : 1), face: b, done: t >= 1 };
+    d -= len;
+    a = b;
+  }
+  return { pos: last.clone(), face: null, done: true };
+}
+
+function finishWalk(f, ok) {
+  f.route = [];
+  f.path = [];
+  f.travelMinutes = null;
+  f.departAt = null;
+  setAction(f, 'idle');
+  const res = f.resolveWalk;
+  f.resolveWalk = null;
+  res?.(ok);
+}
+
 function stepFriend(f, dt) {
+  const frac = walkProgress(f);
+  if (frac != null && f.route?.length && f.walkFrom) {
+    setAction(f, 'walk');
+    const { pos, face, done } = pointAlong(f.walkFrom, f.route, frac);
+    if (face) faceTowards(f, face);
+    f.obj.position.copy(pos);
+    if (done) finishWalk(f, true);
+    return;
+  }
   if (!f.path.length) return;
   setAction(f, 'walk');
   const target = f.path[0];
@@ -801,12 +875,7 @@ function stepFriend(f, dt) {
   if (d.length() <= move) {
     f.obj.position.copy(target);
     f.path.shift();
-    if (!f.path.length) {
-      setAction(f, 'idle');
-      const res = f.resolveWalk;
-      f.resolveWalk = null;
-      res?.(true);
-    }
+    if (!f.path.length) finishWalk(f, true);
   } else {
     f.obj.position.add(d.setLength(move));
   }
@@ -818,31 +887,42 @@ const WALKING = new Set(['walk_to', 'visit', 'knock', 'go_home']);
 function destinationOf(row) {
   const b = row.target?.building_id;
   if (!b) return null;
-  return b.startsWith('house:') ? friends[b.slice(6)]?.home ?? null : PLACES[b] ?? null;
+  if (!b.startsWith('house:')) return PLACES[b] ?? null;
+  const id = b.slice(6);
+  return friends[id]?.home ?? Object.values(friends).find((p) => p.userId === id)?.home ?? null;
 }
+function placeAlongWalk(f) {
+  const frac = walkProgress(f);
+  if (frac == null || !f.route?.length || !f.walkFrom) return;
+  const { pos, face, done } = pointAlong(f.walkFrom, f.route, frac);
+  if (face) faceTowards(f, face);
+  f.obj.position.copy(pos);
+  if (done) finishWalk(f, true);
+}
+
 function placeAgent(f, row) {
+  const dest = destinationOf(row) || f.home;
+  const walking = WALKING.has(row.action) && dest && row.target?.depart_at;
   interrupt(f);
-  f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
-  const dest = WALKING.has(row.action) ? destinationOf(row) : null;
-  if (!dest) return;
-  walkTo(f, dest).then((ok) => { if (ok && row.action === 'go_home') f.obj.visible = false; });
-  let ahead = WALK_SPEED * Math.max(0, (Date.now() - Date.parse(row.updated_at)) / 1000);
-  while (ahead > 0 && f.path.length) {
-    const d = f.obj.position.distanceTo(f.path[0]);
-    if (d > ahead) { f.obj.position.add(f.path[0].clone().sub(f.obj.position).setLength(ahead)); break; }
-    ahead -= d;
-    f.obj.position.copy(f.path.shift());
+  if (walking) {
+    // x/y is the curb this trip leaves from (home, or the event they just finished) — not a leftover visit.
+    if (row.x != null && row.y != null) f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
+    walkTo(f, dest, 0, { travelMinutes: row.target.travel_minutes || 8, departAt: row.target.depart_at });
+    placeAlongWalk(f);
+    return;
   }
-  if (!f.path.length) { // already arrived
+  // Idle means the clock says they are already at this door. Stand there.
+  if (dest) {
+    f.obj.position.copy(toWorld(sidewalkPoint(dest)));
     setAction(f, 'idle');
-    const res = f.resolveWalk;
-    f.resolveWalk = null;
-    res?.(true);
   }
 }
 
 function interrupt(f) {
   f.path = [];
+  f.route = [];
+  f.travelMinutes = null;
+  f.departAt = null;
   f.resolveWalk?.(false);
   f.resolveWalk = null;
   f.busy = true;
@@ -1181,11 +1261,13 @@ function renderResidents() {
 }
 
 function placeName(ev) {
-  if (ev.building_id && PLACES[ev.building_id]) return PLACES[ev.building_id].name;
+  const b = ev.building_id || '';
+  if (b.startsWith('house:')) return 'Home';
+  if (b && PLACES[b]) return PLACES[b].name;
   const place = (ev.place || '').toLowerCase();
   if (place === 'home') return 'Home';
   if (place === 'campus') return 'Campus';
-  return ev.place || '';
+  return ev.place || b || '';
 }
 
 function townWall(iso) {
@@ -1692,7 +1774,7 @@ spawnFriends();
 renderResidents();
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, liveMode: Boolean(TOWN),
+  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, placeAgent, liveMode: Boolean(TOWN),
 });
 if (TOWN) {
   // A real town: no scripted wandering or demo snapshot; residents move only as the database says
@@ -1701,7 +1783,10 @@ if (TOWN) {
   document.querySelectorAll('#triggers [data-trigger], #triggers h2:first-child, #triggers .note').forEach((e) => { e.hidden = true; });
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
-  startTownSync(TOWN_ID, TOWN, { friends, placeAgent, setStatus, say, partyLights, rainCloud, logFeed, PLACES });
+  const sync = startTownSync(TOWN_ID, TOWN, {
+    friends, placeAgent, setStatus, say, partyLights, rainCloud, logFeed, PLACES, applyTownTime,
+  });
+  townApi.pushClock = sync.pushClock;
 } else {
   logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
   const { triggerViaBackend, pushClock } = startTownBackend(townApi);

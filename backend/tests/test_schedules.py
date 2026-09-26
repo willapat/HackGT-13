@@ -56,6 +56,7 @@ def test_seed_schedule_is_consistent():
         assert r["source"] == "calendar" and r["type"] == "calendar_event"
         assert datetime.fromisoformat(v["start"]) < datetime.fromisoformat(v["end"])
         assert "visibility" not in v
+        assert v.get("building_id")
     shared = [r for r in rows if r["value"].get("with")]
     for r in shared:
         for other in r["value"]["with"]:
@@ -73,3 +74,6 @@ def test_personal_events_dedupe_shared_plans():
     assert len(dinners) == 2
     assert all(len(r["_people"]) == 2 for r in dinners)
     assert len(rows) < len(SCHEDULE)
+    assert all(r["building_id"] for r in rows)
+    homes = [r for r in rows if r["text"] == "home"]
+    assert homes and all(r["building_id"].startswith("house:") for r in homes)

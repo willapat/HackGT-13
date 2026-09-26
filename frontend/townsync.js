@@ -4,6 +4,7 @@
 import { api } from './session.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
+const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownSync(townId, initial, t) {
   const applied = {}; // user_id -> agents.updated_at already drawn
@@ -60,7 +61,21 @@ export function startTownSync(townId, initial, t) {
     }
   }
 
+  async function pushClock(body) {
+    const res = await fetch(`${backendUrl()}/demo/clock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`clock ${res.status}`);
+    const data = await res.json();
+    if (t.applyTownTime) t.applyTownTime(data.town_time, data.mode);
+    await poll();
+    return data;
+  }
+
   applyTown(initial);
   pollActivity().catch((e) => console.warn('town sync', e));
   setInterval(() => { if (!document.hidden) poll(); }, POLL_MS);
+  return { pushClock };
 }

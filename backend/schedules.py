@@ -1,6 +1,6 @@
 """Calendars are `signals` rows: source 'calendar', type 'calendar_event'.
 
-value: {title, kind, start, end, building_id?, place?, with?: [user_id], visibility?}
+value: {title, kind, start, end, building_id, place?, with?: [user_id], visibility?}
 start/end are ISO timestamps with an offset. `kind` is one of KINDS.
 """
 
@@ -130,6 +130,8 @@ def window_label(start: datetime, end: datetime) -> str:
 
 def events_for_users(db, user_ids: list[str], start: datetime, end: datetime) -> list[dict]:
     """Personal events overlapping [start, end). One row per participant, sorted by start."""
+    from backend.calendar_drive import destination_for
+
     if not user_ids:
         return []
     wanted = set(user_ids)
@@ -161,7 +163,7 @@ def events_for_users(db, user_ids: list[str], start: datetime, end: datetime) ->
                 "start": s.isoformat(),
                 "end": e.isoformat(),
                 "label": window_label(s, e),
-                "building_id": r.get("building_id"),
+                "building_id": destination_for(r, uid),
                 "place": r.get("text"),
                 "travel_minutes": r.get("travel_minutes"),
                 "with": [o for o in going if o != uid],

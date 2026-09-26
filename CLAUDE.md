@@ -49,7 +49,7 @@ Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more onl
 - `friendships`: in-town agent relationship, one row per pair (`user_a < user_b`) with `path_score`. Not the same as account friends.
 - `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
 - `brain_runs`: each town hall AI run's `input` and `output`.
-- `events`: things people share from their real life (class, work, gym, dinner) with `start_at`/`end_at`/`kind`/`building_id`/`travel_minutes`. Type `personal`. News/quests are no longer stored here.
+- `events`: things people share from their real life (class, work, gym, dinner) with `start_at`/`end_at`/`kind`/`building_id`/`travel_minutes`. Type `personal`. `building_id` is always set (home → `house:{user_id}`, campus → `library`, else `downtown`). News/quests are no longer stored here.
 - `event_participants`: who is going to that calendar item.
 - `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
 - `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
@@ -95,6 +95,9 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Where someone stands follows the clock. Before a block they are idle at home; during the commute they are the fraction `(town time − depart) / travel_minutes` along the path; during the block they are idle at that door. A leftover target was leaving people at the library hours early, and the model is not asked to move them when nothing is happening.
+- 2026-09-26: When a calendar block ends, the character walks home (`end_at` + travel) and stays there until they need to leave for the next one. No LLM.
+- 2026-09-26: Every `events.building_id` is set (migration `20260926000007`). Seed and `POST /towns/{id}/events` fill it via `destination_for` (home → that person's house, campus/class → library, appointment/unknown → downtown). A null used to skip the trip, so the character stayed home.
 - 2026-09-26: Removed the river/green belt from the frontend entirely; a town is drawn as exactly its tile grid.
 - 2026-09-26: The 3D left panel lists each resident's calendar from snapshot `schedules` (weekday + DD/MM/YYYY, time, place). The current town-clock block is highlighted.
 - 2026-09-26: Demo snapshot follows the live Tiny Town (`DEMO_TOWN_ID`). An empty `characters` map no longer hides every 3D person.

@@ -43,6 +43,7 @@ export function startTownBackend(api) {
       const f = friends[role];
       if (!f) continue;
       friendByUserId[userId] = f;
+      f.userId = userId;
       cast.add(f.id);
       if (nameOf[userId] && f.name !== nameOf[userId]) {
         renameFriend(f, nameOf[userId]);
@@ -95,21 +96,27 @@ export function startTownBackend(api) {
   function applyAgent(row) {
     const f = remember(row.user_id);
     if (!f) return;
+    if (f.userId !== row.user_id) f.userId = row.user_id;
     const buildingId = (row.target && row.target.building_id) || null;
-    const dest = destForBuilding(buildingId, row.user_id);
-    const sig = `${row.action}:${buildingId || ''}`;
+    const sig = row.updated_at || `${row.action}:${buildingId || ''}`;
     if (lastBuilding[f.id] === sig) return;
     lastBuilding[f.id] = sig;
     f.busy = true;
     f.nextThink = Infinity;
-    if (row.action === 'go_home' || (row.action === 'idle' && !dest)) {
-      walkTo(f, f.home).then((ok) => { if (ok && row.action === 'go_home') f.obj.visible = false; });
+    if (api.placeAgent) {
+      api.placeAgent(f, row);
+      const dest = destForBuilding(buildingId, row.user_id);
+      if (row.action === 'walk_to' || row.action === 'go_home') {
+        logFeed(`${f.name} heads to ${dest?.name || 'home'}.`);
+      }
       return;
     }
-    if (dest && (row.action === 'walk_to' || row.action === 'visit' || row.action === 'knock' || row.action === 'idle')) {
+    const dest = destForBuilding(buildingId, row.user_id);
+    const timing = { travelMinutes: row.target?.travel_minutes };
+    if (dest && (row.action === 'walk_to' || row.action === 'visit' || row.action === 'knock' || row.action === 'go_home')) {
       f.obj.visible = true;
-      logFeed(`${f.name} ${row.action.replaceAll('_', ' ')} → ${dest.name || 'home'}.`);
-      walkTo(f, dest);
+      logFeed(`${f.name} heads to ${dest.name || 'home'}.`);
+      walkTo(f, dest, 0, timing);
     }
   }
 
