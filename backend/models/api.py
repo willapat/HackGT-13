@@ -113,6 +113,7 @@ class ClockIn(BaseModel):
     hour: float | None = Field(default=None, ge=0, le=24)
     live: bool = False
     fast: bool = False
+    play: bool = False  # one game minute per real second
 
 
 class EventCreate(BaseModel):

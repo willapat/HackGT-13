@@ -4,17 +4,20 @@ value: {title, kind, start, end, building_id, place?, with?: [user_id], visibili
 start/end are ISO timestamps with an offset. `kind` is one of KINDS.
 """
 
+import time
 from datetime import datetime, timedelta, timezone
 
 from backend.config import settings
 from backend.db import parse_ts
 
-_wall_boot = datetime.now(timezone.utc)
-# Runtime clock the 3D slider can drive. None = fall back to TOWN_CLOCK / wall time.
-_override_base: datetime | None = None
-_override_wall: datetime | None = None
-_override_rate = 1.0  # 1 = real time; 0 = frozen; 720 = a full day in two minutes
-FAST_RATE = (24 * 3600) / 120
+# Only used to fill an empty town_clock row the first time, so the label does not jump.
+# After that row exists, restarts and Live both read it. Process uptime is not added again.
+_process_started = datetime.now(timezone.utc)
+FAST_RATE = (24 * 3600) / 120  # one game day per two real minutes
+PLAY_RATE = 60.0  # one game minute per real second
+_CACHE_SECONDS = 1.0
+_clock_cache: dict | None = None
+_clock_cached_at = 0.0
 
 CALENDAR_SOURCE = "calendar"
 CALENDAR_TYPE = "calendar_event"
@@ -23,50 +26,139 @@ KINDS = {"class", "work", "social", "activity", "appointment"}
 TOWN_TZ = timezone(timedelta(hours=-4), "ET")
 
 
-def _env_now() -> datetime:
-    if settings.TOWN_CLOCK:
-        start = parse_ts(settings.TOWN_CLOCK).astimezone(TOWN_TZ)
-        return start + (datetime.now(timezone.utc) - _wall_boot)
-    return datetime.now(TOWN_TZ)
+def project_town_time(
+    anchor_at: datetime, anchored_real_at: datetime, rate: float, real_now: datetime
+) -> datetime:
+    """Town time at real_now. rate is game-seconds per real second: 0 scrub, 1 live, FAST_RATE fast."""
+    anchor = anchor_at.astimezone(TOWN_TZ) if anchor_at.tzinfo else anchor_at.replace(tzinfo=TOWN_TZ)
+    start = anchored_real_at.astimezone(timezone.utc)
+    real_now = real_now.astimezone(timezone.utc)
+    return anchor + timedelta(seconds=(real_now - start).total_seconds() * float(rate))
 
 
-def local_now() -> datetime:
-    """Town-local time. Slider / Fast day set an override; otherwise TOWN_CLOCK or the wall clock."""
-    if _override_base is not None and _override_wall is not None:
-        elapsed = (datetime.now(timezone.utc) - _override_wall).total_seconds() * _override_rate
-        return _override_base + timedelta(seconds=elapsed)
-    return _env_now()
-
-
-def clock_mode() -> str:
-    if _override_base is None:
-        return "live"
-    if _override_rate > 1:
+def mode_for_rate(rate: float) -> str:
+    if rate >= FAST_RATE:
         return "fast"
-    if _override_rate == 0:
+    if rate > 1:
+        return "play"
+    if rate == 0:
         return "scrub"
     return "live"
 
 
-def set_town_clock(*, hour: float | None = None, live: bool = False, fast: bool = False) -> datetime:
-    """Sync town time with the 3D sky controls. `hour` is 0–24 on the current town date."""
-    global _override_base, _override_wall, _override_rate
-    if live and hour is None:
-        _override_base = None
-        _override_wall = None
-        _override_rate = 1.0
-        return local_now()
-    now = local_now()
-    if hour is not None:
-        hour = max(0.0, min(23.999, float(hour)))
-        h = int(hour)
-        m = int((hour - h) * 60)
-        s = int(((hour - h) * 60 - m) * 60)
-        now = now.replace(hour=h, minute=m, second=s, microsecond=0)
-    _override_base = now
-    _override_wall = datetime.now(timezone.utc)
-    _override_rate = FAST_RATE if fast else (1.0 if live else 0.0)
-    return local_now()
+def _at_hour(shown: datetime, hour: float) -> datetime:
+    hour = max(0.0, min(23.999, float(hour)))
+    h = int(hour)
+    m = int((hour - h) * 60)
+    s = int(((hour - h) * 60 - m) * 60)
+    return shown.replace(hour=h, minute=m, second=s, microsecond=0)
+
+
+def clock_update(
+    shown: datetime, *, hour: float | None, live: bool, fast: bool, play: bool = False
+) -> tuple[datetime, float]:
+    """The next anchor and rate. Live, Fast, and Play keep `shown`; they do not load a startup formula."""
+    anchor = _at_hour(shown, hour) if hour is not None else shown
+    if fast:
+        rate = FAST_RATE
+    elif play:
+        rate = PLAY_RATE
+    elif hour is not None and not live:
+        rate = 0.0
+    else:
+        rate = 1.0
+    return anchor, rate
+
+
+def _bootstrap_anchor() -> datetime:
+    if settings.TOWN_CLOCK:
+        start = parse_ts(settings.TOWN_CLOCK).astimezone(TOWN_TZ)
+        return start + (datetime.now(timezone.utc) - _process_started)
+    return datetime.now(TOWN_TZ)
+
+
+def _remember(row: dict) -> dict:
+    global _clock_cache, _clock_cached_at
+    _clock_cache = row
+    _clock_cached_at = time.monotonic()
+    return row
+
+
+def _load_clock_row() -> dict:
+    global _clock_cache, _clock_cached_at
+    if _clock_cache is not None and time.monotonic() - _clock_cached_at < _CACHE_SECONDS:
+        return _clock_cache
+    from backend.db import get_client, now_iso
+
+    db = get_client()
+    town_id = settings.DEMO_TOWN_ID
+    rows = db.table("town_clock").select("*").eq("town_id", town_id).limit(1).execute().data or []
+    if rows:
+        return _remember(rows[0])
+    real = datetime.now(timezone.utc)
+    anchor = _bootstrap_anchor()
+    row = {
+        "town_id": town_id,
+        "mode": "live",
+        "anchor_at": anchor.isoformat(),
+        "anchored_real_at": real.isoformat(),
+        "rate": 1,
+        "updated_at": now_iso(),
+    }
+    db.table("town_clock").upsert(row, on_conflict="town_id").execute()
+    return _remember(row)
+
+
+def _row_time(row: dict, real_now: datetime | None = None) -> datetime:
+    return project_town_time(
+        parse_ts(row["anchor_at"]),
+        parse_ts(row["anchored_real_at"]),
+        float(row["rate"]),
+        real_now or datetime.now(timezone.utc),
+    )
+
+
+def local_now() -> datetime:
+    """Town-local time from the town_clock row the app last set."""
+    if not settings.DEMO_TOWN_ID:
+        return datetime.now(TOWN_TZ)
+    return _row_time(_load_clock_row())
+
+
+def clock_rate() -> float:
+    if not settings.DEMO_TOWN_ID:
+        return 1.0
+    return float(_load_clock_row()["rate"])
+
+
+def clock_mode() -> str:
+    if not settings.DEMO_TOWN_ID:
+        return "live"
+    return mode_for_rate(clock_rate())
+
+
+def set_town_clock(
+    *, hour: float | None = None, live: bool = False, fast: bool = False, play: bool = False
+) -> datetime:
+    """Slider, Live, Fast day, and Play. Each anchors at the hour already on screen."""
+    from backend.db import get_client, now_iso
+
+    shown = local_now()
+    anchor, rate = clock_update(shown, hour=hour, live=live, fast=fast, play=play)
+    real = datetime.now(timezone.utc)
+    if not settings.DEMO_TOWN_ID:
+        return project_town_time(anchor, real, rate, real)
+    row = {
+        "town_id": settings.DEMO_TOWN_ID,
+        "mode": mode_for_rate(rate),
+        "anchor_at": anchor.isoformat(),
+        "anchored_real_at": real.isoformat(),
+        "rate": rate,
+        "updated_at": now_iso(),
+    }
+    get_client().table("town_clock").upsert(row, on_conflict="town_id").execute()
+    _remember(row)
+    return project_town_time(anchor, real, rate, datetime.now(timezone.utc))
 
 
 def busy_blocks(db, user_ids: list[str], start: datetime, end: datetime) -> dict[str, list[tuple[datetime, datetime]]]:

@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from backend.calendar_drive import current_trip, destination_for, estimate_travel_minutes
+from backend.calendar_drive import current_trip, destination_for, estimate_travel_minutes, plan_clock_placement
 from backend.schedules import TOWN_TZ
 
 NOW = __import__("datetime").datetime(2026, 9, 26, 10, 0, tzinfo=TOWN_TZ)
@@ -66,6 +66,43 @@ def test_idle_at_home_after_the_walk_back():
     assert home["action"] == "idle"
 
 
+def test_leave_the_earlier_event_when_the_next_one_is_time_to_walk():
+    """They start the stored walk before the next event, even if the earlier one has not ended."""
+    morning = ev(
+        start_at=(NOW.replace(hour=9)).isoformat(),
+        end_at=(NOW.replace(hour=12)).isoformat(),
+        building_id="market",
+        travel_minutes=10,
+    )
+    nxt = ev(
+        id="e2",
+        title="Climbing",
+        start_at=(NOW.replace(hour=12)).isoformat(),
+        end_at=(NOW.replace(hour=13)).isoformat(),
+        building_id="gym",
+        travel_minutes=12,
+    )
+    trip = current_trip([morning, nxt], "u1", NOW.replace(hour=11, minute=50))
+    assert trip["phase"] == "walking" and trip["building_id"] == "gym"
+    assert trip["from_building"] == "market"
+    assert trip["depart_at"] == NOW.replace(hour=12) - timedelta(minutes=12)
+
+
+def test_play_does_not_skip_the_walk_window():
+    from datetime import datetime, timezone
+
+    from backend.calendar_drive import next_check_iso
+    from backend.db import parse_ts
+
+    now = datetime.now(timezone.utc)
+    soon = next_check_iso(now + timedelta(minutes=40), now, rate=60)
+    wait = (parse_ts(soon) - datetime.now(timezone.utc)).total_seconds()
+    assert wait < 3
+    live = next_check_iso(now + timedelta(hours=2), now, rate=1)
+    live_wait = (parse_ts(live) - datetime.now(timezone.utc)).total_seconds()
+    assert 15 < live_wait < 25
+
+
 def test_next_event_beats_walking_home():
     cafe = ev()
     gym = ev(
@@ -106,3 +143,51 @@ def test_default_travel_when_column_missing():
     trip = current_trip([row], "u1", NOW.replace(hour=9, minute=53))
     assert trip["travel_minutes"] == 8
     assert trip["leave_at"] == NOW.replace(hour=10) - timedelta(minutes=8)
+
+
+SPOTS = {
+    "cafe": {"id": "cafe", "x": 7, "y": 3, "door": [6, 3]},
+    "house:u1": {"id": "house:u1", "x": 0, "y": 4, "door": [2, 4]},
+}
+
+
+def test_idle_stands_on_the_destination_door():
+    """The old commit stored the house door in x/y and the café on target. Idle must use the café door."""
+    trip = current_trip([ev()], "u1", NOW.replace(hour=11))
+    staying_home = {"action": "idle", "x": 2, "y": 4, "target": {"building_id": "house:u1"}}
+    change = plan_clock_placement(trip, "u1", SPOTS, staying_home)
+    assert change["action"] == "idle"
+    assert (change["x"], change["y"]) == (6, 3)
+    assert change["target"]["building_id"] == "cafe"
+
+
+def test_walk_leaves_from_home_toward_the_event():
+    trip = current_trip([ev()], "u1", NOW.replace(hour=9, minute=55))
+    at_home = {"action": "idle", "x": 2, "y": 4, "target": {"building_id": "house:u1"}}
+    change = plan_clock_placement(trip, "u1", SPOTS, at_home)
+    assert change["action"] == "walk_to"
+    assert (change["x"], change["y"]) == (2, 4)
+    assert change["target"]["building_id"] == "cafe"
+    assert change["target"]["depart_at"] == trip["depart_at"].isoformat()
+
+
+def test_repeat_placement_does_not_rewrite_the_row():
+    trip = current_trip([ev()], "u1", NOW.replace(hour=11))
+    already = {"action": "idle", "x": 6, "y": 3, "target": {"building_id": "cafe"}}
+    assert plan_clock_placement(trip, "u1", SPOTS, already) is None
+
+
+def test_idle_with_leftover_depart_at_is_rewritten():
+    """Postgres rejects idle rows that still carry depart_at, so the planner must clear them."""
+    trip = current_trip([ev()], "u1", NOW.replace(hour=11))
+    stale = {"action": "idle", "x": 6, "y": 3, "target": {"building_id": "cafe", "depart_at": "2026-09-26T13:52:00+00:00"}}
+    change = plan_clock_placement(trip, "u1", SPOTS, stale)
+    assert change is not None and "depart_at" not in change["target"]
+
+
+def test_placement_says_which_town_time_it_was_planned_for():
+    at = NOW.replace(hour=11)
+    trip = current_trip([ev()], "u1", at)
+    home = {"action": "idle", "x": 2, "y": 4, "target": {"building_id": "house:u1"}}
+    change = plan_clock_placement(trip, "u1", SPOTS, home, clock_at=at)
+    assert change["target"]["clock_at"] == at.isoformat()

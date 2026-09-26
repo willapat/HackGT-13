@@ -13,7 +13,7 @@ import { EXTRA_MODELS, FRIENDS, PLACES, STADIUM, TOWN, TOWN_ID, townApi } from '
 import { loadAll } from './models.js';
 import { updateOcclusion } from './occlusion.js';
 import { renderResidents, renderSchedules } from './panels.js';
-import { friends, placeAgent, say, spawnFriends, stepFriend, think, walkTo } from './people.js';
+import { friends, placeAgent, say, setCalendars, spawnFriends, stepFriend, syncTrail, think, walkTo } from './people.js';
 import { addStreetLamps, applyTownTime, lightWindows, patchWeather, updateSky, wireSkyControls } from './sky.js';
 import { animated, renderer, scene } from './stage.js';
 
@@ -22,13 +22,14 @@ const v = new THREE.Vector3();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   const now = performance.now();
+  updateSky(dt);
   for (const f of Object.values(friends)) {
     stepFriend(f, dt);
+    syncTrail(f);
     f.mixer.update(dt);
     if (!townApi.liveMode && !f.busy && !f.path.length && now > f.nextThink) think(f);
   }
   for (const fx of animated) fx.update(dt);
-  updateSky(dt);
 
   updateCamera(dt, now);
   updateOcclusion(dt);
@@ -57,6 +58,12 @@ const allModels = [
   ...ROOF_PROPS, HELIPAD, ...VEHICLES, STADIUM.model,
   ...Object.values(STREET), ...PARASOLS, ...EXTRA_MODELS.map(([, , m]) => m),
 ];
+// Match the label to the server clock while the city loads, before the first frame
+// can show the laptop's time.
+fetch(`${window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000'}/demo/clock`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((data) => { if (data) applyTownTime(data.town_time, data.mode, 'boot'); })
+  .catch(() => {});
 logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
@@ -68,7 +75,7 @@ spawnFriends();
 renderResidents();
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, placeAgent, liveMode: Boolean(TOWN),
+  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, placeAgent, setCalendars, liveMode: Boolean(TOWN),
 });
 if (TOWN) {
   // A real town: no scripted wandering or demo snapshot; residents move only as the database says
@@ -78,7 +85,7 @@ if (TOWN) {
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
   const sync = startTownSync(TOWN_ID, TOWN, {
-    friends, placeAgent, setStatus, say, partyLights, rainCloud, logFeed, PLACES, applyTownTime,
+    friends, placeAgent, setCalendars, setStatus, say, partyLights, rainCloud, logFeed, PLACES, applyTownTime,
   });
   townApi.pushClock = sync.pushClock;
 } else {

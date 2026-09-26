@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,8 +8,9 @@ from backend.db import get_client, iso_in, now_iso
 from backend.identity import check_identity, suggest_color, town_identities
 from backend.models.api import EventCreate, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
-from backend.calendar_drive import destination_for, estimate_travel_minutes
-from backend.schedules import local_now
+from backend.calendar_drive import destination_for, estimate_travel_minutes, snap_member_to_clock
+from backend.schedules import clock_mode, events_for_users, local_now
+from backend.writer import fresh_writer, stamp
 from backend.town_map import buildings, house_building_id, in_bounds
 
 router = APIRouter(prefix="/towns", tags=["towns"])
@@ -119,7 +121,22 @@ def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
         .eq("town_id", tid).order("joined_at").execute().data or []
     )
     agents = db.table("agents").select("*").eq("town_id", tid).execute().data or []
-    return {"town": load_town(db, tid), "members": members, "agents": agents}
+    now = local_now()
+    names = {
+        m["user_id"]: m.get("name") or (m.get("profiles") or {}).get("display_name") or "Friend"
+        for m in members
+    }
+    schedules = events_for_users(
+        db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3),
+    )
+    for ev in schedules:
+        ev["display_name"] = names.get(ev["user_id"]) or "Friend"
+    # town_time is the hour these agent rows were placed for. A slow poll must not draw them
+    # under a different hour on the slider.
+    return {
+        "town": load_town(db, tid), "members": members, "agents": agents, "schedules": schedules,
+        "town_time": now.isoformat(), "mode": clock_mode(),
+    }
 
 
 @router.patch("/{town_id}")
@@ -155,9 +172,7 @@ def place_house(town_id: UUID, body: HouseUpdate, uid: str = Depends(current_use
         db.table("town_members").update(change)
         .eq("town_id", tid).eq("user_id", uid).execute().data[0]
     )
-    db.table("agents").update({"x": body.house_x, "y": body.house_y, "updated_at": now_iso()}).eq("town_id", tid).eq(
-        "user_id", uid
-    ).execute()
+    snap_member_to_clock(db, tid, uid, local_now())
     return row
 
 
@@ -185,13 +200,13 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
         "depart_at": local_now().isoformat(),
     }
     row = (
-        db.table("agents").update(
+        db.table("agents").update(stamp(
             {"x": body.from_x, "y": body.from_y, "action": action, "target": target,
              "next_decision_at": iso_in(USER_MOVE_HOLD_SECONDS), "updated_at": now_iso()}
-        ).eq("town_id", tid).eq("user_id", uid).execute().data
+        )).eq("town_id", tid).eq("user_id", uid).execute().data
     )
     db.table("agent_actions").insert(
-        {"town_id": tid, "user_id": uid, "action": action,
+        {"town_id": tid, "user_id": uid, "action": action, "written_by": fresh_writer(),
          "details": {"by": "user", "target_building_id": dest["id"], "from": [body.from_x, body.from_y]}}
     ).execute()
     return row[0]

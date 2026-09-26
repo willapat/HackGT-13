@@ -134,7 +134,7 @@ def get_clock():
 
 @router.post("/clock")
 def post_clock(body: ClockIn):
-    set_town_clock(hour=body.hour, live=body.live, fast=body.fast)
+    set_town_clock(hour=body.hour, live=body.live, fast=body.fast, play=body.play)
     try:
         _nudge_agents(get_client(), settings.DEMO_TOWN_ID)
     except Exception as exc:

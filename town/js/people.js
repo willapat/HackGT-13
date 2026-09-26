@@ -134,7 +134,7 @@ function walkProgress(f) {
     const startM = isoTownMinutes(f.departAt);
     if (nowM != null && startM != null) return Math.max(0, Math.min(1, (nowM - startM) / f.travelMinutes));
   }
-  const ms = f.travelMinutes * 1000 * (sky.fast ? 120 / 1440 : 1);
+  const ms = f.travelMinutes * 1000 * (sky.fast ? 120 / 1440 : sky.play ? 1 / 60 : 1);
   return Math.max(0, Math.min(1, (performance.now() - (f.walkStarted || 0)) / ms));
 }
 
@@ -160,27 +160,159 @@ function pointAlong(from, route, t) {
 }
 
 function finishWalk(f, ok) {
+  f.trailing = false;
   f.route = [];
   f.path = [];
   f.travelMinutes = null;
   f.departAt = null;
+  f.atDest = true;
   setAction(f, 'idle');
   const res = f.resolveWalk;
   f.resolveWalk = null;
   res?.(ok);
 }
 
+// Calendar walks follow the town clock, not the next agents-row write. Leave travel_minutes
+// (from the event) before it starts, from wherever they are standing, and arrive as it begins.
+const TRAVEL_DEFAULT = { cafe: 8, gym: 12, market: 10, library: 12, park: 10, downtown: 15 };
+
+function travelMinutesOf(ev) {
+  const n = Number(ev.travel_minutes);
+  if (n > 0) return n;
+  const b = ev.building_id || '';
+  if (b.startsWith('house:') || (ev.place || '').toLowerCase() === 'home') return 6;
+  if ((ev.place || '').toLowerCase() === 'campus') return 18;
+  return TRAVEL_DEFAULT[b] || 12;
+}
+
+function placeFor(f, buildingId) {
+  if (!buildingId) return null;
+  if (!buildingId.startsWith('house:')) return PLACES[buildingId] || null;
+  const id = buildingId.slice(6);
+  if (id === f.userId || id === f.id) return f.home;
+  return Object.values(friends).find((p) => p.userId === id || p.id === id)?.home || null;
+}
+
+export function setCalendars(rows) {
+  const byUser = {}, byName = {};
+  for (const ev of rows || []) {
+    if (ev.user_id) (byUser[ev.user_id] ||= []).push(ev);
+    if (ev.display_name) (byName[ev.display_name] ||= []).push(ev);
+  }
+  for (const f of Object.values(friends)) {
+    const mine = (f.userId && byUser[f.userId]) || byUser[f.id] || byName[f.name] || null;
+    if (!mine) continue;
+    const blocks = mine.map((ev) => {
+      const startM = isoTownMinutes(ev.start), endM = isoTownMinutes(ev.end);
+      const place = placeFor(f, ev.building_id);
+      if (startM == null || endM == null || !place?.door) return null;
+      const travel = travelMinutesOf(ev);
+      return { startM, endM, leaveM: startM - travel, travel, place, destId: ev.building_id };
+    }).filter(Boolean).sort((a, b) => a.startM - b.startM);
+    const sig = blocks.map((b) => `${b.destId}|${b.startM}|${b.endM}|${b.travel}`).join(';');
+    if (f.calendarSig === sig) continue;
+    f.calendarSig = sig;
+    f.calendar = blocks;
+    f.calKey = '';
+  }
+}
+
+function segment(blocks, nowM, home) {
+  const active = blocks.filter((b) => b.leaveM <= nowM && nowM < b.endM);
+  if (active.length) {
+    const b = active[active.length - 1];
+    if (nowM < b.startM) return { phase: 'walk', place: b.place, destId: b.destId, depart: b.leaveM, travel: b.travel };
+    return { phase: 'there', place: b.place, destId: b.destId };
+  }
+  const finished = blocks.filter((b) => b.endM <= nowM);
+  if (!finished.length) return { phase: 'home', place: home, destId: 'home' };
+  const last = finished[finished.length - 1];
+  const next = blocks.find((b) => b.leaveM > nowM);
+  const homeTravel = last.place === home ? 0 : last.travel;
+  const arrive = last.endM + homeTravel;
+  if (homeTravel && nowM < arrive && (!next || nowM < next.leaveM)) {
+    return { phase: 'walk', place: home, destId: 'home', depart: last.endM, travel: homeTravel };
+  }
+  return { phase: 'home', place: home, destId: 'home' };
+}
+
+function doorWorld(place) {
+  return toWorld(sidewalkPoint(place));
+}
+
+// Where the calendar has them at `at`, including partway along a walk. One level of
+// recursion so a walk's start is the previous door, not an endless chain.
+function standWorld(blocks, home, at, depth = 0) {
+  const seg = segment(blocks, at, home);
+  if (seg.phase !== 'walk' || depth > 0 || !seg.travel) return doorWorld(seg.place);
+  const origin = standWorld(blocks, home, seg.depart - 0.02, depth + 1);
+  const frac = Math.max(0, Math.min(1, (at - seg.depart) / seg.travel));
+  const here = toTile(origin);
+  const start = [Math.round(here.x), Math.round(here.z)];
+  const tiles = (walkable(...start) && findPath(start, seg.place.door)) || [];
+  const route = axisAligned(here, [...tiles.map(([c, r]) => ({ x: c, z: r })), sidewalkPoint(seg.place)]).map(toWorld);
+  return route.length ? pointAlong(origin, route, frac).pos : doorWorld(seg.place);
+}
+
+function stepCalendar(f) {
+  if (f.holdCalendar || !f.calendar?.length) return false;
+  const nowM = townMinutesNow();
+  if (nowM == null) return false;
+  const seg = segment(f.calendar, nowM, f.home);
+  f.busy = true;
+  f.nextThink = Infinity;
+  if (seg.phase !== 'walk') {
+    f.trailing = false;
+    const key = `at:${seg.destId}`;
+    if (f.calKey !== key) {
+      f.calKey = key;
+      f.route = [];
+      f.path = [];
+      f.departAt = null;
+      f.travelMinutes = null;
+      f.obj.position.copy(doorWorld(seg.place));
+      setAction(f, 'idle');
+    }
+    f.calMinute = nowM;
+    return true;
+  }
+  const key = `walk:${seg.destId}:${Math.round(seg.depart)}`;
+  const frac = Math.max(0, Math.min(1, (nowM - seg.depart) / seg.travel));
+  if (f.calKey !== key) {
+    const jumped = f.calMinute == null || Math.abs(nowM - f.calMinute) > 1.5;
+    f.calKey = key;
+    if (jumped) f.obj.position.copy(standWorld(f.calendar, f.home, seg.depart - 0.02));
+    else {
+      const where = seg.place === f.home ? 'home' : (seg.place.name || 'their next stop');
+      logFeed(`${f.name} heads to ${where}.`);
+    }
+    walkTo(f, seg.place, 0, null);
+    f.departAt = null;
+  }
+  if (f.route?.length && f.walkFrom) {
+    const { pos, face } = pointAlong(f.walkFrom, f.route, frac);
+    if (face && frac < 1) faceTowards(f, face);
+    f.obj.position.copy(pos);
+    setAction(f, frac >= 1 ? 'idle' : 'walk');
+  }
+  f.trailing = frac < 1 && !!f.route?.length;
+  f.calMinute = nowM;
+  return true;
+}
+
 export function stepFriend(f, dt) {
+  if (stepCalendar(f)) return;
   const frac = walkProgress(f);
   if (frac != null && f.route?.length && f.walkFrom) {
-    setAction(f, 'walk');
-    const { pos, face, done } = pointAlong(f.walkFrom, f.route, frac);
-    if (face) faceTowards(f, face);
+    const { pos, face } = pointAlong(f.walkFrom, f.route, frac);
+    if (face && frac < 1) faceTowards(f, face);
     f.obj.position.copy(pos);
-    if (done) finishWalk(f, true);
+    setAction(f, frac >= 1 ? 'idle' : 'walk');
+    f.trailing = frac < 1;
     return;
   }
-  if (!f.path.length) return;
+  if (!f.path.length) { f.trailing = false; return; }
+  f.trailing = true;
   setAction(f, 'walk');
   const target = f.path[0];
   const d = target.clone().sub(f.obj.position);
@@ -208,16 +340,54 @@ function destinationOf(row) {
 function placeAlongWalk(f) {
   const frac = walkProgress(f);
   if (frac == null || !f.route?.length || !f.walkFrom) return;
-  const { pos, face, done } = pointAlong(f.walkFrom, f.route, frac);
-  if (face) faceTowards(f, face);
+  const { pos, face } = pointAlong(f.walkFrom, f.route, frac);
+  if (face && frac < 1) faceTowards(f, face);
   f.obj.position.copy(pos);
-  if (done) finishWalk(f, true);
+}
+
+function departMinute(iso) {
+  return String(iso || '').slice(0, 16);
+}
+
+function nearTile(f, tile) {
+  return f.obj.position.distanceTo(toWorld(tile)) < 1.5;
+}
+
+function onDoor(row, dest) {
+  if (row.x == null || row.y == null || !dest?.door) return true;
+  return Math.abs(row.x - dest.door[0]) < 0.3 && Math.abs(row.y - dest.door[1]) < 0.3;
 }
 
 export function placeAgent(f, row) {
+  f.holdCalendar = row.target?.by === 'user';
+  // The clock paints calendar trips. A late agents row used to drop them on the door.
+  if (f.calendar?.length && !f.holdCalendar) return;
   const dest = destinationOf(row) || f.home;
+  const building = row.target?.building_id || '';
+  const minute = departMinute(row.target?.depart_at);
   const walking = WALKING.has(row.action) && dest && row.target?.depart_at;
+  // Idle at one building with x/y on another door is a row the calendar did not write.
+  // Drawing its target is the teleport; stay put, or stand on x/y the first time.
+  if (!walking && !onDoor(row, dest)) {
+    if (!f.placedOnce && row.x != null && row.y != null) {
+      interrupt(f);
+      f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
+      f.placedOnce = true;
+    }
+    return;
+  }
+  f.placedOnce = true;
+  // Same trip already on screen. Resetting it copies them back to the curb they left, which is the teleport.
+  if (walking && f.tripBuilding === building && f.departMinute === minute && f.route?.length) return;
+  // Already standing at this door. An idle row must not pick them up and drop them on the sidewalk again.
+  if (!walking && f.tripBuilding === building && dest?.door && nearTile(f, sidewalkPoint(dest))) {
+    setAction(f, 'idle');
+    return;
+  }
   interrupt(f);
+  f.tripBuilding = building;
+  f.departMinute = walking ? minute : '';
+  f.atDest = !walking;
   if (walking) {
     // x/y is the curb this trip leaves from (home, or the event they just finished) — not a leftover visit.
     if (row.x != null && row.y != null) f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
@@ -226,13 +396,14 @@ export function placeAgent(f, row) {
     return;
   }
   // Idle means the clock says they are already at this door. Stand there.
-  if (dest) {
+  if (dest?.door) {
     f.obj.position.copy(toWorld(sidewalkPoint(dest)));
     setAction(f, 'idle');
   }
 }
 
 export function interrupt(f) {
+  f.trailing = false;
   f.path = [];
   f.route = [];
   f.travelMinutes = null;
@@ -242,6 +413,222 @@ export function interrupt(f) {
   f.busy = true;
   f.obj.visible = true;
   setAction(f, 'idle');
+}
+
+// How far `here` is along the polyline, in world units. Used to drop the part already walked.
+function distanceAlong(from, route, here) {
+  let traveled = 0, best = 0, bestD = Infinity, a = from;
+  const p = here.clone().setY(0);
+  for (const b of route) {
+    const ab = b.clone().sub(a); ab.y = 0;
+    const len2 = ab.lengthSq();
+    const t = len2 < 1e-8 ? 0 : Math.max(0, Math.min(1, p.clone().sub(a).dot(ab) / len2));
+    const d = a.clone().lerp(b, t).setY(0).distanceTo(p);
+    const len = Math.sqrt(len2);
+    if (d < bestD) { bestD = d; best = traveled + len * t; }
+    traveled += len;
+    a = b;
+  }
+  return best;
+}
+
+const TRAIL_WIDTH = 0.15; // a little thinner than the last ribbon
+const TRAIL_Y = 0.09;
+const CORNER = 0.62; // how far a turn eases back from the corner, in tiles
+const ARROW_LEN = 0.4;
+const ARROW_WIDTH = 0.3;
+
+function routeLengthOf(from, route) {
+  let n = 0, a = from;
+  for (const b of route) { n += a.clone().setY(0).distanceTo(b.clone().setY(0)); a = b; }
+  return n;
+}
+
+function pointOnRoute(from, route, dist) {
+  let traveled = 0;
+  let a = from.clone().setY(TRAIL_Y);
+  for (const raw of route) {
+    const b = raw.clone().setY(TRAIL_Y);
+    const len = a.distanceTo(b);
+    if (traveled + len >= dist - 1e-4) {
+      return a.clone().lerp(b, len < 1e-6 ? 0 : (dist - traveled) / len);
+    }
+    traveled += len;
+    a = b;
+  }
+  return a;
+}
+
+function spanRoute(from, route, s0, s1) {
+  const y = (p) => p.clone().setY(TRAIL_Y);
+  const pts = [pointOnRoute(from, route, s0)];
+  let traveled = 0;
+  let a = from;
+  for (const raw of route) {
+    const len = a.clone().setY(0).distanceTo(raw.clone().setY(0));
+    const next = traveled + len;
+    if (traveled > s0 + 1e-3 && traveled < s1 - 1e-3) pts.push(y(raw));
+    traveled = next;
+    a = raw;
+    if (traveled >= s1) break;
+  }
+  pts.push(pointOnRoute(from, route, s1));
+  return pts;
+}
+
+// Replace each right-angle corner with a quadratic bend so the stroke stays one piece.
+function roundCorners(pts) {
+  const y = (p) => p.clone().setY(TRAIL_Y);
+  if (pts.length < 3) return pts.map(y);
+  const out = [y(pts[0])];
+  let prev = pts[0];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const b = pts[i];
+    const c = pts[i + 1];
+    const into = b.clone().sub(prev);
+    const outOf = c.clone().sub(b);
+    into.y = outOf.y = 0;
+    const lin = into.length();
+    const lout = outOf.length();
+    if (lin < 1e-3 || lout < 1e-3) continue;
+    into.multiplyScalar(1 / lin);
+    outOf.multiplyScalar(1 / lout);
+    if (into.dot(outOf) > 0.98) {
+      out.push(y(b));
+      prev = b;
+      continue;
+    }
+    const cut = Math.min(CORNER, lin * 0.46, lout * 0.46);
+    const p0 = b.clone().addScaledVector(into, -cut).setY(TRAIL_Y);
+    const p2 = b.clone().addScaledVector(outOf, cut).setY(TRAIL_Y);
+    const ctrl = y(b);
+    if (out[out.length - 1].distanceTo(p0) > 1e-3) out.push(p0);
+    for (let s = 1; s <= 8; s++) {
+      const t = s / 8, u = 1 - t;
+      out.push(new THREE.Vector3(
+        u * u * p0.x + 2 * u * t * ctrl.x + t * t * p2.x,
+        TRAIL_Y,
+        u * u * p0.z + 2 * u * t * ctrl.z + t * t * p2.z,
+      ));
+    }
+    prev = p2;
+  }
+  const end = y(pts[pts.length - 1]);
+  if (out[out.length - 1].distanceTo(end) > 1e-3) out.push(end);
+  return out;
+}
+
+function ribbonGeometry(pts, endDir) {
+  const positions = [];
+  const indices = [];
+  const half = TRAIL_WIDTH / 2;
+  const side = [];
+  for (let i = 0; i < pts.length; i++) {
+    const prev = pts[Math.max(0, i - 1)];
+    const next = pts[Math.min(pts.length - 1, i + 1)];
+    const dir = next.clone().sub(prev);
+    dir.y = 0;
+    if (i === pts.length - 1 && endDir) dir.copy(endDir);
+    if (dir.lengthSq() < 1e-8) dir.set(1, 0, 0);
+    else dir.normalize();
+    side.push(new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(half));
+  }
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], s = side[i];
+    positions.push(p.x + s.x, p.y, p.z + s.z, p.x - s.x, p.y, p.z - s.z);
+    if (i) {
+      const a = (i - 1) * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  return geo;
+}
+
+// One still stroke in this person's color, from where they are to the door they're walking to.
+// Hidden the rest of the time, including once the walk is over.
+function hideTrail(f) {
+  if (f.trail) f.trail.visible = false;
+  if (f.trailArrow) f.trailArrow.visible = false;
+}
+
+// Shaft up to the arrow's base, then a triangle whose back edge is centered on that same point.
+function strokeGeometry(pts) {
+  const tip = pts[pts.length - 1].clone().setY(TRAIL_Y);
+  let remain = ARROW_LEN;
+  let base = pts[0].clone().setY(TRAIL_Y);
+  const shaft = [];
+  for (let i = pts.length - 1; i > 0; i--) {
+    const a = pts[i - 1], b = pts[i];
+    const len = a.distanceTo(b);
+    if (len + 1e-6 >= remain) {
+      const t = (len - remain) / Math.max(len, 1e-6);
+      base = a.clone().lerp(b, Math.max(0, Math.min(1, t))).setY(TRAIL_Y);
+      for (let j = 0; j < i; j++) shaft.push(pts[j].clone().setY(TRAIL_Y));
+      if (!shaft.length || shaft[shaft.length - 1].distanceTo(base) > 1e-4) shaft.push(base);
+      break;
+    }
+    remain -= len;
+  }
+  if (!shaft.length) shaft.push(base);
+  const dir = tip.clone().sub(base);
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-8) return new THREE.BufferGeometry();
+  dir.normalize();
+  const geo = shaft.length >= 2 ? ribbonGeometry(shaft, dir) : new THREE.BufferGeometry();
+  const pos = geo.getAttribute('position');
+  const positions = pos ? Array.from(pos.array) : [];
+  const index = geo.getIndex();
+  const indices = index ? Array.from(index.array) : [];
+  const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(ARROW_WIDTH / 2);
+  const left = base.clone().add(side);
+  const right = base.clone().sub(side);
+  const at = positions.length / 3;
+  positions.push(tip.x, TRAIL_Y, tip.z, left.x, left.y, left.z, right.x, right.y, right.z);
+  indices.push(at, at + 1, at + 2);
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  out.setIndex(indices);
+  geo.dispose();
+  return out;
+}
+
+export function syncTrail(f) {
+  const moving = f.trailing && f.obj.visible && f.route?.length && f.walkFrom;
+  if (!moving) {
+    hideTrail(f);
+    return;
+  }
+  const along = distanceAlong(f.walkFrom, f.route, f.obj.position);
+  const total = routeLengthOf(f.walkFrom, f.route);
+  if (total - along < 0.05) {
+    hideTrail(f);
+    return;
+  }
+  if (f.trailArrow) f.trailArrow.visible = false;
+  if (!f.trail) {
+    f.trail = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({
+        color: f.color, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide,
+      }),
+    );
+    f.trail.frustumCulled = false;
+    f.trail.renderOrder = 4;
+    scene.add(f.trail);
+  }
+  const geo = strokeGeometry(roundCorners(spanRoute(f.walkFrom, f.route, along, total)));
+  if (!geo.getAttribute('position')?.count) {
+    geo.dispose();
+    if (f.trail) f.trail.visible = false;
+    return;
+  }
+  const prev = f.trail.geometry;
+  f.trail.geometry = geo;
+  prev.dispose();
+  f.trail.visible = true;
 }
 
 export function release(f, delay = 0) {

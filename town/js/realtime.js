@@ -2,16 +2,19 @@
 // Polls GET /demo/snapshot (backend secret key) so the judge UI works without a logged-in Supabase user.
 // Demo buttons POST /demo/trigger/{scenario} with a 3s timeout, then fall back to the scripted trigger().
 
+import { placementsMatchScreen } from './sky.js';
+
 const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownBackend(api) {
   const {
     friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-    renderSchedules, PLACES, effects, applyTownNames,
+    renderSchedules, setCalendars, PLACES, effects, applyTownNames,
   } = api;
 
   let liveMode = false;
   let pollTimer = null;
+  let pullGen = 0;
   const friendByUserId = {};
   const lastMood = {};
   const lastBuilding = {};
@@ -98,7 +101,8 @@ export function startTownBackend(api) {
     if (!f) return;
     if (f.userId !== row.user_id) f.userId = row.user_id;
     const buildingId = (row.target && row.target.building_id) || null;
-    const sig = row.updated_at || `${row.action}:${buildingId || ''}`;
+    const depart = String((row.target && row.target.depart_at) || '').slice(0, 16);
+    const sig = `${row.action || ''}|${buildingId || ''}|${depart}|${row.x},${row.y}`;
     if (lastBuilding[f.id] === sig) return;
     lastBuilding[f.id] = sig;
     f.busy = true;
@@ -150,12 +154,17 @@ export function startTownBackend(api) {
   }
 
   async function pullSnapshot() {
+    const gen = ++pullGen;
     const res = await fetch(`${backendUrl()}/demo/snapshot`);
     if (!res.ok) throw new Error(`snapshot ${res.status}`);
     const data = await res.json();
-    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode);
+    if (gen !== pullGen) return;
+    if (data.town_time && !placementsMatchScreen(data.town_time, data.mode)) return;
+    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode, 'poll');
+    if (gen !== pullGen) return;
     if (applyTownNames) applyTownNames(data.map);
     applyCharacters(data.characters, data.members);
+    if (setCalendars) setCalendars(data.schedules);
     for (const m of data.members || []) applyMember(m);
     for (const a of data.agents || []) applyAgent(a);
     const actions = [...(data.agent_actions || [])].reverse();
@@ -208,6 +217,7 @@ export function startTownBackend(api) {
   }
 
   async function pushClock(body) {
+    pullGen++;
     const res = await fetch(`${backendUrl()}/demo/clock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -215,7 +225,7 @@ export function startTownBackend(api) {
     });
     if (!res.ok) throw new Error(`clock ${res.status}`);
     const data = await res.json();
-    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode);
+    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode, 'push');
     pullSnapshot().catch(() => {});
     return data;
   }

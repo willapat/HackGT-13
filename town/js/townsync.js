@@ -2,21 +2,31 @@
 // agents' moves (GET /towns/{id}), moods/activities, and chat bubbles (GET /towns/{id}/activity).
 // Everything is derived from database rows, so every viewer sees the same town.
 import { api } from '../../frontend/shared/session.js';
+import { placementsMatchScreen } from './sky.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
 const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 
 export function startTownSync(townId, initial, t) {
-  const applied = {}; // user_id -> agents.updated_at already drawn
+  const placed = {}; // user_id -> action|building|depart already drawn
   const moodFx = {}; // user_id -> { kind, fx }
   let lastActionId = null;
+  let pollGen = 0;
+
+  function placementSig(row) {
+    const target = row.target || {};
+    // x/y is included so a corrected row (same building, now on its door) is applied.
+    return `${row.action || ''}|${target.building_id || ''}|${String(target.depart_at || '').slice(0, 16)}|${row.x},${row.y}`;
+  }
 
   function applyTown(data) {
     for (const row of data.agents || []) {
       const f = t.friends[row.user_id];
-      if (!f || applied[row.user_id] === row.updated_at) continue;
-      const first = !(row.user_id in applied);
-      applied[row.user_id] = row.updated_at;
+      const sig = placementSig(row);
+      // A new updated_at with the same walk used to restart them at the house door.
+      if (!f || placed[row.user_id] === sig) continue;
+      const first = !(row.user_id in placed);
+      placed[row.user_id] = sig;
       t.placeAgent(f, row);
       const dest = row.target?.building_id;
       if (!first && dest) {
@@ -53,8 +63,19 @@ export function startTownSync(townId, initial, t) {
   }
 
   async function poll() {
+    const gen = ++pollGen;
     try {
-      applyTown(await api(`/towns/${townId}`));
+      const data = await api(`/towns/${townId}`);
+      // A slower poll from the previous hour must not land on top of this one.
+      if (gen !== pollGen) return;
+      if (data.town_time && !placementsMatchScreen(data.town_time, data.mode)) {
+        await pollActivity();
+        return;
+      }
+      if (t.applyTownTime && data.town_time) t.applyTownTime(data.town_time, data.mode, 'poll');
+      if (gen !== pollGen) return;
+      if (t.setCalendars) t.setCalendars(data.schedules);
+      applyTown(data);
       await pollActivity();
     } catch (e) {
       console.warn('town sync', e);
@@ -62,6 +83,7 @@ export function startTownSync(townId, initial, t) {
   }
 
   async function pushClock(body) {
+    pollGen++;
     const res = await fetch(`${backendUrl()}/demo/clock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -69,11 +91,16 @@ export function startTownSync(townId, initial, t) {
     });
     if (!res.ok) throw new Error(`clock ${res.status}`);
     const data = await res.json();
-    if (t.applyTownTime) t.applyTownTime(data.town_time, data.mode);
-    await poll();
+    const gen = ++pollGen;
+    if (t.applyTownTime) t.applyTownTime(data.town_time, data.mode, 'push');
+    const town = await api(`/towns/${townId}`);
+    if (gen !== pollGen) return data;
+    applyTown(town);
+    await pollActivity();
     return data;
   }
 
+  if (t.setCalendars) t.setCalendars(initial.schedules);
   applyTown(initial);
   pollActivity().catch((e) => console.warn('town sync', e));
   setInterval(() => { if (!document.hidden) poll(); }, POLL_MS);

@@ -19,7 +19,7 @@ When choosing between features, pick whichever does more for real-world connecti
 ## Architecture
 
 1. **Town brain**: `backend/loops/brain_loop.py` finds towns with signals newer than their last `brain_runs` row (`db.towns_with_unprocessed_signals`), then `run_brain_for_town` calls Gemini Flash via OpenRouter. Output is Pydantic-validated and visibility-filtered, then written to `town_members` (mood/activity/state) and `brain_runs.output` (facts + news). `events` are user calendars, not brain output.
-2. **Character agents**: `agent_loop` claims due `agents` rows (`db.claim_due_agents`, conditional update) and Gemini Flash-Lite (OpenRouter) picks from the fixed `agent_action` menu. A character's location is `agents.target.building_id`. Chat bubbles go in `agent_actions.details.lines`. Failures become `idle`.
+2. **Character agents**: `agent_loop` claims due `agents` rows, and only the process holding `loop_leases` name `agent` does. Town time is the `town_clock` row (slider scrubs it, Live, Play (1 game minute per second) and Fast resume from that hour; a restart does not add process uptime). Where someone stands is written only by `snap_town_to_clock` / `snap_member_to_clock` (`plan_clock_placement`): idle means x/y is that door. Every `agents` update sets a new `written_by` or Postgres rejects it. Trigger `agents_follow_calendar` (`20260926000012`) re-plans every position change in SQL (`calendar_placement`, a mirror of `current_trip`) at `target.clock_at` and rejects it if the calendar, the door, or the town clock disagree. Change the SQL and `calendar_drive.py` together. The agent does not commit a calendar position. A failed model call does not change `action` while a calendar trip owns the character. Chat bubbles go in `agent_actions.details.lines`.
 3. **Plan drafting (stub, no model yet)**: when every participant accepts, `events.status` goes `suggested` → `scheduled` and `GET /events/{id}` includes a drafted `plan`. A participant approves it via `POST /events/{id}/approve` → `confirmed`. The draft is recomputed on read; persisting it needs a migration.
 
 ## Hard Rules
@@ -42,7 +42,7 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Database
 
-Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. The Supabase GitHub integration applies new migrations on `main` automatically, so **never change the schema by hand in the dashboard**. Preview locally with `supabase db push --db-url "$SUPABASE_DB_URL" --dry-run`.
+Hackathon-simple on purpose: 12 tables (10 core + friends/invites), plus `town_clock` and `loop_leases` so every process shares one clock and one agent writer. Add more only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. The Supabase GitHub integration applies new migrations on `main` automatically, so **never change the schema by hand in the dashboard**. Preview locally with `supabase db push --db-url "$SUPABASE_DB_URL" --dry-run`.
 
 **Tables**
 - `profiles`: one per user, auto-created on signup. Unique `username` (how people find each other; set via `PATCH /me`), avatar (`{character, color}`) and `interests` (text array).
@@ -96,6 +96,18 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - [x] Demo calendars: five people, three days of class/work/dinner as `events` (`type=personal`)
 
 ## Decisions Log
+
+- 2026-09-26: Characters walk the calendar instead of popping onto the door. The page moves them from where they are standing, starting `events.travel_minutes` before the event and arriving as it starts (and the same on the way home). A later event's leave time pulls them off an earlier one. Play/Fast were skipping that window: the agent only rechecked every 20 real seconds, which is 20 game minutes at the play rate, so the next write was already "idle at the door".
+
+- 2026-09-26: Play button (▶/⏸ next to the time slider) runs the shared town clock at one game minute per real second: `POST /demo/clock {play:true}`, `town_clock.rate` 60, mode `play` (migration `20260926000013_clock_play`). Pause stops it at the minute on screen (a scrub). Walks and the calendar trigger follow the rate, so nothing else changed.
+
+- 2026-09-26: Postgres decides whether a position is allowed (`20260926000012`). A process outside this repo was still writing `agents` with its own afternoon clock (tags `agent:`/`claim:`), and it set `written_by`, so the writer guard passed it. The trigger now rejects any position change that is not what the calendar says at `target.clock_at`, whose `clock_at` is off the `town_clock` row, or where an idle x/y is not the target door. Only a user's own move (`target.by = "user"`) skips the calendar check. The page ignores an idle row whose x/y is on a different door. The clock migration moved to `20260926000011` because `origin/main` added its own `000009`/`000010`.
+
+- 2026-09-26: A placement is drawn only when it belongs to the hour on screen. A slower poll from the previous hour is dropped, and a walk that is already on screen is not restarted from the curb. That restart was the remaining teleport while the slider stayed put.
+
+- 2026-09-26: Town time is a `town_clock` row (`20260926000011`), not `TOWN_CLOCK` plus process uptime. Live and Fast anchor at the hour already on screen. One agent loop holds `loop_leases` (`claim_loop_lease`); a second new process skips. `agents.written_by` must change on every update, so an older process that omits it cannot place people. The label still comes from `GET /demo/clock`.
+
+- 2026-09-26: One town clock. The 3D label is set from `GET /demo/clock` on load and polled after that; it does not follow the laptop clock. Live cancels a pending slider post. Calendar position has one writer (`plan_clock_placement`); the client does not restart a walk when action, building, and depart time are unchanged.
 
 - 2026-09-26: Split the web code: 3D town moved out of `frontend/` into top-level `town/` (page at `/town/?town=<id>`, was `frontend/town.html`), with the old 1,900-line `main.js` split into feature modules in `town/js/`. `frontend/` is the account app only (`app/`, `shared/`). Both are served from the repo root by `serve.py`, which serves only those two folders. Older entries below mention `frontend/main.js`; that code now lives in `town/js/`.
 

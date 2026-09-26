@@ -13,9 +13,15 @@ from backend.agent.prompt import build_agent_system_prompt, build_agent_user_pro
 from backend.agent.validate import parse_raw_json, validate_agent_decision
 from backend.config import settings
 from backend.db import get_client, iso_in, now_iso, parse_ts, recent_facts
+from backend.writer import fresh_writer, stamp
 from backend.interactions.path_score import record_interaction
 from backend.llm import complete
-from backend.calendar_drive import current_trip, estimate_travel_minutes, next_check_iso
+from backend.calendar_drive import (
+    current_trip,
+    estimate_travel_minutes,
+    next_check_iso,
+    snap_member_to_clock,
+)
 from backend.schedules import label, local_now
 from backend.models.agents import (
     ActiveEventSummary,
@@ -50,12 +56,13 @@ def _event_is_now(event: dict, now: datetime) -> bool:
 
 
 def write_idle(db, town_id: str, user_id: str, reason: str) -> None:
-    # Leave updated_at alone so a failed model call doesn't restart the walk the calendar just started.
-    db.table("agents").update(
-        {"action": AgentAction.idle.value, "next_decision_at": jittered_next_decision()}
-    ).eq("town_id", town_id).eq("user_id", user_id).execute()
+    # Only the clock snap places people. Flipping action to idle while target is the library
+    # draws them on the library door, and Postgres rejects it anyway.
+    change = {"next_decision_at": jittered_next_decision()}
+    db.table("agents").update(stamp(change)).eq("town_id", town_id).eq("user_id", user_id).execute()
     db.table("agent_actions").insert(
-        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": reason}}
+        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value,
+         "details": {"reasoning": reason}, "written_by": fresh_writer()}
     ).execute()
 
 
@@ -172,7 +179,7 @@ def commit_decision(
     here = next((b for b in ctx.available_buildings if b["id"] == ctx.current_location_building_id), {})
     if here.get("door"):
         change["x"], change["y"] = here["door"]
-    db.table("agents").update(change).eq("town_id", town_id).eq("user_id", user_id).execute()
+    db.table("agents").update(stamp(change)).eq("town_id", town_id).eq("user_id", user_id).execute()
 
     details = {
         "reasoning": decision.reason,
@@ -183,79 +190,52 @@ def commit_decision(
     if lines:
         details["lines"] = lines
     db.table("agent_actions").insert(
-        {"town_id": town_id, "user_id": user_id, "action": decision.action, "details": details}
+        {"town_id": town_id, "user_id": user_id, "action": decision.action, "details": details,
+         "written_by": fresh_writer()}
     ).execute()
 
     if decision.action in SOCIAL_ACTIONS and decision.target_user_id:
         record_interaction(db, user_id, decision.target_user_id, InteractionVia.in_town.value)
 
 
-def _stay_home(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict) -> AgentDecisionOutput:
-    """Park this character at their own door and do not ask the model where to go."""
-    home = house_building_id(user_id)
-    decision = AgentDecisionOutput(action=AgentAction.idle.value, target_building_id=home, reason="Nothing on the calendar right now.")
-    if location(me) == home and (me.get("action") or AgentAction.idle.value) == AgentAction.idle.value:
-        db.table("agents").update({"next_decision_at": jittered_next_decision()}).eq("town_id", town_id).eq(
-            "user_id", user_id
-        ).execute()
-        return decision
-    spot = next((b for b in ctx.available_buildings if b["id"] == home), {})
-    door = spot.get("door")
-    target = {k: v for k, v in {"building_id": home, "x": spot.get("x"), "y": spot.get("y"), "door": door}.items() if v is not None}
-    change = {
-        "action": AgentAction.idle.value,
-        "target": target or None,
-        "next_decision_at": jittered_next_decision(),
-        "updated_at": now_iso(),
-    }
-    if door:
-        change["x"], change["y"] = door
-    db.table("agents").update(change).eq("town_id", town_id).eq("user_id", user_id).execute()
-    db.table("agent_actions").insert(
-        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": decision.reason}}
-    ).execute()
-    return decision
-
-
-def follow_calendar(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict) -> AgentDecisionOutput | None:
-    """If this person has a calendar block now, walk there / stay there. Not an LLM call."""
+def follow_calendar(db, town_id: str, user_id: str, _ctx: AgentDecisionInput, _me: dict) -> AgentDecisionOutput:
+    """Keep the model from choosing a building. Position is written only by the clock snap."""
     now = local_now()
+    # Same writer as POST /demo/clock. Do not commit_decision: that stored the old door in x/y
+    # and the new building on target, and the screen drew the target.
+    snap_member_to_clock(db, town_id, user_id, now)
     rows = (
         db.table("events")
         .select("id, title, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")
-        .eq("town_id", town_id).eq("type", "personal").eq("status", EventStatus.active.value)
+        .eq("town_id", town_id).eq("type", "personal")
         .execute().data or []
     )
     mine = [e for e in rows if user_id in {p["user_id"] for p in (e.get("event_participants") or [])}]
     trip = current_trip(mine, user_id, now)
     if trip is None:
-        # Before the first event of the day there is no trip. Stay home — don't keep the last place
-        # they walked to (that left Romeer at the library at 8:54, three hours early).
-        return _stay_home(db, town_id, user_id, ctx, me)
-    dest = trip["building_id"]
-    if location(me) == dest and (me.get("action") or AgentAction.idle.value) == trip["action"]:
-        db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
-            "user_id", user_id
-        ).execute()
-        # Return a decision so the model is not asked to walk them somewhere else.
-        return AgentDecisionOutput(action=trip["action"], target_building_id=dest, reason="Already where the calendar says.")
-    title = trip["event"].get("title") or "an event"
-    if trip["phase"] == "walking":
-        reason = f"Leaving for {title} ({trip['travel_minutes']} min walk, starts {label(trip['start_at'])})."
-    elif trip["phase"] == "there":
-        reason = f"At {title} until {label(trip['end_at'])}."
-    elif trip["phase"] == "going_home":
-        reason = f"Heading home after {title}."
+        decision = AgentDecisionOutput(
+            action=AgentAction.idle.value,
+            target_building_id=house_building_id(user_id),
+            reason="Nothing on the calendar right now.",
+        )
+        until = now + timedelta(seconds=20)
     else:
-        reason = f"Home after {title}."
-    decision = AgentDecisionOutput(
-        action=trip["action"], target_building_id=dest, reason=reason, fact_ids=[trip["event"]["id"]]
-    )
-    commit_decision(
-        db, town_id, user_id, decision, ctx, [],
-        walk={"travel_minutes": trip["travel_minutes"], "depart_at": trip.get("depart_at")},
-    )
-    db.table("agents").update({"next_decision_at": next_check_iso(trip["until"], now)}).eq("town_id", town_id).eq(
+        dest = trip["building_id"]
+        title = trip["event"].get("title") or "an event"
+        if trip["phase"] == "walking":
+            reason = f"Leaving for {title} ({trip['travel_minutes']} min walk, starts {label(trip['start_at'])})."
+        elif trip["phase"] == "there":
+            reason = f"At {title} until {label(trip['end_at'])}."
+        elif trip["phase"] == "going_home":
+            reason = f"Heading home after {title}."
+        else:
+            reason = f"Home after {title}."
+        decision = AgentDecisionOutput(
+            action=trip["action"], target_building_id=dest, reason=reason, fact_ids=[trip["event"]["id"]]
+        )
+        until = trip["until"]
+    # Next look only. updated_at stays as the snap left it, so the client does not restart the walk.
+    db.table("agents").update(stamp({"next_decision_at": next_check_iso(until, now)})).eq("town_id", town_id).eq(
         "user_id", user_id
     ).execute()
     return decision
@@ -272,9 +252,9 @@ def decide_for_character(town_id: str, user_id: str) -> AgentDecisionOutput | No
         if trip:
             return trip
         if still_committed(me):
-            db.table("agents").update({"next_decision_at": jittered_next_decision()}).eq("town_id", town_id).eq(
-                "user_id", user_id
-            ).execute()
+            db.table("agents").update(stamp({"next_decision_at": jittered_next_decision()})).eq(
+                "town_id", town_id
+            ).eq("user_id", user_id).execute()
             return None
         if not settings.OPENROUTER_API_KEY:
             write_idle(db, town_id, user_id, "OPENROUTER_API_KEY missing")

@@ -6,6 +6,7 @@ import threading
 from supabase import Client, create_client
 
 from backend.config import settings
+from backend.writer import stamp
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -68,7 +69,7 @@ def claim_due_agents(db, limit: int = 10, lease_seconds: int = 30) -> list[dict]
     for row in due:
         won = (
             db.table("agents")
-            .update({"next_decision_at": iso_in(lease_seconds)})
+            .update(stamp({"next_decision_at": iso_in(lease_seconds)}))
             .eq("town_id", row["town_id"])
             .eq("user_id", row["user_id"])
             .eq("next_decision_at", row["next_decision_at"])

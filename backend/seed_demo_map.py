@@ -80,8 +80,10 @@ def demo_tiles() -> list[list[str]]:
 
 
 def seed(town_id: str) -> None:
+    from backend.calendar_drive import snap_town_to_clock
     from backend.db import get_client, now_iso
     from backend.routes.demo import _town_members, cast_roles, primary_roles
+    from backend.schedules import local_now
 
     db = get_client()
     db.table("towns").update({"tiles": demo_tiles(), "map": TOWN_MAP}).eq("id", town_id).execute()
@@ -91,10 +93,11 @@ def seed(town_id: str) -> None:
         db.table("town_members").update(
             {"house_x": hx, "house_y": hy, "home": c["home"], "color": c["avatar"]["color"], "updated_at": now_iso()}
         ).eq("town_id", town_id).eq("user_id", user_id).execute()
-        db.table("agents").update({"x": dx, "y": dy}).eq("town_id", town_id).eq("user_id", user_id).execute()
         avatar = (db.table("profiles").select("avatar").eq("id", user_id).limit(1).execute().data or [{}])[0].get("avatar") or {}
         db.table("profiles").update({"avatar": {**avatar, **c["avatar"]}}).eq("id", user_id).execute()
-        print(f"{role:7} {user_id} house ({hx}, {hy}), standing at door ({dx}, {dy})")
+        print(f"{role:7} {user_id} house ({hx}, {hy}), door ({dx}, {dy})")
+    # Characters stand where the calendar says at the town clock. Postgres rejects any other position.
+    snap_town_to_clock(db, town_id, local_now())
     print(f"town {town_id}: {N}x{N} tiles + map written")
 
 
