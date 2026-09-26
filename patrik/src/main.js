@@ -128,12 +128,12 @@ class TownScene extends Phaser.Scene {
     this.setupCamera();
     this.renderResidents();
 
-    logFeed('Town loaded. Residents are wandering (scripted, not agent-driven).');
-    // ?auto=goodNews,climbing fires demo signals a few seconds apart (handy for rehearsals and screenshots)
+    logFeed('Town loaded. Demo buttons hit the backend, then fall back to scripted playback.');
+    connectTownRealtime(this);
     const auto = new URLSearchParams(location.search).get('auto');
-    auto?.split(',').forEach((t, i) => this.time.delayedCall(1500 + i * 2500, () => this.trigger(t)));
+    auto?.split(',').forEach((t, i) => this.time.delayedCall(1500 + i * 2500, () => triggerViaBackend(this, t)));
     document.querySelectorAll('[data-trigger]').forEach((b) => {
-      b.onclick = () => this.trigger(b.dataset.trigger);
+      b.onclick = () => triggerViaBackend(this, b.dataset.trigger);
     });
   }
 

@@ -16,69 +16,65 @@ An isometric town where each character is one of the user's real friends. The to
 
 When choosing between features, pick whichever does more for real-world connection.
 
-## Architecture (planned)
+## Architecture
 
-1. **Town brain**: one central AI pipeline. Runs periodically (~15 min) or when a friend's signals change. Reads opted-in signals and outputs structured town state: each friend's mood/location/status, shared interests, upcoming events, plus quests, storylines, and town news.
-2. **Character agents**: each friend's character has a lightweight agent (small, fast model) that wakes at decision points (every few minutes or on state change), looks at town state, and picks the next action from a **fixed menu**: walk to a building, visit/knock, chat with another character, leave a gift, propose an event, go home. Pathfinding and animation handle movement between decisions.
-3. **Action agents**: when a user accepts a quest/event, a real tool-using agent does the multi-step work (check calendars, find a time, create the plan, draft invites).
+1. **Town brain**: FastAPI loop in `backend/loops/brain_loop.py` polls `towns_with_unprocessed_signals()`, then `run_brain_for_town` calls Claude Sonnet. Output is Pydantic-validated and visibility-filtered before any write.
+2. **Character agents**: `agent_loop` atomically claims due `agents` rows (`claim_due_agents` RPC) and Haiku picks from the fixed `agent_action` menu. Failures become `idle`.
+3. **Action agent**: after every required participant accepts, `events.status` → `scheduled`, an `action_tasks` row is created, stub calendar/places tools draft a plan, human approves via `POST /action_tasks/{id}/approve`.
 
 ## Hard Rules
 
-- **Agents only use real facts.** A character agent may only use what its person shared, as interpreted by the town brain. Never invent feelings, events, or relationships about real people.
-- **Humans approve anything that leaves the town.** Agents act freely inside the town, but anything reaching a real person needs that person's approval. Agents never send messages as the user in real channels.
-- **Fixed action menu.** Don't let character agents free-form actions; new actions get added to the menu deliberately.
+- **Agents only use real facts.** Never invent feelings, events, or relationships about real people.
+- **Humans approve anything that leaves the town.** Agents never send messages as the user in real channels.
+- **Fixed action menu.** New actions get added to the menu deliberately.
 - **Pitch honestly.** Only call something an "agent" if a model is actually making decisions.
+- **LLM output never hits Postgres raw.** Brain and agents go through `backend/agent/validate.py` (Brain also `backend/brain/visibility.py`). Those loops are the only writers to `facts`, town-member AI fields, `agents`, `agent_conversations`, and `news`.
 
-## Tech Stack (tentative, update when decided)
+## Tech Stack
 
-- Rendering: leaning Three.js / React Three Fiber with an orthographic camera + Kenney 3D kits (town/city buildings, roads, trees, characters), which read as isometric. Fallback: fully 2D with Phaser + Kenney 2D isometric packs.
-- Assets: Kenney (kenney.nl). Search "isometric" for 2D packs; 3D kits live under the 3D section.
-- Database: Supabase (Postgres + Auth + Realtime). See **Database** below.
-- Models: TBD (small fast model for character agents; stronger model for town brain and action agents).
+- Rendering: Phaser 3 + Kenney 2D isometric (`patrik/`).
+- Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), Anthropic SDK. Town Brain + action agent: `claude-sonnet-4-6`. Character agents: `claude-haiku-4-5-20251001`. Two asyncio loops; no Redis/Celery.
+- Database: Supabase (Postgres + Auth + Realtime).
 
 ## Database
 
-Hackathon-simple on purpose: add tables only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. Apply with `supabase db push --db-url "$SUPABASE_DB_URL"` (after `source .env`); add `--dry-run` first to preview. Update this section when tables change.
+Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. Apply with `supabase db push --db-url "$SUPABASE_DB_URL"` (after loading `.env`); add `--dry-run` first.
 
-**Tables**
-- `profiles`: one per user, auto-created on signup. Avatar (JSON of asset keys) and `interests` (text array).
-- `towns`: name, `invite_code`, and `tiles`, a 2D JSON array of asset manifest keys indexed `tiles[y][x]` (e.g. `[["grass","road"],["cafe","grass"]]`). Buildings are just tiles.
-- `town_members`: who's in which town, their house position, and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
-- `friendships`: one row per pair (`user_a < user_b`) with `path_score`.
-- `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
-- `brain_runs`: each town hall AI run's `input` and `output`.
-- `events`: quests, storylines, town events, news.
-- `event_participants`: per-person `suggested`/`accepted`/`declined`. The approval gate.
-- `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
-- `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
+**Live tables (initial schema)**
+- `profiles`, `towns`, `town_members` (mood/activity/state = member_state), `friendships`, `signals`, `brain_runs`, `events`, `event_participants`, `agents` (agent_state), `agent_actions`.
+
+**Added for the backend (migrations `20260926*`)**
+- RPCs: `claim_due_agents`, `towns_with_unprocessed_signals`
+- `facts`, `visibility_rules`, `consents`, `inventory`, `news`, `agent_conversations`, `action_tasks`, `notifications`, `interactions`, `path_score_history`
+- `events.details`, `signals.expires_at`
+- Starting `gift` inventory on new profiles
 
 **Conventions**
-- **Assets are not in the database.** Files live in the frontend (`public/assets/`) with a code manifest; the DB stores manifest keys only.
-- **Agents act on the town hall AI's output**, not on raw signals.
-- **Live movement is client-side.** `agents` rows update only when an agent decides, not per frame.
-- **Access:** the backend uses the secret key (bypasses RLS) for all AI/agent writes. The frontend (publishable key) can read everything in towns it belongs to, edit its own profile, add its own signals, and accept/decline its own events. Join a town with `supabase.rpc('join_town', { code })`; creating a town auto-adds the creator. Keys live in `.env` (gitignored); see `.env.example`.
-- Realtime is on for `town_members`, `agents`, `agent_actions`, `events`, `event_participants`.
-- The agent action menu is the `agent_action` enum; adding an action means a migration.
+- Building ids used by agents (`gym`, `cafe`, `house:{user_id}`) match `patrik/` place keys.
+- Agents act on Brain output, not raw signals.
+- Live movement is client-side; `agents` rows update on decisions.
+- Backend uses the secret key. Frontend uses the publishable key + Realtime.
+- Run backend from repo root: `py -3 -m uvicorn backend.main:app --reload`. Serve `patrik/` with `py -3 -m http.server`.
 
 ## Demo Plan
 
-Have triggerable signals ready (a friend "gets" good news; two friends both mention climbing) so judges see the town react live: party lights appear, characters walk to the café/square, a chat bubble plays out, and a quest pops up for the two real friends.
+`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. Phaser buttons call that endpoint with a 3s timeout, then fall back to scripted `trigger()` in `main.js`. Demo town members must be named Maya, Jordan, Sam, Priya, Leo; set `DEMO_TOWN_ID`.
 
 ## Status
 
-- [ ] Repo scaffolding / stack chosen
-- [ ] Town rendering + camera
-- [x] Database schema (Supabase migration + RLS)
-- [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2), condensed schema applied and verified
-- [ ] Town brain pipeline
-- [ ] Character agent loop + action menu
-- [ ] Quest UI + approval flow
-- [ ] Action agent (calendar/plan)
-- [ ] Demo signal triggers
+- [x] Repo scaffolding / stack chosen (FastAPI + Phaser)
+- [x] Town rendering + camera (`patrik/`)
+- [x] Database schema (initial + backend support migrations)
+- [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2)
+- [x] Town brain pipeline
+- [x] Character agent loop + action menu
+- [x] Quest respond + approval flow
+- [x] Action agent (stub calendar/places)
+- [x] Demo signal triggers + frontend Realtime + scripted fallback
 
 ## Decisions Log
 
-- 2026-09-25: `patrik/` has a 2D prototype of the fallback stack (Phaser 3 + Kenney 2D isometric tiles; a small city with a road grid, stacked multi-story buildings and a central park; characters from the isometric-miniature-dungeon pack). Serve with `python3 -m http.server` from `patrik/`; `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior there is scripted, not agent-driven.
-- 2026-09-25: Characters get real agents with initiative, grounded by the town brain's state and a fixed action menu (not pure rule-driven, not free-running per-character LLMs).
-- 2026-09-25: Supabase for the database. Asset files ship with the frontend; the DB stores only manifest keys and layouts, so towns (including generated ones) are data, not files.
-- 2026-09-25: Condensed schema to 10 tables for the hackathon; towns store tiles as one 2D array. Dropped visibility/consent/integration tables until needed.
+- 2026-09-25: `patrik/` Phaser 3 + Kenney 2D isometric prototype. `?auto=goodNews,climbing,roughWeek` plays demo signals.
+- 2026-09-25: Real character agents, grounded by the town brain, fixed action menu.
+- 2026-09-25: Supabase. Condensed schema to 10 core tables. Assets are files; DB stores keys.
+- 2026-09-26: Backend in `backend/`. Plan names map to live tables (`agents`, `town_members`). Extra loop tables are new migrations; `20260925000000_initial_schema.sql` is untouched. Postgres `agent_action` uses `walk_to` (`walk_to_building` is a validation alias). Invite-join max-uses and `purge_expired_signals` remain P1.

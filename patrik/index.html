@@ -83,13 +83,16 @@
     <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
     <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
     <button data-trigger="reset">↺ Reset town</button>
-    <div class="note">Character behavior here is scripted and random. No model is making decisions yet.</div>
+    <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
   </section>
 
   <div id="cards"></div>
   <div id="hint" class="panel">Drag to pan · scroll to zoom · click a resident</div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="lib/phaser.min.js"></script>
+  <script src="src/config.js"></script>
+  <script src="src/realtime.js"></script>
   <script src="src/main.js"></script>
 </body>
 </html>

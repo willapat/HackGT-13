@@ -3,3 +3,8 @@
 !.env.example
 node_modules/
 .DS_Store
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+*.pyc
