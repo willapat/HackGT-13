@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
@@ -18,6 +19,20 @@ class ProfileUpdate(BaseModel):
     avatar: dict | None = None  # asset manifest keys
     interests: list[str] | None = Field(default=None, max_length=30)
     bio: str | None = Field(default=None, max_length=160)
+    # IANA name from the browser (Intl), e.g. "America/Los_Angeles": the person's own "today" and plan hours.
+    # Times themselves are always stored in UTC.
+    timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def _real_zone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("unknown time zone")
+        return v
 
 
 Tile = Annotated[list[int], Field(min_length=2, max_length=2)]  # [x, y]

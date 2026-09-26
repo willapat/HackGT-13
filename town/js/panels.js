@@ -33,8 +33,8 @@ function placeName(ev) {
 function townWall(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const et = new Date(d.getTime() - 4 * 60 * 60 * 1000); // town is America/New_York, EDT in September
-  return { y: et.getUTCFullYear(), mo: et.getUTCMonth() + 1, d: et.getUTCDate(), h: et.getUTCHours(), min: et.getUTCMinutes() };
+  // In this viewer's own time zone (times are stored in UTC)
+  return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), min: d.getMinutes() };
 }
 
 function clockDateLabel(iso) {
@@ -111,8 +111,8 @@ export function renderSchedules(rows) {
 }
 
 export function markCurrentScheduleItems() {
-  const townM = townMinutesNow(); // Eastern town minutes (see people.js isoTownMinutes) back to a UTC timestamp
-  const now = townM == null ? Date.now() : townM * 60000 + 4 * 60 * 60 * 1000;
+  const townM = townMinutesNow(); // UTC minutes, same scale as event times
+  const now = townM == null ? Date.now() : townM * 60000;
   document.querySelectorAll('#schedules .sched-item').forEach((el) => {
     const s = Date.parse(el.dataset.start || ''), e = Date.parse(el.dataset.end || '');
     el.classList.toggle('now', Number.isFinite(s) && Number.isFinite(e) && s <= now && now < e);

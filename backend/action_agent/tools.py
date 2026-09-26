@@ -4,7 +4,7 @@
 from datetime import timedelta
 
 from backend.db import get_client
-from backend.schedules import busy_blocks, free_slots, local_now
+from backend.schedules import busy_blocks, free_slots, local_now, user_tz
 
 SEARCH_DAYS = 3
 
@@ -12,8 +12,11 @@ SEARCH_DAYS = 3
 def find_time_slots(participant_user_ids: list[str], count: int = 3) -> list[dict]:
     """Two-hour windows in the next few days when no participant's shared calendar is busy."""
     now = local_now()
-    busy = busy_blocks(get_client(), participant_user_ids, now, now + timedelta(days=SEARCH_DAYS))
-    return free_slots(busy, now, days=SEARCH_DAYS, count=count)
+    db = get_client()
+    busy = busy_blocks(db, participant_user_ids, now, now + timedelta(days=SEARCH_DAYS))
+    # Daytime hours in the first participant's time zone (the person the plan is being made for)
+    tz = user_tz(db, participant_user_ids[0] if participant_user_ids else None)
+    return free_slots(busy, now, days=SEARCH_DAYS, count=count, tz=tz)
 
 
 PLACES = {

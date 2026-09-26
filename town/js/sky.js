@@ -9,8 +9,10 @@ import { markCurrentScheduleItems } from './panels.js';
 import { controls, hemi, renderer, scene, SNOW_SKIP, sun } from './stage.js';
 
 // Two clocks. townClock is the server's town time (town_clock row, via /towns/{id} and /demo/clock): it alone
-// decides where people are and how far along a walk they are. sky.hour is only the lighting: Live follows
-// townClock, while the slider, Fast and Play change the look on this screen and never touch the server.
+// decides where people are and how far along a walk they are. It is a real moment (UTC), so everyone sees the
+// same positions. sky.hour is only the lighting, in this viewer's own time zone: Live follows townClock shown in
+// local time (6pm in Atlanta is 3pm in San Francisco), while the slider, Fast and Play change the look on this
+// screen and never touch the server.
 // Weather drifts on its own every couple of minutes until a weather button pins it.
 
 export const sky = {
@@ -245,7 +247,9 @@ function setWeather(w, pinned = true) {
 export function updateSky(dt) {
   const townM = townMinutesNow();
   if (sky.live && townM != null) {
-    sky.hour = (townM - Date.UTC(sky.y, sky.mo - 1, sky.d) / 60000) / 60 % 24;
+    const local = new Date(townM * 60000); // the town's moment, in this browser's time zone
+    sky.y = local.getFullYear(); sky.mo = local.getMonth() + 1; sky.d = local.getDate();
+    sky.hour = local.getHours() + local.getMinutes() / 60 + local.getSeconds() / 3600;
   } else if (sky.fast) {
     sky.hour = (sky.hour + dt * (24 / 120)) % 24;
   } else if (sky.play) {
@@ -375,33 +379,26 @@ export function updateSky(dt) {
   if (document.querySelector('#schedules .sched-item')) markCurrentScheduleItems();
 }
 
-function hourFromIso(iso) {
-  const m = String(iso || '').match(/T(\d{2}):(\d{2}):(\d{2})/);
-  return m ? +m[1] + +m[2] / 60 + +m[3] / 3600 : null;
-}
+// Town time per real millisecond for each town_clock mode (fast: a day in two minutes; play: a minute a second).
+const RATE = { live: 1, fast: (24 * 60) / 2, play: 60 };
+const townClock = { ms: null, at: 0, rate: 0 };
 
-function dateFromIso(iso) {
-  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null;
-}
-
-// Town minutes per real millisecond for each town_clock mode (fast: a day in two minutes; play: a minute a second).
-const RATE = { live: 1 / 60000, fast: 1440 / 120000, play: 1 / 1000 };
-const townClock = { hour: null, at: 0, rate: 0 };
-
-// Every server reading lands here, whatever the slider shows: the town clock is never local.
+// Every server reading lands here, whatever the slider shows: the town clock is never local. `iso` carries its
+// UTC offset, so parsing it gives the real moment whatever zone the server or viewer is in.
 export function applyTownTime(iso, mode) {
-  const hour = hourFromIso(iso);
-  const ymd = dateFromIso(iso);
-  if (hour == null || !ymd) return;
-  sky.y = ymd.y; sky.mo = ymd.mo; sky.d = ymd.d;
-  Object.assign(townClock, { hour, at: performance.now(), rate: RATE[mode] || 0 });
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return;
+  Object.assign(townClock, { ms, at: performance.now(), rate: RATE[mode] || 0 });
+  if (sky.live || !sky.y) {
+    const local = new Date(ms);
+    sky.y = local.getFullYear(); sky.mo = local.getMonth() + 1; sky.d = local.getDate();
+  }
 }
 
-// Server town time now, in minutes on the same scale as people.js isoTownMinutes. Null before the first reading.
+// Server town time now, in UTC minutes (same scale as people.js isoTownMinutes). Null before the first reading.
 export function townMinutesNow() {
-  if (townClock.hour == null) return null;
-  return Date.UTC(sky.y, sky.mo - 1, sky.d) / 60000 + townClock.hour * 60 + (performance.now() - townClock.at) * townClock.rate;
+  if (townClock.ms == null) return null;
+  return (townClock.ms + (performance.now() - townClock.at) * townClock.rate) / 60000;
 }
 export const townClockRunning = () => townClock.rate > 0;
 

@@ -144,8 +144,19 @@ async function afterSignIn() {
     return show('error');
   }
   if (!me.username) return showUsername();
+  saveTimeZone();
   renderIdentity();
   route();
+}
+
+// Times are stored in UTC; your profile remembers your time zone so plan hours and "today" use yours.
+// Kept up to date quietly, e.g. after you travel.
+function saveTimeZone() {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!zone || me.timezone === zone) return;
+  api('/me', { method: 'PATCH', body: { timezone: zone } })
+    .then((row) => { if (row) me.timezone = row.timezone; })
+    .catch(() => {}); // e.g. the column isn't in the database yet: nothing to show the person
 }
 
 const signOut = async (scope = 'local') => {

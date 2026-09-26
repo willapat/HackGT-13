@@ -18,7 +18,7 @@ getSupabase().then((sb) => sb.auth.getSession()).then(({ data }) => { meId = dat
 const isHouse = (id) => id.startsWith('house:');
 const houseOwner = (id) => friends[id.slice(6)];
 const nameOf = (id) => (isHouse(id) ? houseOwner(id)?.home?.name || 'A house' : PLACES[id]?.name || id);
-const townTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+const townTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); // viewer's own time
 
 // Known place ids (towngen catalog, plus the parks and landmarks a town can name). Anything else stays "Place".
 const KIND = {

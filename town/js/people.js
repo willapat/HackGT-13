@@ -118,13 +118,11 @@ export function walkTo(f, target, shift = 0, timing = null) {
   return new Promise((resolve) => { f.resolveWalk = resolve; });
 }
 
+// Event and walk times in UTC minutes, the same scale as sky.js townMinutesNow, so positions are the same for
+// every viewer whatever their time zone (and daylight saving can't shift them).
 function isoTownMinutes(iso) {
   const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return null;
-  // Postgres returns UTC. The town clock is Eastern (EDT in September), same offset as townWall.
-  const et = new Date(t - 4 * 60 * 60 * 1000);
-  return Date.UTC(et.getUTCFullYear(), et.getUTCMonth(), et.getUTCDate()) / 60000
-    + et.getUTCHours() * 60 + et.getUTCMinutes() + et.getUTCSeconds() / 60;
+  return Number.isFinite(t) ? t / 60000 : null;
 }
 
 // Minutes still to walk, from the trip the character is already on. Null when that time isn't known.
