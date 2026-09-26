@@ -26,6 +26,21 @@ def test_news_is_deduped_across_runs_and_newest_first():
     assert items[0]["town"] == {"id": "t1", "name": "Lakeside"}
 
 
+def test_news_about_a_post_is_hidden():
+    runs = [
+        {"id": "r3", "town_id": "t1", "created_at": iso(NOW), "input": {"signal_ids": ["p1", "s2"]},
+         "output": {"news": [{"title": "Maya has a singing take", "source_signal_ids": ["p1"]},
+                             {"title": "Sam got the job", "source_signal_ids": ["s2"]}]}},
+        # From before news cited signals: the run read a post, so none of its news shows
+        {"id": "r2", "town_id": "t1", "created_at": iso(NOW - timedelta(hours=1)), "input": {"signal_ids": ["p0"]},
+         "output": {"news": [{"title": "Maya's got singing on the mind"}]}},
+        {"id": "r1", "town_id": "t1", "created_at": iso(NOW - timedelta(hours=2)), "input": {"signal_ids": ["s1"]},
+         "output": {"news": [{"title": "Sam is climbing"}]}},
+    ]
+    items = build_feed("me", TOWNS, MEMBERS, runs, [], [], NOW, post_ids={"p0", "p1"})["items"]
+    assert [i["title"] for i in items] == ["Sam got the job", "Sam is climbing"]
+
+
 def test_social_actions_name_both_people_and_skip_movement():
     actions = [
         {"id": 3, "town_id": "t1", "user_id": "maya", "action": "chat", "created_at": iso(NOW),

@@ -11,6 +11,12 @@ from datetime import datetime
 from backend.status import active_status
 
 
+def is_post(signal: dict) -> bool:
+    """A post someone wrote in the composer. It already shows on the feed word for word, so the town
+    brain never turns it into news (one post read by six towns' brains made six paraphrased copies)."""
+    return bool((signal.get("value") or {}).get("audience"))
+
+
 def post_items(uid: str, signals: list[dict], towns: dict[str, str], people: dict[tuple[str, str], dict],
                friends: dict[str, dict], now: datetime) -> list[dict]:
     """signals: recent manual signals from you, your friends and your townmates. towns: {town_id: name} you're in.

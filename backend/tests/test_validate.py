@@ -136,6 +136,17 @@ def test_full_signal_passes_through():
     assert len(out.news) == 1 and len(out.quest_candidates) == 1
 
 
+def test_a_post_never_becomes_news():
+    # A friends post reaches every town you're in; each brain restating it gave six copies of one post
+    post = {"id": "p1", "user_id": "jordan", "value": {"text": "Unpopular opinion about singing", "audience": "friends"}}
+    other = {"id": "s2", "user_id": "sam", "value": {"mood": "good_news"}}
+    output = BrainOutput(news=[NewsItem(title="Jordan has a singing take", source_signal_ids=["p1"]),
+                               NewsItem(title="Sam got good news", source_signal_ids=["s2"]),
+                               NewsItem(title="Uncited")])
+    out = apply_visibility(output, [post, other], [JORDAN_PREV, SAM_PREV])
+    assert [n.title for n in out.news] == ["Sam got good news"]  # uncited news in a run with a post is dropped too
+
+
 def test_brain_cannot_write_about_non_members():
     out = apply_visibility(_brain_output("x"), [], [SAM_PREV])
     assert out.facts == [] and out.member_states == [] and out.quest_candidates == []

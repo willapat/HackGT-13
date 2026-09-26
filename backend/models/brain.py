@@ -25,6 +25,7 @@ class MemberState(BaseModel):
 class NewsItem(BaseModel):
     title: str
     text: str | None = None
+    source_signal_ids: list[str] = Field(default_factory=list)
 
 
 class QuestCandidate(BaseModel):
