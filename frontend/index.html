@@ -94,10 +94,8 @@
     .badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 12px; text-align: center; margin-left: 6px; vertical-align: 1px; }
     .section + .section { margin-top: 20px; }
 
-    .enter { display: flex; align-items: center; gap: 14px; }
-    .enter .txt { flex: 1; }
-    .enter .txt b { display: block; font-size: 16px; }
-    .enter .txt span { color: var(--muted); font-size: 13px; }
+    ul.people li.town { cursor: pointer; }
+    ul.people li.town:hover { outline: 2px solid var(--accent); }
 
     .spinner { width: 28px; height: 28px; border: 3px solid rgba(255, 255, 255, 0.5); border-top-color: #fff; border-radius: 50%; margin: 30px auto; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -183,9 +181,10 @@
           <button class="small" id="sign-out">Sign out</button>
         </div>
 
-        <div class="card enter">
-          <div class="txt"><b>Your town</b><span>Walk around and see what your friends are up to.</span></div>
-          <button class="primary" id="enter-town">Enter town →</button>
+        <div class="card">
+          <h3>Your towns</h3>
+          <ul class="people" id="towns"></ul>
+          <p class="empty" id="no-towns">None yet. When a friend invites you to their town, it shows up here.</p>
         </div>
 
         <div class="card">

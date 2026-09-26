@@ -147,10 +147,13 @@ def commit_decision(
     target = {"building_id": building_id, "x": spot.get("x"), "y": spot.get("y"), "door": spot.get("door"),
               "user_id": decision.target_user_id}
     target = {k: v for k, v in target.items() if v is not None}
-    db.table("agents").update(
-        {"action": decision.action, "target": target or None, "next_decision_at": jittered_next_decision(),
-         "updated_at": now_iso()}
-    ).eq("town_id", town_id).eq("user_id", user_id).execute()
+    change = {"action": decision.action, "target": target or None, "next_decision_at": jittered_next_decision(),
+              "updated_at": now_iso()}
+    # Clients animate each walk from (x, y): start it at the door of where they last went (assumed arrived).
+    here = next((b for b in ctx.available_buildings if b["id"] == ctx.current_location_building_id), {})
+    if here.get("door"):
+        change["x"], change["y"] = here["door"]
+    db.table("agents").update(change).eq("town_id", town_id).eq("user_id", user_id).execute()
 
     details = {
         "reasoning": decision.reason,

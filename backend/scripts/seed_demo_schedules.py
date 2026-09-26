@@ -1,10 +1,9 @@
-"""Seed five demo people with three days of calendars in DEMO_TOWN_ID.
+"""Seed the current Tiny Town members with three days of calendars in DEMO_TOWN_ID.
 
     py -3 -m backend.scripts.seed_demo_schedules
 
-Safe to re-run: reuses members by display name, creates missing ones as demo accounts, and replaces only
-the calendar signals it wrote before (value.seed = SEED_TAG). Day 0 is today in town time.
-The brain loop picks the new signals up on its next pass.
+Safe to re-run: reuses members by display name, and replaces only the calendar signals it wrote
+before (value.seed = SEED_TAG) plus this town's personal events. Day 0 is today in town time.
 """
 
 import secrets
@@ -20,49 +19,43 @@ SEED_TAG = "demo_schedule"
 EMAIL_DOMAIN = "tinytown-demo.example.com"
 
 PEOPLE = {
-    "Ana": ["climbing", "coffee"],
-    "Ben": ["running", "climbing"],
-    "Sam": ["climbing", "video games"],
-    "Priya": ["cooking", "climbing"],
-    "Leo": ["music", "cooking"],
+    "Drew": ["climbing", "coffee"],
+    "Romeer Dhillon": ["running", "climbing"],
+    "bob": ["climbing", "video games"],
+    "patrik": ["cooking", "climbing"],
 }
 
 # (day, person, start, end, title, kind, building_id, place, with)
 SCHEDULE = [
-    # Day 0
-    (0, "Ana", "10:00", "14:00", "Shift at Bean There Café", "work", "cafe", None, []),
-    (0, "Ana", "16:00", "18:00", "Bouldering session", "activity", "gym", None, []),
-    (0, "Ben", "11:00", "13:00", "CS study group", "class", "library", None, []),
-    (0, "Ben", "19:00", "21:00", "Dinner with Leo", "social", "downtown", None, ["Leo"]),
-    (0, "Sam", "09:00", "12:00", "Shift at the market", "work", "market", None, []),
-    (0, "Sam", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
-    (0, "Priya", "13:00", "14:00", "Appointment", "appointment", None, None, []),
-    (0, "Priya", "17:00", "19:00", "Cooking night at home", "activity", None, "home", []),
-    (0, "Leo", "12:00", "17:00", "Shift at the market", "work", "market", None, []),
-    (0, "Leo", "19:00", "21:00", "Dinner with Ben", "social", "downtown", None, ["Ben"]),
-    # Day 1
-    (1, "Ana", "11:00", "12:30", "Brunch with Priya", "social", "cafe", None, ["Priya"]),
-    (1, "Ana", "15:00", "17:00", "Study for Linear Algebra", "class", "library", None, []),
-    (1, "Ben", "09:00", "10:30", "Morning run", "activity", "park", None, []),
-    (1, "Ben", "14:00", "18:00", "Shift downtown", "work", "downtown", None, []),
-    (1, "Sam", "14:00", "16:00", "Study for Linear Algebra", "class", "library", None, []),
-    (1, "Sam", "19:00", "21:00", "Game night", "activity", None, "home", []),
-    (1, "Priya", "11:00", "12:30", "Brunch with Ana", "social", "cafe", None, ["Ana"]),
-    (1, "Priya", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
-    (1, "Leo", "10:00", "12:00", "Band practice", "activity", "downtown", None, []),
-    (1, "Leo", "15:00", "16:30", "Groceries at the market", "activity", "market", None, []),
-    # Day 2
-    (2, "Ana", "09:30", "10:45", "Intro to Psychology", "class", None, "campus", []),
-    (2, "Ana", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
-    (2, "Ana", "17:00", "21:00", "Shift at Bean There Café", "work", "cafe", None, []),
-    (2, "Ben", "09:00", "17:00", "Internship", "work", "downtown", None, []),
-    (2, "Sam", "11:00", "12:15", "Data Structures", "class", None, "campus", []),
-    (2, "Sam", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
-    (2, "Sam", "18:30", "20:00", "Dinner with Priya", "social", "cafe", None, ["Priya"]),
-    (2, "Priya", "10:00", "14:00", "Research lab", "work", None, "campus", []),
-    (2, "Priya", "18:30", "20:00", "Dinner with Sam", "social", "cafe", None, ["Sam"]),
-    (2, "Leo", "13:00", "14:15", "Music Theory", "class", None, "campus", []),
-    (2, "Leo", "16:00", "18:00", "Workout", "activity", "gym", None, []),
+    # Day 0 — Saturday
+    (0, "Drew", "10:00", "14:00", "Shift at Bean There Café", "work", "cafe", None, []),
+    (0, "Drew", "16:00", "18:00", "Bouldering session", "activity", "gym", None, []),
+    (0, "Romeer Dhillon", "11:00", "13:00", "CS study group", "class", "library", None, []),
+    (0, "Romeer Dhillon", "19:00", "21:00", "Dinner with bob", "social", "downtown", None, ["bob"]),
+    (0, "bob", "09:00", "12:00", "Shift at the market", "work", "market", None, []),
+    (0, "bob", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
+    (0, "bob", "19:00", "21:00", "Dinner with Romeer Dhillon", "social", "downtown", None, ["Romeer Dhillon"]),
+    (0, "patrik", "13:00", "14:00", "Appointment", "appointment", None, None, []),
+    (0, "patrik", "17:00", "19:00", "Cooking night at home", "activity", None, "home", []),
+    # Day 1 — Sunday
+    (1, "Drew", "11:00", "12:30", "Brunch with patrik", "social", "cafe", None, ["patrik"]),
+    (1, "Drew", "15:00", "17:00", "Study for Linear Algebra", "class", "library", None, []),
+    (1, "Romeer Dhillon", "09:00", "10:30", "Morning run", "activity", "park", None, []),
+    (1, "Romeer Dhillon", "14:00", "18:00", "Shift downtown", "work", "downtown", None, []),
+    (1, "bob", "14:00", "16:00", "Study for Linear Algebra", "class", "library", None, []),
+    (1, "bob", "19:00", "21:00", "Game night", "activity", None, "home", []),
+    (1, "patrik", "11:00", "12:30", "Brunch with Drew", "social", "cafe", None, ["Drew"]),
+    (1, "patrik", "16:00", "18:00", "Climbing at Boulder Gym", "activity", "gym", None, []),
+    # Day 2 — Monday
+    (2, "Drew", "09:30", "10:45", "Intro to Psychology", "class", None, "campus", []),
+    (2, "Drew", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
+    (2, "Drew", "17:00", "21:00", "Shift at Bean There Café", "work", "cafe", None, []),
+    (2, "Romeer Dhillon", "09:00", "17:00", "Internship", "work", "downtown", None, []),
+    (2, "bob", "11:00", "12:15", "Data Structures", "class", None, "campus", []),
+    (2, "bob", "14:00", "15:15", "Linear Algebra", "class", None, "campus", []),
+    (2, "bob", "18:30", "20:00", "Dinner with patrik", "social", "cafe", None, ["patrik"]),
+    (2, "patrik", "10:00", "14:00", "Research lab", "work", None, "campus", []),
+    (2, "patrik", "18:30", "20:00", "Dinner with bob", "social", "cafe", None, ["bob"]),
 ]
 
 
@@ -180,7 +173,9 @@ def main() -> None:
     today = local_now().replace(hour=0, minute=0, second=0, microsecond=0)
     rows = build_signals(ids, today)
     db.table("signals").insert(rows).execute()
-    old_events = db.table("events").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute().data or []
+    old_events = (
+        db.table("events").delete().eq("town_id", town_id).eq("type", EventType.personal.value).execute().data or []
+    )
     personal = build_personal_events(ids, today, town_id)
     created = 0
     for ev in personal:

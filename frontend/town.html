@@ -29,7 +29,14 @@
     #residents li { display: flex; gap: 8px; align-items: flex-start; }
     .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; }
     .status { color: var(--muted); font-size: 12px; }
-    #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 1; display: grid;
+    #schedules { overflow-y: auto; min-height: 140px; flex: 1.4; display: grid; gap: 12px; align-content: start; font-size: 12.5px; }
+    .sched-person h3 { margin: 0 0 2px; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+    .sched-day { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; margin: 8px 0 2px; font-weight: 700; }
+    .sched-item { padding: 4px 0; border-top: 1px solid var(--line); }
+    .sched-item.now { background: #eef3ff; border-radius: 6px; padding: 4px 6px; border-top: none; }
+    .sched-when { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .sched-where { color: var(--muted); font-size: 12px; }
+    #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 0.7; display: grid;
       gap: 4px; align-content: start; font-size: 12.5px; }
     #feed li { padding: 4px 0; border-top: 1px solid var(--line); }
     #feed time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
@@ -44,6 +51,7 @@
     .sky-row { display: flex; gap: 6px; align-items: center; }
     .sky-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
     #clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 88px; text-align: right; }
+    #town-date { font-size: 12px; font-weight: 600; color: var(--ink); }
     .sky-row button { flex: 1; }
     .sky-row.weather button { padding: 4px 0; font-size: 15px; }
     #triggers button.on { border-color: var(--accent); background: #eef3ff; }
@@ -107,6 +115,10 @@
       <ul id="residents"></ul>
     </div>
     <div class="feedwrap">
+      <h2>Schedules</h2>
+      <div id="schedules"><div class="sched-where">Waiting on calendars…</div></div>
+    </div>
+    <div class="feedwrap">
       <h2>Town feed</h2>
       <ul id="feed"></ul>
     </div>
@@ -120,6 +132,7 @@
     <button data-trigger="reset">↺ Reset town</button>
     <h2>Time &amp; weather</h2>
     <div class="sky-row"><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
+    <div class="sky-row" id="town-date" aria-live="polite"></div>
     <div class="sky-row"><button id="time-live">🕒 Live clock</button><button id="time-fast">⏩ Fast day</button></div>
     <div class="sky-row weather">
       <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>

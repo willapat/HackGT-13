@@ -82,8 +82,8 @@ def snap_town_to_clock(db, town_id: str, now: datetime) -> list[dict]:
     members = (
         db.table("town_members").select("user_id, house_x, house_y").eq("town_id", town_id).execute().data or []
     )
-    tiles = (db.table("towns").select("tiles").eq("id", town_id).limit(1).execute().data or [{}])[0].get("tiles")
-    spots = {b["id"]: b for b in buildings(tiles, members)}
+    town = (db.table("towns").select("tiles, map").eq("id", town_id).limit(1).execute().data or [{}])[0]
+    spots = {b["id"]: b for b in buildings(town.get("map"), members)}
     events = (
         db.table("events")
         .select("id, title, kind, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")

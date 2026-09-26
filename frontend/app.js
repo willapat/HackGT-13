@@ -7,6 +7,7 @@ const VIEWS = ['loading', 'error', 'auth', 'username', 'home'];
 
 let sb = null;
 let me = null; // current profile row
+let myTowns = []; // GET /me towns: [{house_x, house_y, joined_at, towns: {id, name, invite_code, created_by}}]
 let pollTimer = null;
 
 function show(view) {
@@ -51,7 +52,7 @@ $('#retry').onclick = boot;
 async function afterSignIn() {
   show('loading');
   try {
-    me = (await api('/me')).profile;
+    ({ profile: me, towns: myTowns } = await api('/me'));
   } catch (e) {
     if (e.status === 401) { await sb.auth.signOut(); return; }
     $('#error-text').textContent = e.message;
@@ -171,12 +172,29 @@ function showHome() {
   $('#me-handle').textContent = `@${me.username}`;
   message($('#search-msg'), '');
   $('#search-results').innerHTML = '';
+  renderTowns();
   show('home');
   refreshFriends();
 }
 
+// Each town you're in; clicking one opens it in 3D, built from its tiles and map in the database
+function renderTowns() {
+  fillList($('#towns'), myTowns.filter((t) => t.towns).map(({ towns: t, house_x: hx }) => {
+    const li = document.createElement('li');
+    li.className = 'town';
+    li.innerHTML = '<div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div><button class="small primary">Open →</button>';
+    li.querySelector('.avatar').textContent = initials(t.name);
+    li.querySelector('.avatar').style.background = colorFor(t.id);
+    li.querySelector('.name').textContent = t.name;
+    li.querySelector('.handle').textContent = [t.created_by === me.id ? 'Your town' : '', `invite code ${t.invite_code}`,
+      hx == null ? 'no house yet' : ''].filter(Boolean).join(' · ');
+    li.onclick = () => { location.href = `town.html?town=${encodeURIComponent(t.id)}`; };
+    return li;
+  }));
+  $('#no-towns').hidden = myTowns.length > 0;
+}
+
 $('#sign-out').onclick = () => sb.auth.signOut();
-$('#enter-town').onclick = () => { location.href = 'town.html'; };
 
 // A person row: avatar, name, @username, and optional action buttons [label, onClick, className]
 function personRow(p, actions = [], note = '') {

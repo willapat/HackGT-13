@@ -6,12 +6,34 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { startTownBackend } from './realtime.js';
+import { api } from './session.js';
+import { startTownSync } from './townsync.js';
 
-const N = 17;
-const ROADS = [2, 6, 10, 14];
-const CENTER = 8; // the park sits at the middle of the grid; the skyline rings it
-const inPark = (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
-const isRoad = (c, r) => ROADS.includes(c) || ROADS.includes(r);
+// town.html?town=<id> draws that town from the database (GET /towns/{id}): tiles, map places, members'
+// homes and looks, agents. Without it, the hard-coded demo town below is drawn.
+const TOWN_ID = new URLSearchParams(location.search).get('town');
+const TOWN = TOWN_ID ? await api(`/towns/${TOWN_ID}`).catch((e) => {
+  document.body.innerHTML = `<p style="font:16px sans-serif;padding:24px">Couldn't load this town: ${e.message}. <a href="index.html">Back</a></p>`;
+  throw e;
+}) : null;
+const TILES = TOWN?.town.tiles;
+const tileAt = (c, r) => TILES?.[r]?.[c];
+const tilesOf = (kind) => TILES ? TILES.flatMap((row, r) => row.flatMap((k, c) => (k === kind ? [[c, r]] : []))) : [];
+
+// Rectangular maps are drawn in an N x N square; tiles outside the map are left empty.
+const N = TILES ? Math.max(TILES.length, ...TILES.map((row) => row.length)) : 17;
+// Roads that run the full width/height of the map (buildCity's lamps and suburbs follow these)
+const ROADS = TILES
+  ? [...Array(N).keys()].filter((i) => TILES[i]?.every((k) => k === 'road') || TILES.every((row) => row[i] === 'road'))
+  : [2, 6, 10, 14];
+// ponytail: one CENTER is used for both axes, so the pond should sit on the diagonal (x === y); split into CX/CY if not
+const CENTER = TILES ? (tilesOf('pond')[0]?.[0] ?? Math.floor(N / 2)) : 8; // the park sits at the middle; the skyline rings it
+const PARKISH = new Set(['park', 'pond', 'tree']);
+const inPark = TILES ? (c, r) => PARKISH.has(tileAt(c, r)) : (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
+const isRoad = TILES ? (c, r) => tileAt(c, r) === 'road' : (c, r) => ROADS.includes(c) || ROADS.includes(r);
+// Tile words from backend/town_map.py; any other word is an explicit model (asset path without assets/ and .glb)
+const TILE_KINDS = new Set(['road', 'park', 'pond', 'tree', 'stadium', 'farm', 'home', 'driveway', 'yard', 'lot']);
+const asset = (k) => `assets/${k}.glb`;
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
 
 const SP = 'assets/simplepoly-city/';
@@ -64,11 +86,13 @@ const CURBSIDE = ['trash_bin_c', 'payphone_stand', 'garbage_collector_green_medi
 
 // Grid blocks between the roads: cols/rows 0-1, 3-5, 7-9, 11-13, 15-16
 const block = (c0, c1, r0, r1) => { const t = []; for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) t.push([c, r]); return t; };
-const STADIUM = { model: sp('building-stadium'), tiles: block(11, 13, 11, 13) }; // a full 3x3 city block
-const FARM = { tiles: block(0, 1, 15, 16) };
-const RIVER = { band: 4, width: 1, amp: 0.75 }; // a winding river through a green belt in front (+z) of the city
-
-const PLACES = {
+const STADIUM = TILES
+  ? { model: TOWN.town.map?.landmarks?.stadium?.model ? asset(TOWN.town.map.landmarks.stadium.model) : sp('building-stadium'), tiles: tilesOf('stadium') }
+  : { model: sp('building-stadium'), tiles: block(11, 13, 11, 13) }; // a full 3x3 city block
+const FARM = { tiles: TILES ? tilesOf('farm') : block(0, 1, 15, 16) };
+const PLACES = TILES ? Object.fromEntries(Object.entries(TOWN.town.map?.places || {}).map(([id, p]) => [id, {
+  name: p.name, ...(p.model ? { model: asset(p.model) } : {}), c: p.tile[0], r: p.tile[1], door: p.door,
+}])) : {
   library: { name: 'Library', model: sp('building-books-shop'), c: 3, r: 1, door: [3, 2] },
   gym: { name: 'Boulder Gym', model: sp('building-auto-service'), c: 5, r: 1, door: [5, 2] },
   cafe: { name: 'Bean There Café', model: sp('building-coffee-shop'), c: 7, r: 3, door: [6, 3] },
@@ -80,16 +104,30 @@ const PLACES = {
 // Each friend owns a whole outer block. Their house sits back from the street on `house`, with a
 // driveway on `c,r` leading to the road at `door` (where people stand when visiting). Colors are
 // picked to stand out from the scenery (no greens, blues, greys or browns).
-const FRIENDS = [
+const DEMO_FRIENDS = [
   { id: 'maya', name: 'Maya', color: '#ff3b30', model: 'character-female-a', block: block(0, 1, 3, 5), home: { model: sp('building-house-01-color01'), house: [0, 4], c: 1, r: 4, door: [2, 4] } },
   { id: 'jordan', name: 'Jordan', color: '#ff2d95', model: 'character-male-b', block: block(11, 13, 0, 1), home: { model: `${SUB}building-type-k.glb`, house: [12, 0], c: 12, r: 1, door: [12, 2] } },
   { id: 'sam', name: 'Sam', color: '#ffd60a', model: 'character-male-d', block: block(3, 5, 15, 16), home: { model: sp('building-house-03-color01'), house: [4, 16], c: 4, r: 15, door: [4, 14] } },
   { id: 'priya', name: 'Priya', color: '#ff9500', model: 'character-female-c', block: block(15, 16, 7, 9), home: { model: `${SUB}building-type-r.glb`, house: [16, 8], c: 15, r: 8, door: [14, 8] } },
   { id: 'leo', name: 'Leo', color: '#a24bff', model: 'character-male-f', block: block(0, 1, 11, 13), home: { model: sp('building-house-02-color01'), house: [0, 12], c: 1, r: 12, door: [2, 12] } },
 ];
+// In a real town, residents come from its members: id = user_id, look from profiles.avatar, home from
+// house_x/house_y + town_members.home. Members who haven't placed a house yet get no character.
+const FRIENDS = TILES ? TOWN.members.filter((m) => m.house_x != null && m.home?.door && m.home?.driveway && m.home?.block)
+  .map((m, i) => {
+    const look = m.profiles?.avatar || {}, h = m.home, fallback = DEMO_FRIENDS[i % DEMO_FRIENDS.length];
+    return {
+      id: m.user_id, name: m.profiles?.display_name || 'Friend', color: look.color || fallback.color,
+      model: look.character || fallback.model, block: block(h.block[0], h.block[2], h.block[1], h.block[3]),
+      home: { model: h.model ? asset(h.model) : fallback.home.model, house: [m.house_x, m.house_y], c: h.driveway[0], r: h.driveway[1], door: h.door },
+    };
+  }) : DEMO_FRIENDS;
 // Dark text on light friend colors (yellow, orange), white on the rest
 const inkOn = (hex) => { const c = new THREE.Color(hex); return c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.6 ? '#1f2430' : '#fff'; };
-const TREES = [[7, 7], [9, 7], [7, 9], [9, 9]];
+const TREES = TILES ? tilesOf('tree') : [[7, 7], [9, 7], [7, 9], [9, 9]];
+// Explicit building models on the map that aren't named places (a town editor could put these anywhere)
+const EXTRA_MODELS = TILES ? TILES.flatMap((row, r) => row.flatMap((k, c) =>
+  (TILE_KINDS.has(k) || Object.values(PLACES).some((p) => p.c === c && p.r === r) ? [] : [[c, r, asset(k)]]))) : [];
 
 const pos = (c, r) => new THREE.Vector3(c - N / 2 + 0.5, 0, r - N / 2 + 0.5);
 const key = (c, r) => `${c},${r}`;
@@ -185,8 +223,7 @@ controls.minZoom = 0.6;
 controls.maxZoom = 5;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = 1.15;
-controls.target.set(0, 0, RIVER.band / 2); // center on the city plus the river belt in front
-camera.position.z += RIVER.band / 2;
+controls.target.set(0, 0, 0);
 
 const hemi = new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6);
 scene.add(hemi);
@@ -198,51 +235,16 @@ Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, n
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-// One base plate under the city and the green belt (a hair below the tiles, so they never z-fight).
-// A single box, so its dirt rim has no seam where the city meets the river belt.
+// Base plate under the city (a hair below the tiles, so they never z-fight)
 const slab = (w, d, top, z) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, d), new THREE.MeshLambertMaterial({ color: '#b98a5a' }));
   m.position.set(0, top - 0.151, z);
   m.receiveShadow = true;
   scene.add(m);
 };
-slab(N + 0.4, N + RIVER.band + 0.4, -0.01, RIVER.band / 2);
+slab(N + 0.4, N + 0.4, -0.01, 0);
 
-// River centerline (world z) at world x, and the matching tile row
-const riverZ = (x) => N / 2 + RIVER.band / 2 + Math.sin(x * 0.42 + 0.6) * RIVER.amp + Math.sin(x * 0.9) * RIVER.amp * 0.3;
-
-// A strip following the river's curve, `width` wide, as flat XZ geometry at height y. It is built in
-// straight cross-sections so it ends flush with the grass at the town's edges, and it stops at each
-// road so the bridges' road tiles sit level with the rest of the streets.
-function riverStrip(width, y) {
-  const pts = [], idx = [];
-  const gaps = ROADS.map((c) => pos(c, 0).x).map((x) => [x - 0.5, x + 0.5]);
-  const spans = [];
-  let from = -N / 2;
-  for (const [a, b] of gaps) { spans.push([from, a]); from = b; }
-  spans.push([from, N / 2]);
-  const across = 4;
-  for (const [x0, x1] of spans) {
-    const xs = Math.max(2, Math.ceil((x1 - x0) * 6)), first = pts.length / 3;
-    for (let i = 0; i <= xs; i++) {
-      const x = x0 + ((x1 - x0) * i) / xs;
-      const dz = (riverZ(x + 0.01) - riverZ(x - 0.01)) / 0.02;
-      const len = Math.hypot(1, dz); // stretch the vertical cross-section so the width stays even
-      for (let j = 0; j <= across; j++) pts.push(x, y, riverZ(x) + (j / across - 0.5) * width * len);
-    }
-    for (let i = 0; i < xs; i++) for (let j = 0; j < across; j++) {
-      const a = first + i * (across + 1) + j, b = a + across + 1;
-      idx.push(a, a + 1, b, b, a + 1, b + 1);
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-
-// Animated low-poly water (river + park pond): vertices bob gently, staying under bridge decks
+// Animated low-poly water (the park pond): vertices bob gently
 function water(geometry) {
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: '#3fa7d6', roughness: 0.25, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.92,
@@ -457,6 +459,7 @@ function buildCity() {
   const reserved = new Map();
   const doorOf = new Map(); // named places face the road their door is on
   for (const p of Object.values(PLACES)) if (p.model) { reserved.set(key(p.c, p.r), p.model); doorOf.set(key(p.c, p.r), p.door); }
+  for (const [c, r, model] of EXTRA_MODELS) reserved.set(key(c, r), model);
   const yards = new Map(); // tiles of a friend's block -> friend
   for (const f of FRIENDS) for (const t of f.block) yards.set(key(...t), f);
   const special = new Set([...STADIUM.tiles, ...FARM.tiles].map((t) => key(...t)));
@@ -497,6 +500,8 @@ function buildCity() {
       if (onR && onC) { place(ROAD.cross, c, r); continue; }
       if (onR) { place(ROAD.straight, c, r, { rotY: Math.PI / 2 }); continue; } // model runs along z
       if (onC) { place(ROAD.straight, c, r); continue; }
+      if (TILES && tileAt(c, r) === undefined) { blocked.add(key(c, r)); continue; } // outside a non-square map
+      if (TILES && isRoad(c, r)) { place(ROAD.straight, c, r, { rotY: isRoad(c - 1, r) || isRoad(c + 1, r) ? Math.PI / 2 : 0 }); continue; } // a road that doesn't span the map
       if (inPark(c, r)) { place(GROUND.grass, c, r); continue; }
       blocked.add(key(c, r));
       if (special.has(key(c, r))) { place(STADIUM.tiles.some(([x, y]) => x === c && y === r) ? GROUND.paved : GROUND.grass, c, r); continue; }
@@ -594,79 +599,53 @@ function buildCity() {
     const phase = f.name.length;
     animated.add({ update() { pivot.rotation.y = Math.sin(performance.now() / 450 + phase) * 0.4; } });
     const at = pos(...h.house).setY(topOf[key(...h.house)] + 0.2);
-    const lbl = addLabel('lbl place home', `${f.name}'s house`, () => at);
+    h.name = `${f.name}'s house`;
+    const lbl = addLabel('lbl place home', h.name, () => at);
     lbl.el.style.background = f.color;
     lbl.el.style.color = inkOn(f.color);
+    f.homeLabel = lbl;
   }
 
   // ---- Landmarks: the stadium at the pack's true scale fills its block; a windmill farm in the other corner
-  const sc = STADIUM.tiles.reduce((a, [c, r]) => [a[0] + c / STADIUM.tiles.length, a[1] + r / STADIUM.tiles.length], [0, 0]);
-  addOccluder(place(STADIUM.model, sc[0], sc[1], { scale: 1.3, rotY: Math.PI / 2 }));
-  spinBlades(place(PROPS.windmill, 0.5, 15.6, { scale: 2.2, rotY: Math.PI / 4 }));
-  for (const [x, z, rot] of [[0.5, 14.62, Math.PI / 2], [0.5, 16.38, Math.PI / 2], [-0.38, 15.5, 0], [1.38, 15.5, 0]]) {
-    place(NATURE['grass-fence'], x, z, { scale: 2.4, rotY: rot });
+  if (STADIUM.tiles.length) {
+    const sc = STADIUM.tiles.reduce((a, [c, r]) => [a[0] + c / STADIUM.tiles.length, a[1] + r / STADIUM.tiles.length], [0, 0]);
+    addOccluder(place(STADIUM.model, sc[0], sc[1], { scale: 1.3, rotY: Math.PI / 2 }));
   }
-  for (const [x, z, m] of [[0, 15, 'bush-02'], [1.1, 16.1, 'bush-03'], [1.2, 15, 'rock-big'], [-0.1, 16.2, 'bush-01']]) place(NATURE[m], x, z, { scale: 2.2 });
-
-  // ---- Green belt with a winding river; roads run on through it and cross on bridges
-  const rows = RIVER.band;
-  for (let r = N; r < N + rows; r++) for (let c = 0; c < N; c++) {
-    if (ROADS.includes(c)) { place(ROAD.straight, c, r); continue; } // level with the city's roads; the river stops at their edges
-    place(GROUND.grass, c, r);
-  }
-  const sand = new THREE.Mesh(riverStrip(RIVER.width + 0.3, 0.006), new THREE.MeshLambertMaterial({ color: '#d9c58f' }));
-  sand.receiveShadow = true;
-  scene.add(sand);
-  water(riverStrip(RIVER.width, 0.014));
-  const stone = new THREE.MeshLambertMaterial({ color: '#cfc8bb' });
-  for (const c of ROADS) {
-    const x = pos(c, 0).x, z = riverZ(x), span = RIVER.width + 0.45;
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, span), stone); // top sits just under the road tile
-    deck.position.set(x, -0.035, z);
-    scene.add(deck);
-    for (const s of [-0.47, 0.47]) {
-      const railing = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, span), stone);
-      railing.position.set(x + s, 0.08, z);
-      railing.castShadow = true;
-      scene.add(railing);
+  if (FARM.tiles.length) { // laid out for a 2x2 farm; (fx, fz) shifts it from the demo's corner at (0, 15)
+    const fx = Math.min(...FARM.tiles.map(([c]) => c)), fz = Math.min(...FARM.tiles.map(([, r]) => r)) - 15;
+    spinBlades(place(PROPS.windmill, fx + 0.5, fz + 15.6, { scale: 2.2, rotY: Math.PI / 4 }));
+    for (const [x, z, rot] of [[0.5, 14.62, Math.PI / 2], [0.5, 16.38, Math.PI / 2], [-0.38, 15.5, 0], [1.38, 15.5, 0]]) {
+      place(NATURE['grass-fence'], fx + x, fz + z, { scale: 2.4, rotY: rot });
     }
-  }
-  let g = 0;
-  for (let c = 0; c < N; c++) {
-    if (ROADS.includes(c)) continue;
-    const x = pos(c, 0).x;
-    for (let r = N; r < N + rows; r++) {
-      const z = pos(0, r).z;
-      if (Math.abs(z - riverZ(x)) < RIVER.width / 2 + 0.35 || hash(c, r) > 0.6) continue;
-      greenery(c + (hash(r, c) - 0.5) * 0.4, r, g++);
-    }
-    if (c % 3 === 1) place(NATURE['rock-small'], c + 0.3, riverZ(x) + RIVER.width / 2 + 0.2 + N / 2 - 0.5, { scale: 2 }); // world z -> tile row
+    for (const [x, z, m] of [[0, 15, 'bush-02'], [1.1, 16.1, 'bush-03'], [1.2, 15, 'rock-big'], [-0.1, 16.2, 'bush-01']]) place(NATURE[m], fx + x, fz + z, { scale: 2.2 });
   }
 
   // ---- Central park: pond ringed by rocks, trees in the corners, benches facing the water
-  const pond = new THREE.CircleGeometry(0.72, 20);
-  pond.rotateX(-Math.PI / 2);
-  pond.translate(pos(CENTER, CENTER).x, 0.02, pos(CENTER, CENTER).z);
-  water(pond);
-  const rim = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.8, 20), new THREE.MeshLambertMaterial({ color: '#b9ad97' }));
-  rim.rotation.x = -Math.PI / 2;
-  rim.position.copy(pos(CENTER, CENTER)).setY(0.025);
-  scene.add(rim);
-  blocked.add(key(CENTER, CENTER));
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + 0.3;
-    place(i % 2 ? NATURE['rock-small'] : NATURE['rock-big'], CENTER + Math.cos(a) * 0.8, CENTER + Math.sin(a) * 0.8, { scale: 1.6, rotY: a });
+  if (!TILES || tilesOf('pond').length) {
+    const pond = new THREE.CircleGeometry(0.72, 20);
+    pond.rotateX(-Math.PI / 2);
+    pond.translate(pos(CENTER, CENTER).x, 0.02, pos(CENTER, CENTER).z);
+    water(pond);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.8, 20), new THREE.MeshLambertMaterial({ color: '#b9ad97' }));
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.copy(pos(CENTER, CENTER)).setY(0.025);
+    scene.add(rim);
+    blocked.add(key(CENTER, CENTER));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.3;
+      place(i % 2 ? NATURE['rock-small'] : NATURE['rock-big'], CENTER + Math.cos(a) * 0.8, CENTER + Math.sin(a) * 0.8, { scale: 1.6, rotY: a });
+    }
+    TREES.forEach(([c, r], i) => {
+      addOccluder(place(PARK_TREES[i % PARK_TREES.length], c, r, { scale: 2.6 }));
+      blocked.add(key(c, r));
+    });
+    place(PROPS['bench-1'], CENTER, CENTER - 1.1, { scale: 2, rotY: Math.PI });
+    place(PROPS['bench-2'], CENTER, CENTER + 1.1, { scale: 2 });
+    place(STREET.public_bench_01, CENTER - 1.1, CENTER, { scale: METER, rotY: Math.PI / 2 });
+    place(STREET.drinking_fountain_01, CENTER + 1.15, CENTER + 0.35, { scale: METER, rotY: -Math.PI / 2 });
+    for (const [c, r, m] of [[CENTER + 1.1, CENTER - 0.3, 'bush-01'], [CENTER - 0.4, CENTER - 1.2, 'pot-bush-big'],
+      [CENTER + 0.4, CENTER - 1.2, 'pot-bush-small'], [CENTER - 0.4, CENTER + 1.2, 'bush-02']]) place(NATURE[m], c, r, { scale: 2.2 });
   }
-  TREES.forEach(([c, r], i) => {
-    addOccluder(place(PARK_TREES[i % PARK_TREES.length], c, r, { scale: 2.6 }));
-    blocked.add(key(c, r));
-  });
-  place(PROPS['bench-1'], CENTER, CENTER - 1.1, { scale: 2, rotY: Math.PI });
-  place(PROPS['bench-2'], CENTER, CENTER + 1.1, { scale: 2 });
-  place(STREET.public_bench_01, CENTER - 1.1, CENTER, { scale: METER, rotY: Math.PI / 2 });
-  place(STREET.drinking_fountain_01, CENTER + 1.15, CENTER + 0.35, { scale: METER, rotY: -Math.PI / 2 });
-  for (const [c, r, m] of [[CENTER + 1.1, CENTER - 0.3, 'bush-01'], [CENTER - 0.4, CENTER - 1.2, 'pot-bush-big'],
-    [CENTER + 0.4, CENTER - 1.2, 'pot-bush-small'], [CENTER - 0.4, CENTER + 1.2, 'bush-02']]) place(NATURE[m], c, r, { scale: 2.2 });
 
   // ---- Street furniture
   // Street lights: one on each crossing, plus one mid-block on every other block face (skipping doorways)
@@ -701,9 +680,10 @@ function buildCity() {
     else place(model, c, r + side * 0.33, { scale: 1.4, rotY: side > 0 ? -Math.PI / 2 : Math.PI / 2 });
   }
   // A bus stop by the park, café chairs out front, and roadwork on the east side
-  place(PROPS['bus-stop'], CENTER + 1, ROADS[2] + 0.41, { scale: 1.6, rotY: Math.PI });
-  for (const dz of [-0.35, 0.3]) place(PROPS['coffee-shop-chair'], PLACES.cafe.door[0] + 0.4, PLACES.cafe.door[1] + dz, { scale: 1.6 });
+  if (ROADS.length > 2) place(PROPS['bus-stop'], CENTER + 1, ROADS[2] + 0.41, { scale: 1.6, rotY: Math.PI });
+  if (PLACES.cafe) for (const dz of [-0.35, 0.3]) place(PROPS['coffee-shop-chair'], PLACES.cafe.door[0] + 0.4, PLACES.cafe.door[1] + dz, { scale: 1.6 });
   const rw = ROADS[3];
+  if (rw !== undefined) {
   place(PROPS['traffic-control-barrier-fence'], rw + 0.3, 4, { scale: 2, rotY: Math.PI / 2 });
   place(STREET.concrete_jersey_barrier_01_medium, rw + 0.3, 4.45, { scale: METER, rotY: Math.PI / 2 });
   place(STREET.type_ii_barricade_01_medium, rw + 0.3, 3.55, { scale: METER, rotY: Math.PI / 2 });
@@ -711,11 +691,12 @@ function buildCity() {
   place(STREET.pallet_medium_01, rw + 0.36, 4.85, { scale: METER });
   place(STREET.barrel_02_medium_blue, rw + 0.3, 3.2, { scale: METER });
   place(STREET.barrel_02_medium_red, rw + 0.38, 3.05, { scale: METER });
+  }
 
   for (const p of Object.values(PLACES)) {
     if (!p.model) continue;
     const at = pos(p.c, p.r).setY(topOf[key(p.c, p.r)] + 0.15);
-    addLabel('lbl place', p.name, () => at);
+    p.label = addLabel('lbl place', p.name, () => at);
   }
 }
 
@@ -857,6 +838,35 @@ function stepFriend(f, dt) {
   }
 }
 
+// Real towns: put a resident where their agents row says. A walk started at updated_at from (x, y), so
+// fast-forward along the (deterministic) path by the time since then; every screen lands on the same spot.
+const WALKING = new Set(['walk_to', 'visit', 'knock', 'go_home']);
+function destinationOf(row) {
+  const b = row.target?.building_id;
+  if (!b) return null;
+  return b.startsWith('house:') ? friends[b.slice(6)]?.home ?? null : PLACES[b] ?? null;
+}
+function placeAgent(f, row) {
+  interrupt(f);
+  f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
+  const dest = WALKING.has(row.action) ? destinationOf(row) : null;
+  if (!dest) return;
+  walkTo(f, dest).then((ok) => { if (ok && row.action === 'go_home') f.obj.visible = false; });
+  let ahead = WALK_SPEED * Math.max(0, (Date.now() - Date.parse(row.updated_at)) / 1000);
+  while (ahead > 0 && f.path.length) {
+    const d = f.obj.position.distanceTo(f.path[0]);
+    if (d > ahead) { f.obj.position.add(f.path[0].clone().sub(f.obj.position).setLength(ahead)); break; }
+    ahead -= d;
+    f.obj.position.copy(f.path.shift());
+  }
+  if (!f.path.length) { // already arrived
+    setAction(f, 'idle');
+    const res = f.resolveWalk;
+    f.resolveWalk = null;
+    res?.(true);
+  }
+}
+
 function interrupt(f) {
   f.path = [];
   f.resolveWalk?.(false);
@@ -928,7 +938,7 @@ const animated = new Set();
 
 function houseTop(home) { return pos(...home.house).setY(topOf[key(...home.house)]); }
 
-function partyLights(home) {
+function partyLights(home, { focus = true } = {}) {
   const top = houseTop(home);
   const group = new THREE.Group();
   const colors = ['#ff5d73', '#ffd23f', '#3ddc97', '#4fb3ff', '#c77dff'];
@@ -969,11 +979,11 @@ function partyLights(home) {
     destroy() { scene.remove(group); animated.delete(fx); },
   };
   animated.add(fx);
-  focusOn(top);
+  if (focus) focusOn(top);
   return fx;
 }
 
-function rainCloud(home) {
+function rainCloud(home, { focus = true } = {}) {
   const top = houseTop(home);
   const group = new THREE.Group();
   const grey = new THREE.MeshLambertMaterial({ color: '#8a94a6' });
@@ -1003,7 +1013,7 @@ function rainCloud(home) {
     destroy() { scene.remove(group); animated.delete(fx); },
   };
   animated.add(fx);
-  focusOn(top);
+  if (focus) focusOn(top);
   return fx;
 }
 
@@ -1083,7 +1093,22 @@ async function trigger(name) {
 
 function renameFriend(f, name) {
   f.name = name;
-  f.label.el.textContent = name;
+  if (f.label) f.label.el.textContent = name;
+  if (f.home) f.home.name = `${name}'s house`;
+  if (f.homeLabel) {
+    f.homeLabel.el.textContent = f.home.name;
+    f.homeLabel.el.style.display = '';
+  }
+}
+
+function applyTownNames(map) {
+  const places = (map && map.places) || {};
+  for (const [id, src] of Object.entries(places)) {
+    const dest = PLACES[id];
+    if (!dest || !src || !src.name) continue;
+    dest.name = src.name;
+    if (dest.label) dest.label.el.textContent = src.name;
+  }
 }
 
 function resetTown() {
@@ -1103,6 +1128,7 @@ function resetTown() {
 // ---- Camera focus & UI -------------------------------------------------------------------------
 
 let focusGoal = null;
+controls.addEventListener('start', () => { focusGoal = null; }); // a drag always wins over an auto-pan
 function focusOn(p) { if (!following) focusGoal = p.clone().setY(0); }
 function focusFriend(id) {
   const f = friends[id];
@@ -1169,6 +1195,7 @@ function renderResidents() {
   const ul = $('#residents');
   ul.innerHTML = '';
   for (const f of Object.values(friends)) {
+    if (!f.obj.visible) continue;
     const li = document.createElement('li');
     li.style.cursor = 'pointer';
     li.innerHTML = `<span class="dot" style="background:${f.color}"></span><div><b></b><div class="status"></div></div>`;
@@ -1177,6 +1204,104 @@ function renderResidents() {
     li.onclick = () => focusFriend(f.id);
     ul.append(li);
   }
+}
+
+function placeName(ev) {
+  if (ev.building_id && PLACES[ev.building_id]) return PLACES[ev.building_id].name;
+  const place = (ev.place || '').toLowerCase();
+  if (place === 'home') return 'Home';
+  if (place === 'campus') return 'Campus';
+  return ev.place || '';
+}
+
+function townWall(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const et = new Date(d.getTime() - 4 * 60 * 60 * 1000); // town is America/New_York, EDT in September
+  return { y: et.getUTCFullYear(), mo: et.getUTCMonth() + 1, d: et.getUTCDate(), h: et.getUTCHours(), min: et.getUTCMinutes() };
+}
+
+function clockDateLabel(iso) {
+  const p = townWall(iso);
+  if (!p) return '';
+  return `${WEEKDAYS[new Date(p.y, p.mo - 1, p.d).getDay()]} ${String(p.d).padStart(2, '0')}/${String(p.mo).padStart(2, '0')}/${p.y}`;
+}
+
+function clockTimeRange(startIso, endIso) {
+  const fmt = (iso) => {
+    const p = townWall(iso);
+    if (!p) return '';
+    return `${((p.h + 11) % 12) + 1}:${String(p.min).padStart(2, '0')} ${p.h < 12 ? 'AM' : 'PM'}`;
+  };
+  return `${fmt(startIso)}–${fmt(endIso)}`;
+}
+
+let lastSchedSig = '';
+function renderSchedules(rows) {
+  const root = $('#schedules');
+  if (!root) return;
+  const list = rows || [];
+  const sig = JSON.stringify(list.map((e) => [e.user_id, e.start, e.title]));
+  if (sig === lastSchedSig && root.childElementCount) {
+    markCurrentScheduleItems(list);
+    return;
+  }
+  lastSchedSig = sig;
+  root.innerHTML = '';
+  if (!list.length) {
+    root.innerHTML = '<div class="sched-where">No calendars shared yet.</div>';
+    return;
+  }
+  const colorOf = {};
+  for (const f of Object.values(friends)) colorOf[f.name] = f.color;
+  const names = [];
+  for (const f of Object.values(friends)) if (f.obj.visible && !names.includes(f.name)) names.push(f.name);
+  for (const ev of list) if (ev.display_name && !names.includes(ev.display_name)) names.push(ev.display_name);
+  for (const name of names) {
+    const mine = list.filter((e) => e.display_name === name).sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+    if (!mine.length) continue;
+    const block = document.createElement('div');
+    block.className = 'sched-person';
+    const h = document.createElement('h3');
+    h.innerHTML = '<span class="dot"></span><span></span>';
+    h.querySelector('.dot').style.background = colorOf[name] || '#667085';
+    h.querySelector('span:last-child').textContent = name;
+    block.append(h);
+    let day = '';
+    for (const ev of mine) {
+      const d = clockDateLabel(ev.start);
+      if (d && d !== day) {
+        day = d;
+        const hd = document.createElement('div');
+        hd.className = 'sched-day';
+        hd.textContent = d;
+        block.append(hd);
+      }
+      const item = document.createElement('div');
+      item.className = 'sched-item';
+      item.dataset.start = ev.start || '';
+      item.dataset.end = ev.end || '';
+      const where = placeName(ev);
+      const withWho = (ev.with_names || []).filter(Boolean).join(', ');
+      item.innerHTML = '<div class="sched-when"></div><div class="sched-title"></div><div class="sched-where"></div>';
+      item.querySelector('.sched-when').textContent = clockTimeRange(ev.start, ev.end);
+      item.querySelector('.sched-title').textContent = ev.title || 'Busy';
+      item.querySelector('.sched-where').textContent = [where, withWho && `with ${withWho}`].filter(Boolean).join(' · ');
+      block.append(item);
+    }
+    root.append(block);
+  }
+  markCurrentScheduleItems(list);
+}
+
+function markCurrentScheduleItems() {
+  const now = sky.y
+    ? new Date(sky.y, sky.mo - 1, sky.d, Math.floor(sky.hour), Math.floor((sky.hour % 1) * 60)).getTime()
+    : Date.now();
+  document.querySelectorAll('#schedules .sched-item').forEach((el) => {
+    const s = Date.parse(el.dataset.start || ''), e = Date.parse(el.dataset.end || '');
+    el.classList.toggle('now', Number.isFinite(s) && Number.isFinite(e) && s <= now && now < e);
+  });
 }
 
 // ---- See-through buildings ------------------------------------------------------------------------
@@ -1307,9 +1432,17 @@ const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent
 
 const sky = {
   hour: 12, live: true, fast: false, backend: false,
+  y: 0, mo: 0, d: 0,
   weather: 'clear', autoWeather: true, nextWeatherAt: 0,
   cloud: 0, precip: 0, haze: 0, flash: 0, nextFlashAt: 0, night: 0, patchAt: 0,
 };
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function townDateLabel() {
+  const y = sky.y, mo = sky.mo, d = sky.d;
+  const src = y ? { y, mo, d } : (() => { const n = new Date(); return { y: n.getFullYear(), mo: n.getMonth() + 1, d: n.getDate() }; })();
+  const wd = WEEKDAYS[new Date(src.y, src.mo - 1, src.d).getDay()];
+  return `${wd} ${String(src.d).padStart(2, '0')}/${String(src.mo).padStart(2, '0')}/${src.y}`;
+}
 const WEATHER = { // cloud cover, precipitation kind, haze (how far you can see)
   clear: { cloud: 0, kind: null, haze: 0 }, rain: { cloud: 0.6, kind: 'rain', haze: 0.35 },
   storm: { cloud: 0.85, kind: 'rain', haze: 0.6 }, snow: { cloud: 0.5, kind: 'snow', haze: 0.45 },
@@ -1318,8 +1451,8 @@ const C = (h) => new THREE.Color(h);
 const SKY = { day: C('#9fd3ec'), dusk: C('#f3a36b'), night: C('#1b2b57'), overcastDay: C('#9aa5b3'), overcastNight: C('#232b3d') };
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-// Rain streaks and snow flakes share one volume over the town (and the river belt in front)
-const VOLUME = { x: N / 2 + 1, z0: -N / 2 - 1, z1: N / 2 + RIVER.band + 1, h: 9 };
+// Rain streaks and snow flakes share one volume over the town
+const VOLUME = { x: N / 2 + 1, z0: -N / 2 - 1, z1: N / 2 + 1, h: 9 };
 const DROPS = 2600;
 const dropPos = new Float32Array(DROPS * 6);
 const dropSeed = Float32Array.from({ length: DROPS * 3 }, Math.random);
@@ -1532,8 +1665,15 @@ function updateSky(dt) {
   if (sky.live && !sky.backend) sky.hour = now.getHours() + now.getMinutes() / 60;
   else if (sky.fast) sky.hour = (sky.hour + dt * (24 / 120)) % 24; // a whole day in two minutes
   if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
-    if (sky.nextWeatherAt) setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
-    sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
+    const kinds = ['clear', 'clear', 'rain', 'storm', 'snow'];
+    if (TILES) { // real towns: weather follows a shared wall-clock schedule, so everyone sees the same sky
+      const w = kinds[(Math.imul(Math.floor(Date.now() / 110000), 2654435761) >>> 0) % kinds.length];
+      if (w !== sky.weather) setWeather(w, false);
+      sky.nextWeatherAt = performance.now() + 5000;
+    } else {
+      if (sky.nextWeatherAt) setWeather(kinds[Math.floor(Math.random() * 5)], false);
+      sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
+    }
   }
   const w = WEATHER[sky.weather];
   sky.cloud += (w.cloud - sky.cloud) * Math.min(1, dt * 0.6);
@@ -1637,6 +1777,9 @@ function updateSky(dt) {
     const slider = document.querySelector('#time');
     if (document.activeElement !== slider) slider.value = sky.hour;
   }
+  const dateEl = document.querySelector('#town-date');
+  if (dateEl) dateEl.textContent = townDateLabel();
+  if (document.querySelector('#schedules .sched-item')) markCurrentScheduleItems();
 }
 
 function hourFromIso(iso) {
@@ -1644,7 +1787,14 @@ function hourFromIso(iso) {
   return m ? +m[1] + +m[2] / 60 + +m[3] / 3600 : null;
 }
 
+function dateFromIso(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null;
+}
+
 function applyTownTime(iso, mode) {
+  const ymd = dateFromIso(iso);
+  if (ymd) { sky.y = ymd.y; sky.mo = ymd.mo; sky.d = ymd.d; }
   const hour = hourFromIso(iso);
   if (hour == null) return;
   sky.backend = true;
@@ -1699,7 +1849,7 @@ const allModels = [
   ...FRIENDS.map((f) => `${CH}${f.model}.glb`), ...FRIENDS.map((f) => f.home.model),
   ...Object.values(ROAD), ...Object.values(GROUND), ...PARK_TREES, ...Object.values(PROPS), ...Object.values(NATURE),
   ...ROOF_PROPS, HELIPAD, ...VEHICLES, STADIUM.model,
-  ...Object.values(STREET),
+  ...Object.values(STREET), ...EXTRA_MODELS.map(([, , m]) => m),
 ];
 logFeed('Loading city…');
 await loadAll(allModels);
@@ -1710,16 +1860,26 @@ patchWeather();
 wireSkyControls();
 spawnFriends();
 renderResidents();
-logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-  PLACES, FRIENDS, effects, trigger, applyTownTime, liveMode: false,
+  renderSchedules, PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, liveMode: Boolean(TOWN),
 });
-const { triggerViaBackend, pushClock } = startTownBackend(townApi);
-townApi.pushClock = pushClock;
-document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => triggerViaBackend(b.dataset.trigger); });
-const params = new URLSearchParams(location.search);
-if (friends[params.get('follow')]) startFollow(friends[params.get('follow')]);
-const auto = params.get('auto');
-auto?.split(',').forEach((t, i) => setTimeout(() => triggerViaBackend(t), 1500 + i * 2500));
+if (TOWN) {
+  // A real town: no scripted wandering or demo snapshot; residents move only as the database says
+  $('#side .title').textContent = TOWN.town.name;
+  $('#side .sub').textContent = `Invite code: ${TOWN.town.invite_code}`;
+  document.querySelectorAll('#triggers [data-trigger], #triggers h2:first-child, #triggers .note').forEach((e) => { e.hidden = true; });
+  const homeless = TOWN.members.length - FRIENDS.length;
+  logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
+  startTownSync(TOWN_ID, TOWN, { friends, placeAgent, setStatus, say, partyLights, rainCloud, logFeed, PLACES });
+} else {
+  logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
+  const { triggerViaBackend, pushClock } = startTownBackend(townApi);
+  townApi.pushClock = pushClock;
+  document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => triggerViaBackend(b.dataset.trigger); });
+  const params = new URLSearchParams(location.search);
+  if (friends[params.get('follow')]) startFollow(friends[params.get('follow')]);
+  const auto = params.get('auto');
+  auto?.split(',').forEach((t, i) => setTimeout(() => triggerViaBackend(t), 1500 + i * 2500));
+}
 frame();

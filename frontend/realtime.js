@@ -7,7 +7,7 @@ const backendUrl = () => window.TINY_TOWN_BACKEND || 'http://127.0.0.1:8000';
 export function startTownBackend(api) {
   const {
     friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-    PLACES, effects,
+    renderSchedules, PLACES, effects, applyTownNames,
   } = api;
 
   let liveMode = false;
@@ -33,7 +33,7 @@ export function startTownBackend(api) {
 
   // characters: user_id -> character id, cast by the backend from whoever is in the demo town.
   function applyCharacters(characters, members) {
-    if (!characters) return;
+    if (!characters || !Object.keys(characters).length) return;
     const nameOf = Object.fromEntries(
       (members || []).map((m) => [m.user_id, ((m.profiles || {}).display_name || '').trim()]),
     );
@@ -48,8 +48,14 @@ export function startTownBackend(api) {
         renameFriend(f, nameOf[userId]);
         renamed = true;
       }
+      f.obj.visible = true;
+      if (f.homeLabel) f.homeLabel.el.style.display = '';
     }
-    for (const f of Object.values(friends)) if (!cast.has(f.id)) f.obj.visible = false;
+    for (const f of Object.values(friends)) {
+      if (cast.has(f.id)) continue;
+      f.obj.visible = false;
+      if (f.homeLabel) f.homeLabel.el.style.display = 'none';
+    }
     if (renamed) renderResidents();
   }
 
@@ -82,8 +88,8 @@ export function startTownBackend(api) {
     const rough = mood === 'rainy' || mood === 'stormy';
     const partyKey = `goodNews:${f.id}`;
     const rainKey = `roughWeek:${f.id}`;
-    if (celebrating && !effects[partyKey]) effects[partyKey] = partyLights(f.home);
-    if (rough && !effects[rainKey]) effects[rainKey] = rainCloud(f.home);
+    if (celebrating && !effects[partyKey]) effects[partyKey] = partyLights(f.home, { focus: false });
+    if (rough && !effects[rainKey]) effects[rainKey] = rainCloud(f.home, { focus: false });
   }
 
   function applyAgent(row) {
@@ -141,6 +147,7 @@ export function startTownBackend(api) {
     if (!res.ok) throw new Error(`snapshot ${res.status}`);
     const data = await res.json();
     if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode);
+    if (applyTownNames) applyTownNames(data.map);
     applyCharacters(data.characters, data.members);
     for (const m of data.members || []) applyMember(m);
     for (const a of data.agents || []) applyAgent(a);
@@ -148,6 +155,7 @@ export function startTownBackend(api) {
     for (const row of actions) applyAction(row);
     const events = [...(data.events || [])].reverse();
     for (const row of events) applyEvent(row);
+    if (renderSchedules) renderSchedules(data.schedules);
   }
 
   function enterLiveMode() {
