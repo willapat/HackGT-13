@@ -39,19 +39,21 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Database
 
-Hackathon-simple on purpose: 10 core tables, add more only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. The Supabase GitHub integration applies new migrations on `main` automatically, so **never change the schema by hand in the dashboard**. Preview locally with `supabase db push --db-url "$SUPABASE_DB_URL" --dry-run`.
+Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more only when a feature needs them. Schema lives in [supabase/migrations/](supabase/migrations/). Schema changes go in a **new** migration file. The Supabase GitHub integration applies new migrations on `main` automatically, so **never change the schema by hand in the dashboard**. Preview locally with `supabase db push --db-url "$SUPABASE_DB_URL" --dry-run`.
 
 **Tables**
-- `profiles`: one per user, auto-created on signup. Avatar (JSON of asset keys) and `interests` (text array).
+- `profiles`: one per user, auto-created on signup. Unique `username` (how people find each other; set via `PATCH /me`), avatar (JSON of asset keys) and `interests` (text array).
 - `towns`: name, `invite_code`, and `tiles`, a 2D JSON array of asset manifest keys indexed `tiles[y][x]` (e.g. `[["grass","road"],["cafe","grass"]]`). Buildings are just tiles.
 - `town_members`: who's in which town, their house position, and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
-- `friendships`: one row per pair (`user_a < user_b`) with `path_score`.
+- `friendships`: in-town agent relationship, one row per pair (`user_a < user_b`) with `path_score`. Not the same as account friends.
 - `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
 - `brain_runs`: each town hall AI run's `input` and `output`.
 - `events`: quests, storylines, town events, news.
 - `event_participants`: per-person `suggested`/`accepted`/`declined`. The approval gate.
 - `agents`: one character per town member (position, current `action`, `target`, `next_decision_at`). Auto-created when a member joins.
 - `agent_actions`: log of every agent decision; chat bubbles go in `details.lines`.
+- `friend_requests`: account-level friends, one row per pair either direction. `accepted` = friends; unfriending deletes the row.
+- `town_invites`: town creator invites a friend; accepting adds a `town_members` row. Invite codes still work too.
 
 Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reverts them (and the `claim_due_agents` / `towns_with_unprocessed_signals` functions, now done in Python in `backend/db.py`). Where the old concepts live now: facts → `brain_runs.output.facts` (id `<run_id>:<i>`), news → `events` with `type = 'news'`, conversations → `agent_actions.details.lines`, consent → posting a signal, per-person visibility → `signals.value.visibility` (`full`/`vague`/`hidden`). No gift inventory.
 
@@ -65,7 +67,9 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - Run backend from repo root: `py -3 -m uvicorn backend.main:app --reload` (`DISABLE_LOOPS=1` to skip the AI loops). API docs at `/docs`. Tests: `py -3 -m pytest`. Serve `frontend/` with `py -3 -m http.server`.
 
 **REST API** (`backend/routes/`). Every route except `/health` and `/demo/*` needs `Authorization: Bearer <supabase access token>`. The user is taken from the token, never from the request body.
-- `GET/PATCH /me` (profile, towns), `GET /me/friendships`
+- `GET/PATCH /me` (profile incl. `username`, towns), `GET /me/friendships` (in-town path scores), `GET /me/invites`
+- `GET /users/search?username=` (exact match), `GET /friends`, `DELETE /friends/{user_id}`, `GET/POST /friends/requests`, `POST /friends/requests/{id}/respond` (requesting someone who already asked you accepts)
+- `GET/POST /towns/{id}/invites` (POST: creator only, friends only), `POST /invites/{id}/respond`
 - `POST/GET /signals` (own only; `value.visibility` optional)
 - `POST /towns`, `POST /towns/join {invite_code}`, `GET/PATCH /towns/{id}` (snapshot: town, members+profiles, agents; PATCH creator only), `PATCH/DELETE /towns/{id}/members/me` (place house / leave), `GET/POST /towns/{id}/events` (list with participants / propose a quest), `GET /towns/{id}/activity` (agent_actions)
 - `GET /events/{id}`, `POST /events/{id}/respond {status}`, `POST /events/{id}/approve`
@@ -78,7 +82,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 - [x] Repo scaffolding / stack chosen (FastAPI + Three.js)
 - [x] Town rendering + camera (`frontend/`)
-- [x] Database schema (10 core tables)
+- [x] Database schema (10 core tables + `friend_requests`, `town_invites`)
 - [x] Backend on the 10-table core schema, JWT-authed REST API (e2e-tested against live Supabase; brain/agent model calls need `GEMINI_API_KEY`)
 - [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2)
 - [x] Town brain pipeline
@@ -89,6 +93,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Account friends + town invites (migration `20260926000005`, idempotent). Find people by exact `username`. Only the town creator invites, only friends. Writes go through the API; frontend reads via RLS.
 - 2026-09-26: Switched LLM calls from Anthropic to Gemini (`GEMINI_API_KEY`, `google-genai`). Brain/action: `gemini-2.5-flash`; character agents: `gemini-2.5-flash-lite`.
 - 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `frontend/`.
 - 2026-09-25: `frontend/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.

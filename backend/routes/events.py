@@ -9,7 +9,7 @@ from backend.action_agent.action_agent import draft_plan
 from backend.auth import current_user_id, require_member
 from backend.db import get_client
 from backend.interactions.path_score import record_interaction
-from backend.models.api import EventRespond
+from backend.models.api import Respond
 from backend.models.enums import EventStatus, InteractionVia, ParticipantStatus
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -42,7 +42,7 @@ def get_event(event_id: UUID, uid: str = Depends(current_user_id)):
 
 
 @router.post("/{event_id}/respond")
-def respond(event_id: UUID, body: EventRespond, uid: str = Depends(current_user_id)):
+def respond(event_id: UUID, body: Respond, uid: str = Depends(current_user_id)):
     """Accept or decline for yourself. All accepted → scheduled (plan drafted). Anyone declines → cancelled."""
     db, eid = get_client(), str(event_id)
     event, parts = _load(db, eid)

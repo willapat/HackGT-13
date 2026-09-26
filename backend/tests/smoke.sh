@@ -52,6 +52,22 @@ call PATCH /me 200 "$ANA" '{"interests":["Climbing","coffee"]}'
 call PATCH /me 200 "$BEN" '{"interests":["climbing"]}'
 call GET /me 200 "$ANA"
 
+echo "--- friends (by username)"
+ANA_ID=${UIDS[0]}
+call PATCH /me 200 "$ANA" "{\"username\":\"ana_$TAG\"}"
+call PATCH /me 200 "$BEN" "{\"username\":\"ben_$TAG\"}"
+call PATCH /me 409 "$BEN" "{\"username\":\"ana_$TAG\"}"
+call GET "/users/search?username=ANA_$TAG" 200 "$BEN"
+echo "     found=$(jq length <<<"$BODY")"
+call POST /friends/requests 201 "$BEN" "{\"username\":\"ana_$TAG\"}"
+REQ_ID=$(jq -r .id <<<"$BODY")
+call POST /friends/requests 409 "$BEN" "{\"username\":\"ana_$TAG\"}"
+call GET /friends/requests 200 "$ANA"
+echo "     incoming=$(jq '.incoming | length' <<<"$BODY")"
+call POST "/friends/requests/$REQ_ID/respond" 200 "$ANA" '{"status":"accepted"}'
+call GET /friends 200 "$BEN"
+echo "     friends=$(jq length <<<"$BODY")"
+
 echo "--- towns"
 call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["grass","road","grass"],["grass","road","cafe"],["grass","road","grass"]]}'
 TOWN_ID=$(jq -r .id <<<"$BODY"); CODE=$(jq -r .invite_code <<<"$BODY")
@@ -62,6 +78,26 @@ call PATCH "/towns/$TOWN_ID/members/me" 422 "$BEN" '{"house_x":9,"house_y":9}'
 call PATCH "/towns/$TOWN_ID" 403 "$BEN" '{"name":"Hijacked"}'
 call GET "/towns/$TOWN_ID" 200 "$BEN"
 echo "     members=$(jq '.members | length' <<<"$BODY") agents=$(jq '.agents | length' <<<"$BODY")"
+
+echo "--- town invites (creator only, friends only)"
+new_user Cy; CY=$TOKEN; CY_ID=${UIDS[2]}
+call PATCH /me 200 "$CY" "{\"username\":\"cy_$TAG\"}"
+call POST "/towns/$TOWN_ID/invites" 422 "$ANA" "{\"user_id\":\"$CY_ID\"}"
+call POST /friends/requests 201 "$ANA" "{\"username\":\"cy_$TAG\"}"
+call POST /friends/requests 201 "$CY" "{\"username\":\"ana_$TAG\"}"
+echo "     crossed request -> status=$(jq -r .status <<<"$BODY")"
+call POST "/towns/$TOWN_ID/invites" 403 "$BEN" "{\"user_id\":\"$CY_ID\"}"
+call POST "/towns/$TOWN_ID/invites" 201 "$ANA" "{\"user_id\":\"$CY_ID\"}"
+INVITE_ID=$(jq -r .id <<<"$BODY")
+call POST "/towns/$TOWN_ID/invites" 409 "$ANA" "{\"user_id\":\"$CY_ID\"}"
+call GET "/towns/$TOWN_ID/invites" 200 "$BEN"
+call GET /me/invites 200 "$CY"
+echo "     pending=$(jq length <<<"$BODY") town=$(jq -r '.[0].towns.name' <<<"$BODY") from=$(jq -r '.[0].from_profile.username' <<<"$BODY")"
+call POST "/invites/$INVITE_ID/respond" 200 "$CY" '{"status":"accepted"}'
+call GET "/towns/$TOWN_ID" 200 "$CY"
+echo "     members=$(jq '.members | length' <<<"$BODY")"
+call DELETE "/friends/$ANA_ID" 204 "$BEN"
+call DELETE "/friends/$ANA_ID" 404 "$BEN"
 
 echo "--- signals"
 call POST /signals 201 "$ANA" '{"source":"manual","type":"mood","value":{"mood":"great week"}}'
