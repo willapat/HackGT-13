@@ -1,6 +1,6 @@
 """LLM calls go through OpenRouter's OpenAI-compatible API.
 
-`GEMINI_MODEL_KEY` is an OpenRouter key (`sk-or-v1-...`), not a Google AI Studio key.
+`OPENROUTER_API_KEY` is an OpenRouter key (`sk-or-v1-...`), not a Google AI Studio key.
 Model ids are OpenRouter slugs (e.g. `google/gemini-2.5-flash`). Bare `gemini-*` names
 are prefixed with `google/` so older .env values still work.
 """
@@ -23,8 +23,8 @@ def _openrouter_model(model: str) -> str:
 
 
 def complete(model: str, system: str, user: str, max_tokens: int) -> str:
-    if not settings.GEMINI_MODEL_KEY:
-        raise RuntimeError("GEMINI_MODEL_KEY is not set (OpenRouter API key)")
+    if not settings.OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
     payload = {
         "model": _openrouter_model(model),
         "messages": [
@@ -35,7 +35,7 @@ def complete(model: str, system: str, user: str, max_tokens: int) -> str:
         "temperature": 0.4,
     }
     headers = {
-        "Authorization": f"Bearer {settings.GEMINI_MODEL_KEY}",
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://tinytown.local",
         "X-Title": "Tiny Town",

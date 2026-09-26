@@ -34,7 +34,7 @@ When choosing between features, pick whichever does more for real-world connecti
 ## Tech Stack
 
 - Rendering: Three.js with an orthographic camera + Kenney 3D kits (city buildings, roads, trees, characters), which read as isometric. Code in `frontend/`. (2D Phaser prototype was tried and dropped.)
-- Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), OpenRouter (`httpx` to `/api/v1/chat/completions`). `GEMINI_MODEL_KEY` is an OpenRouter key. Town Brain: `google/gemini-2.5-flash`. Character agents: `google/gemini-2.5-flash-lite`. Two asyncio loops; no Redis/Celery.
+- Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), OpenRouter (`httpx` to `/api/v1/chat/completions`). Key: `OPENROUTER_API_KEY` (old name `GEMINI_MODEL_KEY` still accepted). Town Brain: `google/gemini-2.5-flash`. Character agents: `google/gemini-2.5-flash-lite`. Two asyncio loops; no Redis/Celery.
 - Database: Supabase (Postgres + Auth + Realtime).
 
 ## Database
@@ -83,7 +83,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - [x] Repo scaffolding / stack chosen (FastAPI + Three.js)
 - [x] Town rendering + camera (`frontend/`)
 - [x] Database schema (10 core tables + `friend_requests`, `town_invites`)
-- [x] Backend on the 10-table core schema, JWT-authed REST API (e2e-tested against live Supabase; brain/agent model calls need `GEMINI_MODEL_KEY`, an OpenRouter key)
+- [x] Backend on the 10-table core schema, JWT-authed REST API (e2e-tested against live Supabase; brain/agent model calls need `OPENROUTER_API_KEY`)
 - [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2)
 - [x] Town brain pipeline
 - [x] Character agent loop + action menu
@@ -95,7 +95,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 - 2026-09-26: The demo no longer requires specific member names. Scenario targets are cast from whoever is in the demo town (`backend/routes/demo.py` `cast_roles`). Agents may cite active event ids as grounding, not just brain facts.
 - 2026-09-26: Account friends + town invites (migration `20260926000005`, idempotent). Find people by exact `username`. Only the town creator invites, only friends. Writes go through the API; frontend reads via RLS.
-- 2026-09-26: LLM calls go through OpenRouter (`GEMINI_MODEL_KEY` is an OpenRouter key, not a Google AI Studio key; no `google-genai`). Default models `google/gemini-2.5-flash` and `google/gemini-2.5-flash-lite`. 3D demo buttons hit `POST /demo/trigger` and poll `GET /demo/snapshot`.
+- 2026-09-26: LLM calls go through OpenRouter with `OPENROUTER_API_KEY` (renamed from `GEMINI_MODEL_KEY`, which is still accepted as a fallback; not a Google AI Studio key; no `google-genai`). Default models `google/gemini-2.5-flash` and `google/gemini-2.5-flash-lite`. 3D demo buttons hit `POST /demo/trigger` and poll `GET /demo/snapshot`.
 - 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `frontend/`.
 - 2026-09-25: `frontend/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.
 - 2026-09-25: Real character agents, grounded by the town brain, fixed action menu.

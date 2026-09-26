@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,8 +18,8 @@ class Settings(BaseSettings):
     SUPABASE_PUBLISHABLE_KEY: str = ""
     SUPABASE_SECRET_KEY: str = ""
     SUPABASE_DB_URL: str = ""
-    # OpenRouter key (sk-or-v1-...), used as Bearer token. Name kept from the Gemini switch.
-    GEMINI_MODEL_KEY: str = ""
+    # OpenRouter key (sk-or-v1-...), used as Bearer token. GEMINI_MODEL_KEY is the old name for it.
+    OPENROUTER_API_KEY: str = Field(default="", validation_alias=AliasChoices("OPENROUTER_API_KEY", "GEMINI_MODEL_KEY"))
     BRAIN_MODEL: str = "google/gemini-2.5-flash"
     AGENT_MODEL: str = "google/gemini-2.5-flash-lite"
     ACTION_AGENT_MODEL: str = "google/gemini-2.5-flash"
