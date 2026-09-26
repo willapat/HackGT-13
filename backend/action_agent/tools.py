@@ -20,14 +20,21 @@ def find_time_slots(participant_user_ids: list[str], count: int = 3) -> list[dic
     return slots[:count]
 
 
-def suggest_place(building_id: str | None, title: str) -> dict:
-    """Pretend-places: map known building ids to a venue name. Not a real Places API."""
-    names = {
-        "gym": "Boulder Gym",
-        "cafe": "Bean There Café",
-        "park": "Central Park",
-        "library": "Library",
-        "market": "Market",
-        "downtown": "downtown",
-    }
-    return {"building_id": building_id, "name": names.get(building_id or "", title), "stub": True}
+PLACES = {
+    "gym": "Boulder Gym",
+    "cafe": "Bean There Café",
+    "park": "Central Park",
+    "library": "Library",
+    "market": "Market",
+    "downtown": "downtown",
+}
+KEYWORDS = {"climb": "gym", "coffee": "cafe", "café": "cafe", "book": "library", "picnic": "park", "run": "park"}
+
+
+def suggest_place(text: str) -> dict:
+    """Pretend-places: pick a known building mentioned in the quest text. Not a real Places API."""
+    lowered = text.lower()
+    building_id = next((b for b in PLACES if b in lowered), None) or next(
+        (b for k, b in KEYWORDS.items() if k in lowered), None
+    )
+    return {"building_id": building_id, "name": PLACES.get(building_id, "somewhere you both like"), "stub": True}

@@ -2,42 +2,26 @@
 
 from backend.models.enums import EventStatus, EventType
 
-ACTIVE_STATUSES = {
-    EventStatus.suggested.value,
-    EventStatus.active.value,
-    EventStatus.scheduled.value,
-}
+ACTIVE_STATUSES = {EventStatus.suggested.value, EventStatus.scheduled.value, EventStatus.confirmed.value}
 
 
 def find_connection_candidates(town_id: str, db) -> list[dict]:
     members = (
-        db.table("town_members")
-        .select("user_id, profiles(id, display_name, interests)")
-        .eq("town_id", town_id)
-        .execute()
-        .data
-        or []
+        db.table("town_members").select("user_id, profiles(id, display_name, interests)")
+        .eq("town_id", town_id).execute().data or []
     )
-    people = []
-    for row in members:
-        profile = row.get("profiles") or {}
-        people.append(
-            {
-                "user_id": row["user_id"],
-                "display_name": profile.get("display_name") or "",
-                "interests": set(profile.get("interests") or []),
-            }
-        )
+    people = [
+        {
+            "user_id": row["user_id"],
+            "display_name": (row.get("profiles") or {}).get("display_name") or "",
+            "interests": set((row.get("profiles") or {}).get("interests") or []),
+        }
+        for row in members
+    ]
 
     events = (
-        db.table("events")
-        .select("id, type, status, event_participants(user_id)")
-        .eq("town_id", town_id)
-        .eq("type", EventType.quest.value)
-        .in_("status", list(ACTIVE_STATUSES))
-        .execute()
-        .data
-        or []
+        db.table("events").select("id, type, status, event_participants(user_id)").eq("town_id", town_id)
+        .eq("type", EventType.quest.value).in_("status", list(ACTIVE_STATUSES)).execute().data or []
     )
     cooldown_pairs: set[tuple[str, str]] = set()
     for ev in events:
@@ -50,16 +34,9 @@ def find_connection_candidates(town_id: str, db) -> list[dict]:
     for i, a in enumerate(people):
         for b in people[i + 1 :]:
             shared = sorted(a["interests"] & b["interests"])
-            if not shared:
-                continue
             pair = tuple(sorted((a["user_id"], b["user_id"])))
-            if pair in cooldown_pairs:
-                continue
-            candidates.append(
-                {
-                    "user_ids": list(pair),
-                    "names": [a["display_name"], b["display_name"]],
-                    "shared_interests": shared,
-                }
-            )
+            if shared and pair not in cooldown_pairs:
+                candidates.append(
+                    {"user_ids": list(pair), "names": [a["display_name"], b["display_name"]], "shared_interests": shared}
+                )
     return candidates

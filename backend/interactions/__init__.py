@@ -1,1 +1,1 @@
-from backend.interactions.path_score import apply_path_score_delta, record_interaction  # noqa: F401
+from backend.interactions.path_score import record_interaction  # noqa: F401

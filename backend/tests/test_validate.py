@@ -1,25 +1,24 @@
-from backend.agent.validate import parse_raw_json, validate_agent_decision, validate_brain_output
-from backend.brain.visibility import NEUTRAL_WEATHER, apply_visibility
+from backend.agent.validate import parse_raw_json, validate_agent_decision, validate_brain_output, validate_lines
+from backend.brain.visibility import NEUTRAL_MOOD, apply_visibility
 from backend.models.agents import AgentDecisionInput, NearbyCharacter, RelevantFact
-from backend.models.enums import POSTGRES_AGENT_ACTION_VALUES, AgentAction, VisibilityLevel
-from backend.models.facts import BrainOutput, FactWrite, MemberStateWrite, NewsWrite
+from backend.models.brain import BrainOutput, Fact, MemberState, NewsItem, QuestCandidate
+from backend.models.enums import POSTGRES_AGENT_ACTION_VALUES, AgentAction, Visibility
 
 
 def _ctx(**kwargs) -> AgentDecisionInput:
     base = dict(
         character_id="alex",
+        display_name="Alex",
         town_id="town1",
         current_location_building_id="cafe",
         current_action="idle",
         nearby_characters=[
-            NearbyCharacter(user_id="sam", display_name="Sam", location_building_id="cafe", busy=False)
+            NearbyCharacter(user_id="sam", display_name="Sam", location_building_id="cafe")
         ],
-        relevant_facts=[RelevantFact(id="f1", category="news", fact="Maya got an internship")],
+        relevant_facts=[RelevantFact(id="run1:0", user_id="maya", category="news", fact="Maya got an internship")],
         active_events=[],
-        known_connections=[],
         available_actions=[a.value for a in AgentAction],
         available_buildings=[{"id": "cafe", "type": "cafe"}, {"id": "gym", "type": "gym"}],
-        inventory={"gift": 1},
     )
     base.update(kwargs)
     return AgentDecisionInput(**base)
@@ -59,9 +58,16 @@ def test_hallucinated_fact_id_returns_none():
     assert validate_agent_decision(raw, _ctx()) is None
 
 
-def test_gift_without_inventory_returns_none():
-    raw = {"action": "leave_gift", "target_user_id": "sam", "reason": "x", "fact_ids": []}
-    assert validate_agent_decision(raw, _ctx(inventory={"gift": 0})) is None
+def test_self_target_returns_none():
+    raw = {"action": "visit", "target_user_id": "alex", "reason": "x", "fact_ids": []}
+    assert validate_agent_decision(raw, _ctx()) is None
+
+
+def test_lines_only_keep_the_two_speakers():
+    raw = {"lines": [{"speaker_id": "alex", "text": " hi "}, {"speaker_id": "mallory", "text": "x"},
+                     {"speaker_id": "sam", "text": ""}, "junk"]}
+    assert validate_lines(raw, {"alex", "sam"}) == [{"speaker_id": "alex", "text": "hi"}]
+    assert validate_lines(None, {"alex"}) == []
 
 
 def test_missing_required_target_returns_none():
@@ -77,84 +83,53 @@ def test_walk_to_building_alias_normalizes():
 
 
 def test_valid_idle_passes():
-    raw = {"action": "idle", "reason": "nothing to do", "fact_ids": ["f1"]}
+    raw = {"action": "idle", "reason": "nothing to do", "fact_ids": ["run1:0"]}
     out = validate_agent_decision(raw, _ctx())
     assert out is not None
     assert out.action == "idle"
 
 
-class _Resp:
-    def __init__(self, data):
-        self.data = data
+JORDAN_PREV = {"user_id": "jordan", "mood": NEUTRAL_MOOD, "activity": None, "state": {}}
+SAM_PREV = {"user_id": "sam", "mood": None, "activity": None, "state": {}}
 
 
-class FakeQuery:
-    def __init__(self, rows):
-        self.rows = list(rows)
-
-    def select(self, *a, **k):
-        return self
-
-    def eq(self, key, value):
-        if self.rows and key not in self.rows[0]:
-            return self
-        self.rows = [r for r in self.rows if r.get(key) == value]
-        return self
-
-    def in_(self, key, values):
-        self.rows = [r for r in self.rows if r.get(key) in values]
-        return self
-
-    def limit(self, n):
-        self.rows = self.rows[:n]
-        return self
-
-    def execute(self):
-        return _Resp(self.rows)
-
-
-class FakeDB:
-    def __init__(self, tables: dict):
-        self._tables = tables
-
-    def table(self, name):
-        return FakeQuery(self._tables.get(name, []))
-
-
-def test_hidden_mood_does_not_leak_to_news_or_member_state():
-    db = FakeDB(
-        {
-            "visibility_rules": [
-                {"user_id": "jordan", "field": "mood", "level": VisibilityLevel.hidden.value, "town_id": "t"}
-            ],
-            "town_members": [{"user_id": "jordan", "mood": NEUTRAL_WEATHER, "activity": None, "state": {}}],
-        }
+def _brain_output(secret: str) -> BrainOutput:
+    return BrainOutput(
+        facts=[Fact(user_id="jordan", category="mood", fact=secret, source_signal_ids=["s1"])],
+        member_states=[MemberState(user_id="jordan", mood="stormy", activity="crying at home", props={"x": 1})],
+        news=[NewsItem(title=secret)],
+        quest_candidates=[QuestCandidate(title="Check in", text=secret, participant_user_ids=["jordan", "sam"])],
     )
+
+
+def test_hidden_signal_never_leaks_to_town_visible_output():
     secret = "Jordan is having a rough week because of a breakup"
-    raw = BrainOutput(
-        facts=[
-            FactWrite(
-                user_id="jordan",
-                town_id="t",
-                category="mood",
-                fact=secret,
-                source_signal_ids=["s1"],
-                confidence=1.0,
-                visibility="full",
-            )
-        ],
-        member_states=[
-            MemberStateWrite(town_id="t", user_id="jordan", weather="stormy", activity="crying at home", props={})
-        ],
-        news=[NewsWrite(town_id="t", text=secret)],
-        quest_candidates=[],
-    )
-    filtered = apply_visibility(raw, "t", db)
-    assert filtered.facts[0].visibility == "hidden"
-    assert filtered.member_states[0].weather != "stormy"
-    assert filtered.member_states[0].weather == NEUTRAL_WEATHER
-    assert all(secret not in n.text for n in filtered.news)
-    assert filtered.news == []
+    signals = [{"user_id": "jordan", "value": {"mood": "rough_week", "visibility": "hidden"}}]
+    out = apply_visibility(_brain_output(secret), signals, [JORDAN_PREV, SAM_PREV])
+    assert out.facts == []  # brain_runs.output is town-readable
+    assert out.member_states[0].mood.value == NEUTRAL_MOOD
+    assert out.member_states[0].activity is None and out.member_states[0].props == {}
+    assert out.news == [] and out.quest_candidates == []
+
+
+def test_vague_signal_blurs_state():
+    signals = [{"user_id": "jordan", "value": {"visibility": "vague"}}]
+    out = apply_visibility(_brain_output("specifics"), signals, [JORDAN_PREV, SAM_PREV])
+    assert out.member_states[0].mood.value == NEUTRAL_MOOD
+    assert "crying" not in (out.member_states[0].activity or "")
+    assert out.facts == [] and out.news == []
+
+
+def test_full_signal_passes_through():
+    signals = [{"user_id": "jordan", "value": {"mood": "rough_week"}}]
+    out = apply_visibility(_brain_output("Jordan is having a rough week"), signals, [JORDAN_PREV, SAM_PREV])
+    assert len(out.facts) == 1 and out.member_states[0].mood.value == "stormy"
+    assert len(out.news) == 1 and len(out.quest_candidates) == 1
+
+
+def test_brain_cannot_write_about_non_members():
+    out = apply_visibility(_brain_output("x"), [], [SAM_PREV])
+    assert out.facts == [] and out.member_states == [] and out.quest_candidates == []
 
 
 def test_brain_output_rejects_bad_weather():
@@ -162,7 +137,7 @@ def test_brain_output_rejects_bad_weather():
         validate_brain_output(
             {
                 "facts": [],
-                "member_states": [{"town_id": "t", "user_id": "u", "weather": "nuclear"}],
+                "member_states": [{"user_id": "u", "mood": "nuclear"}],
                 "news": [],
                 "quest_candidates": [],
             }
@@ -182,7 +157,7 @@ def test_agent_action_enum_matches_postgres_labels():
         "propose_event",
         "go_home",
     )
-    assert VisibilityLevel.hidden.value == "hidden"
+    assert Visibility.hidden.value == "hidden"
 
 
 def test_enum_roundtrip_against_postgres():

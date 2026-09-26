@@ -1,83 +1,79 @@
-from fastapi import APIRouter, HTTPException
+"""The approval gate. Nothing leaves the town until every participant accepts and one approves the plan."""
 
-from backend.action_agent.action_agent import run_action_agent
+from itertools import combinations
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from backend.action_agent.action_agent import draft_plan
+from backend.auth import current_user_id, require_member
 from backend.db import get_client
-from backend.models.enums import EventStatus, ParticipantStatus, TaskStatus
-from backend.models.events import EventParticipantUpdate
+from backend.interactions.path_score import record_interaction
+from backend.models.api import EventRespond
+from backend.models.enums import EventStatus, InteractionVia, ParticipantStatus
 
-router = APIRouter()
+router = APIRouter(prefix="/events", tags=["events"])
 
-
-@router.post("/events/{event_id}/respond")
-def respond(event_id: str, body: EventParticipantUpdate):
-    if body.status not in {ParticipantStatus.accepted.value, ParticipantStatus.declined.value}:
-        raise HTTPException(status_code=422, detail="status must be accepted or declined")
-    if body.event_id != event_id:
-        raise HTTPException(status_code=422, detail="event_id mismatch")
-    db = get_client()
-    ev = db.table("events").select("*").eq("id", event_id).limit(1).execute().data or []
-    if not ev:
-        raise HTTPException(status_code=404, detail="event not found")
-    existing = (
-        db.table("event_participants")
-        .select("user_id")
-        .eq("event_id", event_id)
-        .eq("user_id", body.user_id)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not existing:
-        raise HTTPException(status_code=404, detail="participant not found")
-    db.table("event_participants").update({"status": body.status}).eq("event_id", event_id).eq(
-        "user_id", body.user_id
-    ).execute()
-    db.table("notifications").insert(
-        {
-            "user_id": body.user_id,
-            "town_id": ev[0]["town_id"],
-            "text": f"You {body.status} '{ev[0]['title']}'",
-            "payload": {"event_id": event_id, "status": body.status},
-        }
-    ).execute()
-    parts = db.table("event_participants").select("status").eq("event_id", event_id).execute().data or []
-    if body.status == ParticipantStatus.accepted.value and parts and all(
-        p["status"] == ParticipantStatus.accepted.value for p in parts
-    ):
-        db.table("events").update({"status": EventStatus.scheduled.value}).eq("id", event_id).execute()
-        db.table("action_tasks").insert(
-            {"event_id": event_id, "status": TaskStatus.pending.value}
-        ).execute()
-        run_action_agent(event_id)
-    return {"ok": True, "event_status": EventStatus.scheduled.value if all(
-        p["status"] == ParticipantStatus.accepted.value for p in parts
-    ) else ev[0]["status"]}
+PLAN_STATUSES = {EventStatus.scheduled.value, EventStatus.confirmed.value}
 
 
-@router.post("/action_tasks/{task_id}/approve")
-def approve_task(task_id: str):
-    db = get_client()
-    rows = db.table("action_tasks").select("*").eq("id", task_id).limit(1).execute().data or []
+def _load(db, event_id: str) -> tuple[dict, dict[str, str]]:
+    rows = db.table("events").select("*").eq("id", event_id).limit(1).execute().data
     if not rows:
-        raise HTTPException(status_code=404, detail="task not found")
-    task = rows[0]
-    if task["status"] != TaskStatus.needs_approval.value:
-        raise HTTPException(status_code=409, detail="task is not waiting for approval")
-    db.table("action_tasks").update({"status": TaskStatus.done.value}).eq("id", task_id).execute()
-    ev = db.table("events").select("*").eq("id", task["event_id"]).limit(1).execute().data or []
-    parts = db.table("event_participants").select("user_id").eq("event_id", task["event_id"]).execute().data or []
-    ids = [p["user_id"] for p in parts]
-    if len(ids) >= 2 and ev:
-        from backend.interactions.path_score import record_interaction
-        from backend.models.enums import InteractionType, InteractionVia
+        raise HTTPException(status_code=404, detail="event not found")
+    parts = db.table("event_participants").select("user_id, status").eq("event_id", event_id).execute().data or []
+    return rows[0], {p["user_id"]: p["status"] for p in parts}
 
-        record_interaction(
-            db,
-            ev[0]["town_id"],
-            ids[0],
-            ids[1],
-            InteractionType.hangout.value,
-            InteractionVia.real_life.value,
-        )
-    return {"ok": True, "status": TaskStatus.done.value}
+
+def _view(event: dict, parts: dict[str, str]) -> dict:
+    view = {**event, "event_participants": [{"user_id": u, "status": s} for u, s in parts.items()]}
+    if event["status"] in PLAN_STATUSES:
+        view["plan"] = draft_plan(event, list(parts))
+    return view
+
+
+@router.get("/{event_id}")
+def get_event(event_id: UUID, uid: str = Depends(current_user_id)):
+    """Event with participants, plus the drafted plan once everyone has accepted."""
+    db = get_client()
+    event, parts = _load(db, str(event_id))
+    require_member(db, event["town_id"], uid)
+    return _view(event, parts)
+
+
+@router.post("/{event_id}/respond")
+def respond(event_id: UUID, body: EventRespond, uid: str = Depends(current_user_id)):
+    """Accept or decline for yourself. All accepted → scheduled (plan drafted). Anyone declines → cancelled."""
+    db, eid = get_client(), str(event_id)
+    event, parts = _load(db, eid)
+    if uid not in parts:
+        raise HTTPException(status_code=404, detail="event not found")
+    if event["status"] != EventStatus.suggested.value:
+        raise HTTPException(status_code=409, detail=f"event is already {event['status']}")
+    db.table("event_participants").update({"status": body.status}).eq("event_id", eid).eq("user_id", uid).execute()
+    parts[uid] = body.status
+    new_status = None
+    if ParticipantStatus.declined.value in parts.values():
+        new_status = EventStatus.cancelled.value
+    elif all(s == ParticipantStatus.accepted.value for s in parts.values()):
+        new_status = EventStatus.scheduled.value
+    if new_status:
+        db.table("events").update({"status": new_status}).eq("id", eid).execute()
+        event["status"] = new_status
+    return _view(event, parts)
+
+
+@router.post("/{event_id}/approve")
+def approve_plan(event_id: UUID, uid: str = Depends(current_user_id)):
+    """A participant approves the drafted plan. Stub: nothing is actually sent or booked yet."""
+    db, eid = get_client(), str(event_id)
+    event, parts = _load(db, eid)
+    if uid not in parts:
+        raise HTTPException(status_code=404, detail="event not found")
+    if event["status"] != EventStatus.scheduled.value:
+        raise HTTPException(status_code=409, detail="plan is only approvable once everyone has accepted")
+    db.table("events").update({"status": EventStatus.confirmed.value}).eq("id", eid).execute()
+    event["status"] = EventStatus.confirmed.value
+    for a, b in combinations(parts, 2):
+        record_interaction(db, a, b, InteractionVia.real_life.value)
+    return _view(event, parts)

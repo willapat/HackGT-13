@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from backend.config import settings
 from backend.db import get_client
 
-router = APIRouter()
+router = APIRouter(prefix="/demo", tags=["demo"])
 
 SCENARIOS = {"goodNews", "climbing", "roughWeek"}
 
@@ -23,14 +23,6 @@ def _members_by_name(db, town_id: str) -> dict[str, str]:
         if name:
             out[name] = row["user_id"]
     return out
-
-
-def ensure_consent(db, user_id: str, source: str = "manual") -> None:
-    existing = (
-        db.table("consents").select("user_id").eq("user_id", user_id).eq("source", source).limit(1).execute().data or []
-    )
-    if not existing:
-        db.table("consents").insert({"user_id": user_id, "source": source}).execute()
 
 
 def scenario_signals(scenario: str, names: dict[str, str]) -> list[dict]:
@@ -76,7 +68,7 @@ def scenario_signals(scenario: str, names: dict[str, str]) -> list[dict]:
     raise HTTPException(status_code=404, detail="unknown scenario")
 
 
-@router.get("/demo/config")
+@router.get("/config")
 def demo_config():
     return {
         "supabase_url": settings.SUPABASE_URL,
@@ -86,8 +78,9 @@ def demo_config():
     }
 
 
-@router.post("/demo/trigger/{scenario}")
+@router.post("/trigger/{scenario}")
 def trigger_demo(scenario: str):
+    """Inserts real signals for the demo town's members. Unauthenticated on purpose: only works with DEMO_TOWN_ID set."""
     if scenario not in SCENARIOS:
         raise HTTPException(status_code=404, detail="unknown scenario")
     if not settings.DEMO_TOWN_ID:
@@ -97,7 +90,6 @@ def trigger_demo(scenario: str):
     payloads = scenario_signals(scenario, names)
     inserted = []
     for p in payloads:
-        ensure_consent(db, p["user_id"], p["source"])
         if scenario == "climbing":
             row = db.table("profiles").select("interests").eq("id", p["user_id"]).limit(1).execute().data or []
             interests = list((row[0].get("interests") if row else None) or [])
