@@ -75,6 +75,8 @@ class FakeResp:
 
 T1 = datetime(2026, 9, 27, 14, tzinfo=timezone.utc)
 T2 = datetime(2026, 9, 27, 16, tzinfo=timezone.utc)
+TINY = {"places": {"market": {"name": "Market"}, "cafe": {"name": "Bean There Café"}, "park": {"name": "Central Park"}}}
+LAKE = {"places": {"market": {"name": "Farmers Market"}, "park": {"name": "Lakeside Green"}, "pocketpark": {"name": "Pocket Park"}}}
 
 
 @pytest.fixture(autouse=True)
@@ -83,37 +85,79 @@ def google_creds(monkeypatch):
     monkeypatch.setattr(gc.settings, "GOOGLE_CLIENT_SECRET", "secret")
 
 
-def fake_google(monkeypatch, token_resp, busy=((T1, T2),)):
-    def post(url, **kw):
-        if url == gc.TOKEN_URL:
-            return token_resp
-        assert url == gc.FREEBUSY_URL and kw["headers"]["Authorization"] == "Bearer at"
-        return FakeResp(200, {"calendars": {"primary": {"busy": [
-            {"start": s.isoformat(), "end": e.isoformat()} for s, e in busy]}}})
-    monkeypatch.setattr(gc.httpx, "post", post)
+def g_event(summary, location="", **kw):
+    return {"summary": summary, "location": location, "start": {"dateTime": T1.isoformat()}, "end": {"dateTime": T2.isoformat()}, **kw}
 
 
-def db_with_user(towns=("t1", "t2")):
+def fake_google(monkeypatch, token_resp, items=(), events_status=200):
+    monkeypatch.setattr(gc.httpx, "post", lambda url, **kw: token_resp)
+
+    def get(url, **kw):
+        assert url == gc.EVENTS_URL and kw["headers"]["Authorization"] == "Bearer at"
+        assert kw["params"]["singleEvents"] == "true"
+        return FakeResp(events_status, {"items": list(items)})
+    monkeypatch.setattr(gc.httpx, "get", get)
+
+
+def db_with_user(towns=(("t1", TINY), ("t2", LAKE))):
     return FakeDB(
         calendar_connections=[{"user_id": "u1", "refresh_token": "rt"}],
-        town_members=[{"town_id": t, "user_id": "u1"} for t in towns],
+        town_members=[{"town_id": t, "user_id": "u1", "towns": {"map": m}} for t, m in towns],
         events=[{"id": "old", "imported_for": "u1", "title": "Busy"}, {"id": "keep", "imported_for": None, "title": "Class"}],
         event_participants=[],
     )
 
 
-def test_busy_block_copied_into_every_town_at_home(monkeypatch):
-    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}))
+def imported(db):
+    return {e["town_id"]: e for e in db.tables["events"] if e.get("imported_for") == "u1"}
+
+
+def test_event_goes_to_the_matching_place_in_each_town(monkeypatch):
+    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}), [g_event("Groceries at the market with mom")])
     db = db_with_user()
-    assert gc.sync_user(db, "u1") == {"busy_blocks": 1}
-    imported = [e for e in db.tables["events"] if e.get("imported_for") == "u1"]
-    assert {e["town_id"] for e in imported} == {"t1", "t2"}
-    assert all(e["title"] == "Busy" and e["building_id"] == "house:u1" and e["type"] == "personal" for e in imported)
-    assert "old" not in {e["id"] for e in db.tables["events"]}  # previous copies replaced
-    assert "keep" in {e["id"] for e in db.tables["events"]}  # events made in Tiny Town untouched
+    assert gc.sync_user(db, "u1") == {"events": 1}
+    rows = imported(db)
+    assert rows["t1"]["building_id"] == "market" and rows["t1"]["title"] == "At Market"
+    assert rows["t2"]["building_id"] == "market" and rows["t2"]["title"] == "At Farmers Market"
+    assert all("mom" not in (r["title"] + str(r.get("text"))) for r in rows.values())  # real title stays private
+    assert "old" not in {e["id"] for e in db.tables["events"]} and "keep" in {e["id"] for e in db.tables["events"]}
     assert {p["user_id"] for p in db.tables["event_participants"]} == {"u1"}
     conn = db.tables["calendar_connections"][0]
     assert conn["last_error"] is None and conn["last_synced_at"]
+
+
+def test_location_and_accents_match_too(monkeypatch):
+    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}), [g_event("Catch up", location="Bean There Cafe, 5th St")])
+    db = db_with_user(towns=(("t1", TINY),))
+    gc.sync_user(db, "u1")
+    assert imported(db)["t1"]["building_id"] == "cafe"
+
+
+def test_no_matching_place_goes_home(monkeypatch):
+    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}), [g_event("Dentist")])
+    db = db_with_user(towns=(("t1", TINY),))
+    gc.sync_user(db, "u1")
+    row = imported(db)["t1"]
+    assert row["building_id"] == "house:u1" and row["title"] == "Busy"
+
+
+def test_longest_place_name_wins():
+    places = gc._town_places({"map": LAKE})
+    assert gc.match_place(places, "Picnic in Pocket Park", "")["id"] == "pocketpark"
+    assert gc.match_place(places, "Marketing meeting", "") is None  # whole words only
+
+
+def test_all_day_free_and_declined_events_are_skipped(monkeypatch):
+    items = [
+        {"summary": "Market day", "start": {"date": "2026-09-27"}, "end": {"date": "2026-09-28"}},
+        g_event("Market", transparency="transparent"),
+        g_event("Market", attendees=[{"self": True, "responseStatus": "declined"}]),
+        g_event("Market", status="cancelled"),
+    ]
+    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}), items)
+    db = db_with_user()
+    assert gc.sync_user(db, "u1") == {"events": 0}
+    assert imported(db) == {}
 
 
 def test_revoked_access_is_recorded_and_keeps_old_events(monkeypatch):
@@ -125,8 +169,15 @@ def test_revoked_access_is_recorded_and_keeps_old_events(monkeypatch):
     assert "old" in {e["id"] for e in db.tables["events"]}
 
 
+def test_old_free_busy_permission_asks_to_reconnect(monkeypatch):
+    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}), events_status=403)
+    db = db_with_user()
+    with pytest.raises(gc.CalendarError, match="Reconnect"):
+        gc.sync_user(db, "u1")
+
+
 def test_not_in_any_town_imports_nothing(monkeypatch):
-    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}))
+    fake_google(monkeypatch, FakeResp(200, {"access_token": "at"}), [g_event("Market")])
     db = db_with_user(towns=())
     gc.sync_user(db, "u1")
     assert [e["id"] for e in db.tables["events"]] == ["keep"]

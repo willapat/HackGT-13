@@ -2136,9 +2136,9 @@ const appearance = (() => {
   return { load };
 })();
 
-// Calendar: connect Google Calendar (free/busy only). Google sends people back to ?calendar=google with a
+// Calendar: connect Google Calendar (events, read-only). Google sends people back to ?calendar=google with a
 // refresh token in the session exactly once; it goes straight to the backend, which does all the syncing.
-const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.freebusy';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/calendar.events.readonly';
 const calendarPane = (() => {
   // Read before supabase-js tidies the URL: are we coming back from Google, and did it fail?
   const query = new URLSearchParams(location.search), fragment = new URLSearchParams(location.hash.slice(1));
@@ -2152,11 +2152,13 @@ const calendarPane = (() => {
 
   function render(s) {
     const on = Boolean(s?.connected);
-    $('#cal-connect').hidden = on || !s;
+    // Connected but broken (e.g. access removed, or connected back when Luma only asked for free/busy): offer a reconnect
+    $('#cal-connect').hidden = !s || (on && !s.last_error);
+    $('#cal-connect').textContent = on ? 'Reconnect Google Calendar' : 'Connect Google Calendar';
     $('#cal-sync').hidden = !on;
     $('#cal-disconnect').hidden = !on;
     $('#cal-status').textContent = !s ? 'Checking…' : !on ? 'Not connected'
-      : `Connected${s.last_synced_at ? ` · synced ${ago(s.last_synced_at)}` : ''} · ${s.upcoming_busy_blocks} busy ${s.upcoming_busy_blocks === 1 ? 'block' : 'blocks'} coming up`;
+      : `Connected${s.last_synced_at ? ` · synced ${ago(s.last_synced_at)}` : ''} · ${s.upcoming_events ?? 0} ${s.upcoming_events === 1 ? 'event' : 'events'} coming up, ${s.upcoming_at_places ?? 0} at a place in town`;
     $('#cal-error').hidden = !s?.last_error;
     $('#cal-error').textContent = s?.last_error || '';
   }
@@ -2193,7 +2195,7 @@ const calendarPane = (() => {
       : await sb.auth.linkIdentity({ provider: 'google', options });
     if (error) {
       toast(error.message, 'error');
-      busy($('#cal-connect'), false, 'Connect Google Calendar');
+      busy($('#cal-connect'), false, $('#cal-sync').hidden ? 'Connect Google Calendar' : 'Reconnect Google Calendar');
     }
   };
 
@@ -2206,7 +2208,7 @@ const calendarPane = (() => {
   $('#cal-disconnect').onclick = async () => {
     const yes = await confirmDialog({
       title: 'Disconnect Google Calendar?',
-      body: 'Luma stops reading your busy times and removes the ones it copied. Google access is revoked too.',
+      body: 'Luma stops reading your calendar and removes the events it copied. Google access is revoked too.',
       confirmLabel: 'Disconnect', danger: true,
     });
     if (!yes) return;
