@@ -560,9 +560,11 @@ function buildCity() {
     const phase = f.name.length;
     animated.add({ update() { pivot.rotation.y = Math.sin(performance.now() / 450 + phase) * 0.4; } });
     const at = pos(...h.house).setY(topOf[key(...h.house)] + 0.2);
-    const lbl = addLabel('lbl place home', `${f.name}'s house`, () => at);
+    h.name = `${f.name}'s house`;
+    const lbl = addLabel('lbl place home', h.name, () => at);
     lbl.el.style.background = f.color;
     lbl.el.style.color = inkOn(f.color);
+    f.homeLabel = lbl;
   }
 
   // ---- Landmarks: the stadium at the pack's true scale fills its block; a windmill farm in the other corner
@@ -681,7 +683,7 @@ function buildCity() {
   for (const p of Object.values(PLACES)) {
     if (!p.model) continue;
     const at = pos(p.c, p.r).setY(topOf[key(p.c, p.r)] + 0.15);
-    addLabel('lbl place', p.name, () => at);
+    p.label = addLabel('lbl place', p.name, () => at);
   }
 }
 
@@ -894,7 +896,7 @@ const animated = new Set();
 
 function houseTop(home) { return pos(...home.house).setY(topOf[key(...home.house)]); }
 
-function partyLights(home) {
+function partyLights(home, { focus = true } = {}) {
   const top = houseTop(home);
   const group = new THREE.Group();
   const colors = ['#ff5d73', '#ffd23f', '#3ddc97', '#4fb3ff', '#c77dff'];
@@ -935,11 +937,11 @@ function partyLights(home) {
     destroy() { scene.remove(group); animated.delete(fx); },
   };
   animated.add(fx);
-  focusOn(top);
+  if (focus) focusOn(top);
   return fx;
 }
 
-function rainCloud(home) {
+function rainCloud(home, { focus = true } = {}) {
   const top = houseTop(home);
   const group = new THREE.Group();
   const grey = new THREE.MeshLambertMaterial({ color: '#8a94a6' });
@@ -969,7 +971,7 @@ function rainCloud(home) {
     destroy() { scene.remove(group); animated.delete(fx); },
   };
   animated.add(fx);
-  focusOn(top);
+  if (focus) focusOn(top);
   return fx;
 }
 
@@ -1049,7 +1051,22 @@ async function trigger(name) {
 
 function renameFriend(f, name) {
   f.name = name;
-  f.label.el.textContent = name;
+  if (f.label) f.label.el.textContent = name;
+  if (f.home) f.home.name = `${name}'s house`;
+  if (f.homeLabel) {
+    f.homeLabel.el.textContent = f.home.name;
+    f.homeLabel.el.style.display = '';
+  }
+}
+
+function applyTownNames(map) {
+  const places = (map && map.places) || {};
+  for (const [id, src] of Object.entries(places)) {
+    const dest = PLACES[id];
+    if (!dest || !src || !src.name) continue;
+    dest.name = src.name;
+    if (dest.label) dest.label.el.textContent = src.name;
+  }
 }
 
 function resetTown() {
@@ -1069,6 +1086,7 @@ function resetTown() {
 // ---- Camera focus & UI -------------------------------------------------------------------------
 
 let focusGoal = null;
+controls.addEventListener('start', () => { focusGoal = null; }); // a drag always wins over an auto-pan
 function focusOn(p) { if (!following) focusGoal = p.clone().setY(0); }
 function focusFriend(id) {
   const f = friends[id];
@@ -1257,9 +1275,17 @@ const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent
 
 const sky = {
   hour: 12, live: true, fast: false, backend: false,
+  y: 0, mo: 0, d: 0,
   weather: 'clear', autoWeather: true, nextWeatherAt: 0,
   cloud: 0, precip: 0, flash: 0, nextFlashAt: 0, night: 0,
 };
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function townDateLabel() {
+  const y = sky.y, mo = sky.mo, d = sky.d;
+  const src = y ? { y, mo, d } : (() => { const n = new Date(); return { y: n.getFullYear(), mo: n.getMonth() + 1, d: n.getDate() }; })();
+  const wd = WEEKDAYS[new Date(src.y, src.mo - 1, src.d).getDay()];
+  return `${wd} ${String(src.d).padStart(2, '0')}/${String(src.mo).padStart(2, '0')}/${src.y}`;
+}
 const WEATHER = { // cloud cover, precipitation kind
   clear: { cloud: 0, kind: null }, rain: { cloud: 0.6, kind: 'rain' },
   storm: { cloud: 0.85, kind: 'rain' }, snow: { cloud: 0.5, kind: 'snow' },
@@ -1462,6 +1488,8 @@ function updateSky(dt) {
     const slider = document.querySelector('#time');
     if (document.activeElement !== slider) slider.value = sky.hour;
   }
+  const dateEl = document.querySelector('#town-date');
+  if (dateEl) dateEl.textContent = townDateLabel();
 }
 
 function hourFromIso(iso) {
@@ -1469,7 +1497,14 @@ function hourFromIso(iso) {
   return m ? +m[1] + +m[2] / 60 + +m[3] / 3600 : null;
 }
 
+function dateFromIso(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null;
+}
+
 function applyTownTime(iso, mode) {
+  const ymd = dateFromIso(iso);
+  if (ymd) { sky.y = ymd.y; sky.mo = ymd.mo; sky.d = ymd.d; }
   const hour = hourFromIso(iso);
   if (hour == null) return;
   sky.backend = true;
@@ -1535,7 +1570,7 @@ renderResidents();
 logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
-  PLACES, FRIENDS, effects, trigger, applyTownTime, liveMode: false,
+  PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, liveMode: false,
 });
 const { triggerViaBackend, pushClock } = startTownBackend(townApi);
 townApi.pushClock = pushClock;

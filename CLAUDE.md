@@ -95,7 +95,11 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Demo snapshot follows the live Tiny Town (`DEMO_TOWN_ID`). An empty `characters` map no longer hides every 3D person.
+- 2026-09-26: The time slider shows the town date under it (`Saturday 26/09/2026`) from `town_time`, not the browser clock.
+- 2026-09-26: Live snapshot moods (rain over Ben, party lights on Ana) no longer steal the camera on town load. Scripted demo buttons still pan to the house. A drag cancels any leftover auto-pan.
 - 2026-09-26: The 3D slider owns town time while you drag. `POST /demo/clock` sets the shared clock (`mode=scrub`) and `snap_town_to_clock` moves agents to that hour's calendar place immediately (no LLM). Snapshot `mode=live` does not steal the slider back. Live / Fast day return control to the running clock.
+- 2026-09-26: 3D labels follow the database: house signs use `profiles.display_name` (`Ana's house`), place signs use `towns.map.places[].name`. Snapshot still draws the hard-coded layout; names are applied from `/demo/snapshot`.
 - 2026-09-26: Full town layout in the DB (migration `20260926000006`): tile kinds in `towns.tiles`, places + scenery in `towns.map`, homes in `town_members.home`, looks in `profiles.avatar`. Doors are stored (not derivable: the café touches two roads). Frontend still draws its hard-coded copy; it should build from `/demo/snapshot` (`tiles`, `map`, member `home`, `profiles.avatar`).
 - 2026-09-26: Login/onboarding before the map: `index.html` is the auth + friends app, the 3D map moved to `town.html`. Username is required on first login.
 - 2026-09-26: `backend/db.get_client()` is per-thread (was one cached client). Sharing one Supabase client across FastAPI's thread pool made parallel requests fail with `httpx.ReadError` (surfacing as 500s and bogus "invalid or expired token" 401s).
