@@ -1,4 +1,4 @@
-// Tiny Town 3D sandbox: Three.js + Kenney 3D city kits, orthographic "isometric" camera.
+// Tiny Town 3D sandbox: Three.js + SimplePoly City (town) and Kenney Mini Characters, orthographic "isometric" camera.
 // Character behavior is scripted/random here; it stands in for the real character agents.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -11,30 +11,34 @@ const inPark = (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
 const isRoad = (c, r) => ROADS.includes(c) || ROADS.includes(r);
 const IS_MOBILE = matchMedia('(pointer: coarse)').matches;
 
-const COM = 'assets/city-kit-commercial/';
-const SUB = 'assets/city-kit-suburban/';
-const RD = 'assets/city-kit-roads/';
+const SP = 'assets/simplepoly-city/';
 const CH = 'assets/mini-characters/';
-const letters = (s) => s.split('');
-const SKYSCRAPERS = letters('abcde').map((l) => `${COM}building-skyscraper-${l}.glb`);
-const COMMERCIAL = letters('abcdefghijklmn').map((l) => `${COM}building-${l}.glb`);
-const HOUSES = letters('abcdefghijklmnopqrstu').map((l) => `${SUB}building-type-${l}.glb`);
+const sp = (name) => `${SP}${name}.glb`;
+const colors = (name) => ['01', '02', '03'].map((n) => sp(`${name}-color${n}`));
+const SKYSCRAPERS = [...colors('building-sky-big'), ...colors('building-sky-small'), ...colors('building-residential')];
+const COMMERCIAL = ['bakery', 'bar', 'chicken-shop', 'clothing', 'drug-store', 'fast-food', 'fruits-shop', 'gift-shop',
+  'music-store', 'pizza', 'restaurant', 'shoes-shop', 'gas-station'].map((n) => sp(`building-${n}`));
+const HOUSES = ['01', '02', '03', '04'].flatMap((n) => colors(`building-house-${n}`));
+const ROAD = { straight: sp('road-lane-01'), cross: sp('road-intersection-01') };
+const GROUND = { grass: sp('natures-grass-tile'), paved: sp('road-concrete-tile') };
+const PARK_TREES = [sp('natures-big-tree'), sp('natures-fir-tree'), sp('natures-cube-tree')];
+const PROPS = { light: sp('props-street-light'), bench: sp('props-bench-1'), bush: sp('natures-bush-01'), pot: sp('natures-pot-bush-big') };
 
 const PLACES = {
-  library: { name: 'Library', model: `${COM}building-l.glb`, c: 3, r: 1, door: [3, 2] },
-  gym: { name: 'Boulder Gym', model: `${COM}building-h.glb`, c: 5, r: 1, door: [5, 2] },
-  cafe: { name: 'Bean There Café', model: `${COM}building-c.glb`, c: 7, r: 3, door: [6, 3] },
-  market: { name: 'Market', model: `${COM}building-f.glb`, c: 9, r: 5, door: [9, 6] },
+  library: { name: 'Library', model: sp('building-books-shop'), c: 3, r: 1, door: [3, 2] },
+  gym: { name: 'Boulder Gym', model: sp('building-auto-service'), c: 5, r: 1, door: [5, 2] },
+  cafe: { name: 'Bean There Café', model: sp('building-coffee-shop'), c: 7, r: 3, door: [6, 3] },
+  market: { name: 'Market', model: sp('building-super-market'), c: 9, r: 5, door: [9, 6] },
   park: { name: 'Central Park', c: 8, r: 7, door: [8, 6] },
   downtown: { name: 'downtown', c: 7, r: 5, door: [7, 6] },
 };
 
 const FRIENDS = [
-  { id: 'maya', name: 'Maya', color: '#f0616d', model: 'character-female-a', home: { model: `${SUB}building-type-c.glb`, c: 1, r: 3, door: [2, 3] } },
-  { id: 'jordan', name: 'Jordan', color: '#4f8ef7', model: 'character-male-b', home: { model: `${SUB}building-type-h.glb`, c: 3, r: 5, door: [3, 6] } },
-  { id: 'sam', name: 'Sam', color: '#2fb36d', model: 'character-male-d', home: { model: `${SUB}building-type-k.glb`, c: 5, r: 7, door: [6, 7] } },
-  { id: 'priya', name: 'Priya', color: '#f2a33a', model: 'character-female-c', home: { model: `${SUB}building-type-n.glb`, c: 11, r: 7, door: [10, 7] } },
-  { id: 'leo', name: 'Leo', color: '#9b6cf0', model: 'character-male-f', home: { model: `${SUB}building-type-r.glb`, c: 1, r: 9, door: [2, 9] } },
+  { id: 'maya', name: 'Maya', color: '#f0616d', model: 'character-female-a', home: { model: sp('building-house-01-color01'), c: 1, r: 3, door: [2, 3] } },
+  { id: 'jordan', name: 'Jordan', color: '#4f8ef7', model: 'character-male-b', home: { model: sp('building-house-02-color02'), c: 3, r: 5, door: [3, 6] } },
+  { id: 'sam', name: 'Sam', color: '#2fb36d', model: 'character-male-d', home: { model: sp('building-house-03-color03'), c: 5, r: 7, door: [6, 7] } },
+  { id: 'priya', name: 'Priya', color: '#f2a33a', model: 'character-female-c', home: { model: sp('building-house-04-color01'), c: 11, r: 7, door: [10, 7] } },
+  { id: 'leo', name: 'Leo', color: '#9b6cf0', model: 'character-male-f', home: { model: sp('building-house-01-color03'), c: 1, r: 9, door: [2, 9] } },
 ];
 const TREES = [[9, 7], [7, 9], [9, 9], [8, 7.3]];
 
@@ -147,10 +151,13 @@ async function loadAll(paths) {
   await Promise.all([...new Set(paths)].map(async (p) => { models[p] = await loader.loadAsync(p); }));
 }
 
-function place(path, c, r, { fit = 0.92, rotY = 0 } = {}) {
+// SimplePoly models share one scale (a road tile is 20 units), so place them at that scale
+// to keep houses, shops and towers in proportion. `fit` instead stretches a model to a footprint.
+const SP_SCALE = 1 / 20;
+function place(path, c, r, { fit, scale = 1, rotY = 0 } = {}) {
   const obj = models[path].scene.clone();
   const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
-  obj.scale.setScalar(fit / Math.max(size.x, size.z));
+  obj.scale.setScalar(fit ? fit / Math.max(size.x, size.z) : SP_SCALE * scale);
   obj.rotation.y = rotY;
   obj.position.copy(pos(c, r));
   obj.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
@@ -172,43 +179,41 @@ const blocked = new Set();
 const topOf = {}; // building roof height by tile, for labels/effects
 
 function buildCity() {
-  const grass = new THREE.MeshLambertMaterial({ color: '#7cc255' });
-  const park = new THREE.Mesh(new THREE.BoxGeometry(3, 0.04, 3), grass);
-  park.position.copy(pos(8, 8)).setY(0.02);
-  park.receiveShadow = true;
-  scene.add(park);
-
   const reserved = new Map();
   for (const p of Object.values(PLACES)) if (p.model) reserved.set(key(p.c, p.r), p.model);
   for (const f of FRIENDS) reserved.set(key(f.home.c, f.home.r), f.home.model);
 
-  let i = 0;
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
       const onR = ROADS.includes(r), onC = ROADS.includes(c);
-      if (onR && onC) { place(`${RD}road-crossroad.glb`, c, r, { fit: 1 }); continue; }
-      if (onR) { place(`${RD}road-straight.glb`, c, r, { fit: 1 }); continue; } // model runs along x
-      if (onC) { place(`${RD}road-straight.glb`, c, r, { fit: 1, rotY: Math.PI / 2 }); continue; }
-      if (inPark(c, r)) continue;
+      if (onR && onC) { place(ROAD.cross, c, r); continue; }
+      if (onR) { place(ROAD.straight, c, r, { rotY: Math.PI / 2 }); continue; } // model runs along z
+      if (onC) { place(ROAD.straight, c, r); continue; }
+      if (inPark(c, r)) { place(GROUND.grass, c, r); continue; }
 
-      place(`${RD}tile-low.glb`, c, r, { fit: 1 });
       const dist = Math.hypot(c - 5.5, r - 5.5);
       const pick = (arr) => arr[(c * 7 + r * 13 + c * r) % arr.length];
       const model = reserved.get(key(c, r)) ||
         (dist < 3.2 ? pick(SKYSCRAPERS) : dist < 5.3 ? pick(COMMERCIAL) : pick(HOUSES));
-      const b = place(model, c, r, { fit: model.includes('skyscraper') ? 0.9 : 0.86, rotY: faceRoad(c, r) });
+      place(HOUSES.includes(model) ? GROUND.grass : GROUND.paved, c, r);
+      const b = place(model, c, r, { scale: 0.92, rotY: faceRoad(c, r) });
       topOf[key(c, r)] = new THREE.Box3().setFromObject(b).max.y;
       blocked.add(key(c, r));
-      i++;
     }
   }
 
-  for (const [c, r] of TREES) {
-    place(`${SUB}tree-large.glb`, c, r, { fit: 0.28 });
+  TREES.forEach(([c, r], i) => {
+    place(PARK_TREES[i % PARK_TREES.length], c, r, { scale: 2.6 });
     blocked.add(key(Math.round(c), Math.round(r)));
-  }
-  // Street lights at crossings
-  for (const c of ROADS) for (const r of ROADS) place(`${RD}light-square.glb`, c + 0.42, r + 0.42, { fit: 0.3 });
+  });
+  // Park furniture (decoration only; people can walk past it)
+  place(PROPS.pot, 8, 8, { scale: 3 });
+  place(PROPS.bench, 8, 7.6, { scale: 2, rotY: Math.PI });
+  place(PROPS.bench, 8, 8.4, { scale: 2 });
+  for (const [c, r] of [[7, 7], [8.9, 8.1], [8, 9]]) place(PROPS.bush, c, r, { scale: 2.6 });
+
+  // Street lights on the corner of each crossing, arm reaching over the intersection
+  for (const c of ROADS) for (const r of ROADS) place(PROPS.light, c + 0.42, r + 0.42, { scale: 1.8, rotY: -Math.PI / 4 });
 
   for (const p of Object.values(PLACES)) {
     if (!p.model) continue;
@@ -700,7 +705,7 @@ const allModels = [
   ...SKYSCRAPERS, ...COMMERCIAL, ...HOUSES,
   ...Object.values(PLACES).filter((p) => p.model).map((p) => p.model),
   ...FRIENDS.map((f) => `${CH}${f.model}.glb`), ...FRIENDS.map((f) => f.home.model),
-  `${RD}road-straight.glb`, `${RD}road-crossroad.glb`, `${RD}tile-low.glb`, `${RD}light-square.glb`, `${SUB}tree-large.glb`,
+  ...Object.values(ROAD), ...Object.values(GROUND), ...PARK_TREES, ...Object.values(PROPS),
 ];
 logFeed('Loading city…');
 await loadAll(allModels);
