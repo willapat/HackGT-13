@@ -33,7 +33,31 @@ When choosing between features, pick whichever does more for real-world connecti
 
 - Rendering: leaning Three.js / React Three Fiber with an orthographic camera + Kenney 3D kits (town/city buildings, roads, trees, characters), which read as isometric. Fallback: fully 2D with Phaser + Kenney 2D isometric packs.
 - Assets: Kenney (kenney.nl). Search "isometric" for 2D packs; 3D kits live under the 3D section.
+- Database: Supabase (Postgres + Auth + Realtime). See **Database** below.
 - Models: TBD (small fast model for character agents; stronger model for town brain and action agents).
+
+## Database
+
+Schema lives in [supabase/migrations/](supabase/migrations/); starter interests in [supabase/seed.sql](supabase/seed.sql). Schema changes go in a **new** migration file, never by editing an applied one. Apply with `supabase db push --db-url "$SUPABASE_DB_URL"` (after `source .env`); add `--dry-run` first to preview. Update this section when tables change.
+
+**Tables by area**
+- People: `profiles` (1:1 with `auth.users`, auto-created on signup; holds avatar + notification prefs as JSON), `interests`, `user_interests`, `consents`, `integrations` (encrypted OAuth tokens), `visibility_rules` (per-town sharing overrides).
+- Towns: `towns` (creator auto-added as owner), `town_members`, `town_invites`.
+- Map: `town_layouts` (size, seed, theme), `tiles`, `buildings`, `houses`.
+- Relationships: `friendships` (one row per pair, `user_a < user_b`), `path_score_history`.
+- Town brain: `signals` (raw, expire after 7 days), `facts` (brain's conclusions, with `source_signal_ids`), `brain_runs`, `member_state` (what the town shows per person), `news`.
+- Agents: `agent_state` (saved at decision points), `agent_actions` (decision log), `agent_conversations` (chat bubbles), `inventory`.
+- Events: `events`, `event_participants` (the approval gate), `action_tasks` (action agent work), `interactions` (`via` = in_town / real_life), `notifications`.
+
+**Conventions**
+- **Assets are not in the database.** Model/sprite files live in the frontend (`public/assets/`) with a code manifest; DB columns like `buildings.type`, `tiles.tile_type`, `houses.style` store manifest keys only. Supabase Storage is only for user uploads or runtime-generated files.
+- **Agents read `facts`, never `signals`.** Every agent decision logs the `fact_ids` it used.
+- **Brain applies visibility.** `member_state` and `agent_conversations` are visible to the whole town, so the brain must apply `visibility_rules` and only use `full`-visibility facts when writing them.
+- **Live movement is client-side.** Don't write positions per frame; `agent_state` updates only when an agent decides.
+- **Security (RLS is on for every table).** Clients (publishable key) can read their town's shared state and edit only their own stuff. The backend uses the secret key (bypasses RLS) for everything the brain/agents write. Keys live in `.env` (gitignored); see `.env.example`. `integrations`, `brain_runs`, `agent_actions` are backend-only. Users can see and delete their own `signals`/`facts`. Joining a town via invite code goes through the backend.
+- Realtime is enabled on `member_state`, `agent_state`, `agent_conversations`, `events`, `event_participants`, `news`, `notifications`.
+- Schedule `purge_expired_signals()` (pg_cron or backend job) to delete expired signals/facts.
+- The agent action menu is the `agent_action` enum; adding an action means a migration.
 
 ## Demo Plan
 
@@ -43,7 +67,10 @@ Have triggerable signals ready (a friend "gets" good news; two friends both ment
 
 - [ ] Repo scaffolding / stack chosen
 - [ ] Town rendering + camera
-- [ ] Town state schema
+- [x] Database schema (Supabase migration + RLS)
+- [x] Supabase project created (`uakgkgmdrayowbnpdroc`, us-west-2), migration + seed applied and verified
+- [ ] Schedule `purge_expired_signals()`
+- [ ] Backend function to join a town via invite code
 - [ ] Town brain pipeline
 - [ ] Character agent loop + action menu
 - [ ] Quest UI + approval flow
@@ -54,3 +81,5 @@ Have triggerable signals ready (a friend "gets" good news; two friends both ment
 
 - 2026-09-25: `patrik/` has a 2D prototype of the fallback stack (Phaser 3 + Kenney 2D isometric tiles; a small city with a road grid, stacked multi-story buildings and a central park; characters from the isometric-miniature-dungeon pack). Serve with `python3 -m http.server` from `patrik/`; `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior there is scripted, not agent-driven.
 - 2026-09-25: Characters get real agents with initiative, grounded by the town brain's state and a fixed action menu (not pure rule-driven, not free-running per-character LLMs).
+- 2026-09-25: Supabase for the database. Asset files ship with the frontend; the DB stores only manifest keys and layouts, so towns (including generated ones) are data, not files.
+- 2026-09-25: Brain writes `facts` with provenance to raw signals; agents may only use facts. Raw signals expire after 7 days.
