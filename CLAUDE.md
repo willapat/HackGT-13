@@ -52,4 +52,5 @@ Have triggerable signals ready (a friend "gets" good news; two friends both ment
 
 ## Decisions Log
 
+- 2026-09-25: `patrik/` has a 2D prototype of the fallback stack (Phaser 3 + Kenney 2D isometric tiles, characters from the isometric-miniature-dungeon pack). Serve with `python3 -m http.server` from `patrik/`; `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior there is scripted, not agent-driven.
 - 2026-09-25: Characters get real agents with initiative, grounded by the town brain's state and a fixed action menu (not pure rule-driven, not free-running per-character LLMs).
