@@ -34,6 +34,7 @@ When choosing between features, pick whichever does more for real-world connecti
 ## Tech Stack
 
 - Rendering: Three.js with an orthographic camera, which reads as isometric. Roads, greenery and props use SimplePoly City (Unity Asset Store) converted to GLB in `frontend/assets/simplepoly-city/` by `frontend/tools/import-unitypackage.mjs`, placed at its native scale (road tile = 20 units). Buildings mix SimplePoly with Kenney City Kit Commercial/Suburban (fit to the lot). Street props also from Coding Creature City Props 1 (CC0, `assets/city-props/`). Characters are Kenney Mini Characters. Code in `frontend/`. (2D Phaser prototype was tried and dropped.)
+- Frontend pages: `frontend/index.html` + `app.js` = sign in / create account (Supabase email+password) → pick username (first login, `PATCH /me`) → home (friend search by username, requests, friends list, Enter town). `town.html` + `main.js` = the 3D map (redirects to login when signed out; if the backend is down the scripted town still runs). `session.js` holds the shared Supabase client (URL/key from `GET /demo/config`) and an authed `api()` helper; the backend URL is in `config.js`. supabase-js is vendored in `lib/supabase.js`.
 - Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), OpenRouter (`httpx` to `/api/v1/chat/completions`). Key: `OPENROUTER_API_KEY` (old name `GEMINI_MODEL_KEY` still accepted). Town Brain: `google/gemini-2.5-flash`. Character agents: `google/gemini-2.5-flash-lite`. Two asyncio loops; no Redis/Celery.
 - Database: Supabase (Postgres + Auth + Realtime).
 
@@ -93,6 +94,8 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Login/onboarding before the map: `index.html` is the auth + friends app, the 3D map moved to `town.html`. Username is required on first login.
+- 2026-09-26: `backend/db.get_client()` is per-thread (was one cached client). Sharing one Supabase client across FastAPI's thread pool made parallel requests fail with `httpx.ReadError` (surfacing as 500s and bogus "invalid or expired token" 401s).
 - 2026-09-26: Town map lives in `towns.tiles` (no migration). Users can walk their own character to a building; clients animate from start point + time. Frontend still draws the hard-coded map; it should build from `tiles` (snapshot now returns `tiles`, agent `x`/`y`, member houses).
 - 2026-09-26: Known gap: `backend/seed_demo_map.py` still mirrors the old 12x12 city (roads 2/6/10, old friend house tiles). The frontend now draws a 17x17 town (roads 2/6/10/14, friend houses on their own outer blocks, `FRIENDS[].home.house`). Places kept their tiles, so building-id routing works; grid coordinates (house_x/y, agent x/y) need the seed updated before the frontend builds from `tiles`.
 - 2026-09-26: Day/night + weather in `frontend/main.js` (`sky`, `updateSky`): time follows the real local clock (slider, "Fast day", `?hour=`), weather clear/rain/storm/snow drifts on its own (buttons, `?weather=`). At night street lamps glow warm and ~60% of windows light up; windows are found per wall triangle by texture color (Kenney glass = light blue, SimplePoly = flat dark grey). Browser pinch-zoom is blocked so only the camera zooms.
