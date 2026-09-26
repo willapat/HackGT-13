@@ -29,7 +29,7 @@ def buildings(town_map: dict | None, members: list[dict]) -> list[dict]:
     ] or [{"id": pid, "type": t, "name": None, "x": None, "y": None, "door": None} for pid, t in PLACE_TYPES.items()]
     out += [
         {"id": house_building_id(m["user_id"]), "type": "house",
-         "name": ((m.get("profiles") or {}).get("display_name") or "").strip() or None,
+         "name": (m.get("name") or (m.get("profiles") or {}).get("display_name") or "").strip() or None,
          "x": m.get("house_x"), "y": m.get("house_y"), "door": (m.get("home") or {}).get("door")}
         for m in members
     ]

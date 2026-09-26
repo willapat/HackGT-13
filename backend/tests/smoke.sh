@@ -69,11 +69,16 @@ call GET /friends 200 "$BEN"
 echo "     friends=$(jq length <<<"$BODY")"
 
 echo "--- towns"
-call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["lot","road","lot"],["lot","road","lot"],["home","road","lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[2,1],"door":[1,1]}},"landmarks":{"stadium":{"model":"simplepoly-city/building-stadium"}}}}'
-call POST /towns 422 "$ANA" '{"name":"Bad Map","tiles":[["lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[5,5],"door":[0,0]}}}}'
+call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["lot","road","lot"],["lot","road","lot"],["home","road","lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[2,1],"door":[1,1]}},"landmarks":{"stadium":{"model":"simplepoly-city/building-stadium"}}},"me":{"name":"Ana","color":"#ff3b30"}}'
+call POST /towns 422 "$ANA" '{"name":"Bad Map","tiles":[["lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[5,5],"door":[0,0]}}},"me":{"name":"Ana","color":"#ff3b30"}}'
 TOWN_ID=$(jq -r .id <<<"$BODY"); CODE=$(jq -r .invite_code <<<"$BODY")
 call GET "/towns/$TOWN_ID" 404 "$BEN"
-call POST /towns/join 200 "$BEN" "{\"invite_code\":\"$CODE\"}"
+call GET "/towns/lookup?invite_code=$CODE" 200 "$BEN"
+call POST /towns/join 409 "$BEN" "{\"invite_code\":\"$CODE\",\"me\":{\"name\":\"ana\",\"color\":\"#2d9cdb\"}}"
+call POST /towns/join 409 "$BEN" "{\"invite_code\":\"$CODE\",\"me\":{\"name\":\"Ben\",\"color\":\"#fe3c31\"}}"
+call POST /towns/join 200 "$BEN" "{\"invite_code\":\"$CODE\",\"me\":{\"name\":\"Ben\",\"color\":\"#a24bff\"}}"
+call PATCH "/towns/$TOWN_ID/members/me/identity" 409 "$BEN" '{"name":"ANA"}'
+call PATCH "/towns/$TOWN_ID/members/me/identity" 200 "$BEN" '{"name":"Benny","color":"#ffd60a"}'
 call PATCH "/towns/$TOWN_ID/members/me" 200 "$BEN" '{"house_x":0,"house_y":2,"home":{"model":"city-kit-suburban/building-type-k","door":[1,2]}}'
 call PATCH "/towns/$TOWN_ID/members/me" 422 "$BEN" '{"house_x":9,"house_y":9}'
 call PATCH "/towns/$TOWN_ID" 403 "$BEN" '{"name":"Hijacked"}'
@@ -103,7 +108,9 @@ call POST "/towns/$TOWN_ID/invites" 409 "$ANA" "{\"user_id\":\"$CY_ID\"}"
 call GET "/towns/$TOWN_ID/invites" 200 "$BEN"
 call GET /me/invites 200 "$CY"
 echo "     pending=$(jq length <<<"$BODY") town=$(jq -r '.[0].towns.name' <<<"$BODY") from=$(jq -r '.[0].from_profile.username' <<<"$BODY")"
-call POST "/invites/$INVITE_ID/respond" 200 "$CY" '{"status":"accepted"}'
+call POST "/invites/$INVITE_ID/respond" 422 "$CY" '{"status":"accepted"}'
+call GET "/towns/$TOWN_ID/identities" 200 "$CY"
+call POST "/invites/$INVITE_ID/respond" 200 "$CY" '{"status":"accepted","me":{"name":"Cy","color":"#ff9500"}}'
 call GET "/towns/$TOWN_ID" 200 "$CY"
 echo "     members=$(jq '.members | length' <<<"$BODY")"
 call DELETE "/friends/$ANA_ID" 204 "$BEN"

@@ -111,13 +111,14 @@ const DEMO_FRIENDS = [
   { id: 'priya', name: 'Priya', color: '#ff9500', model: 'character-female-c', block: block(15, 16, 7, 9), home: { model: `${SUB}building-type-r.glb`, house: [16, 8], c: 15, r: 8, door: [14, 8] } },
   { id: 'leo', name: 'Leo', color: '#a24bff', model: 'character-male-f', block: block(0, 1, 11, 13), home: { model: sp('building-house-02-color01'), house: [0, 12], c: 1, r: 12, door: [2, 12] } },
 ];
-// In a real town, residents come from its members: id = user_id, look from profiles.avatar, home from
+// In a real town, residents come from its members: id = user_id, name and color picked for this town
+// (town_members.name / .color, else the profile's), look from profiles.avatar, home from
 // house_x/house_y + town_members.home. Members who haven't placed a house yet get no character.
 const FRIENDS = TILES ? TOWN.members.filter((m) => m.house_x != null && m.home?.door && m.home?.driveway && m.home?.block)
   .map((m, i) => {
     const look = m.profiles?.avatar || {}, h = m.home, fallback = DEMO_FRIENDS[i % DEMO_FRIENDS.length];
     return {
-      id: m.user_id, name: m.profiles?.display_name || 'Friend', color: look.color || fallback.color,
+      id: m.user_id, name: m.name || m.profiles?.display_name || 'Friend', color: m.color || look.color || fallback.color,
       model: look.character || fallback.model, block: block(h.block[0], h.block[2], h.block[1], h.block[3]),
       home: { model: h.model ? asset(h.model) : fallback.home.model, house: [m.house_x, m.house_y], c: h.driveway[0], r: h.driveway[1], door: h.door },
     };

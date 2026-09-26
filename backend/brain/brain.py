@@ -4,6 +4,7 @@ Writes: brain_runs (input ids / filtered output / error) and town_members mood/a
 Events are user calendars, so this loop does not insert news or quests there.
 """
 
+from backend.identity import member_name
 from backend.agent.validate import parse_raw_json, validate_brain_output
 from backend.brain.prompt import build_brain_system_prompt, build_brain_user_prompt
 from backend.brain.visibility import apply_visibility
@@ -59,9 +60,12 @@ def run_brain_for_town(town_id: str) -> BrainOutput | None:
     run = db.table("brain_runs").insert({"town_id": town_id, "input": {}}).execute().data[0]
     try:
         members = (
-            db.table("town_members").select("user_id, mood, activity, state, profiles(display_name, interests)")
+            db.table("town_members").select("user_id, mood, activity, state, name, profiles(display_name, interests)")
             .eq("town_id", town_id).execute().data or []
         )
+        for m in members:  # the brain knows people by the name they go by in this town
+            m["profiles"] = {**(m.get("profiles") or {}), "display_name": member_name(m)}
+            m.pop("name", None)
         q = (
             db.table("signals").select("*").in_("user_id", [m["user_id"] for m in members])
             .lte("created_at", run["created_at"]).order("created_at")

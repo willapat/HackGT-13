@@ -7,6 +7,7 @@ Writes: agents, agent_actions (chat bubbles in details.lines), friendships.path_
 from datetime import datetime, timezone
 from random import uniform
 
+from backend.identity import member_name
 from backend.agent.conversation import generate_lines
 from backend.agent.prompt import build_agent_system_prompt, build_agent_user_prompt
 from backend.agent.validate import parse_raw_json, validate_agent_decision
@@ -61,11 +62,11 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
     if me is None:
         return None
     members = (
-        db.table("town_members").select("user_id, mood, activity, house_x, house_y, home, profiles(display_name)")
+        db.table("town_members").select("user_id, mood, activity, house_x, house_y, home, name, profiles(display_name)")
         .eq("town_id", town_id).execute().data or []
     )
     town_map = (db.table("towns").select("map").eq("id", town_id).limit(1).execute().data or [{}])[0].get("map")
-    names = {m["user_id"]: (m.get("profiles") or {}).get("display_name") or "Friend" for m in members}
+    names = {m["user_id"]: member_name(m) or "Friend" for m in members}
     events = (
         db.table("events")
         .select("id, title, status, kind, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")

@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException
 
+from backend.identity import member_name
 from backend.config import settings
 from backend.db import get_client
 from backend.models.api import ClockIn
@@ -17,7 +18,7 @@ ROLES = ["maya", "jordan", "sam", "priya", "leo"]
 
 def _as_cast_members(rows: list[dict]) -> list[dict]:
     return [
-        {"user_id": r["user_id"], "display_name": ((r.get("profiles") or {}).get("display_name") or "").strip()}
+        {"user_id": r["user_id"], "display_name": member_name(r)}
         for r in rows
     ]
 
@@ -25,7 +26,7 @@ def _as_cast_members(rows: list[dict]) -> list[dict]:
 def _town_members(db, town_id: str) -> list[dict]:
     rows = (
         db.table("town_members")
-        .select("user_id, joined_at, profiles(display_name)")
+        .select("user_id, joined_at, name, profiles(display_name)")
         .eq("town_id", town_id)
         .order("joined_at")
         .execute()
@@ -180,7 +181,7 @@ def demo_snapshot():
     db, tid = get_client(), settings.DEMO_TOWN_ID
     members = (
         db.table("town_members")
-        .select("user_id, mood, activity, state, house_x, house_y, home, joined_at, profiles(display_name, avatar)")
+        .select("user_id, mood, activity, state, house_x, house_y, home, joined_at, name, color, profiles(display_name, avatar)")
         .eq("town_id", tid)
         .order("joined_at")
         .execute()
@@ -209,7 +210,7 @@ def demo_snapshot():
         or []
     )
     town = (db.table("towns").select("tiles, map").eq("id", tid).limit(1).execute().data or [{}])[0]
-    names = {m["user_id"]: ((m.get("profiles") or {}).get("display_name") or "").strip() for m in members}
+    names = {m["user_id"]: member_name(m) for m in members}
     now = local_now()
     schedules = events_for_users(db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3))
     for ev in schedules:

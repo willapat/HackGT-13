@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import current_user_id, require_member
 from backend.db import get_client, iso_in, now_iso
-from backend.models.api import EventCreate, HouseUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
+from backend.identity import check_identity, suggest_color, town_identities
+from backend.models.api import EventCreate, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
 from backend.calendar_drive import estimate_travel_minutes
 from backend.town_map import buildings, house_building_id, in_bounds
@@ -30,25 +31,81 @@ def load_town(db, town_id: str) -> dict:
 
 @router.post("", status_code=201)
 def create_town(body: TownCreate, uid: str = Depends(current_user_id)):
-    """You become its first member (and get a character) via DB triggers."""
+    """You become its first member (and get a character) via DB triggers, going by `me.name` in `me.color`."""
     check_places(body.tiles, body.map.places)
-    rows = get_client().table("towns").insert(
+    db = get_client()
+    town = db.table("towns").insert(
         {"name": body.name.strip(), "tiles": body.tiles, "map": body.map.model_dump(), "created_by": uid}
-    ).execute().data
+    ).execute().data[0]
+    db.table("town_members").update(body.me.model_dump()).eq("town_id", town["id"]).eq("user_id", uid).execute()
+    return town
+
+
+def admit(db, town_id: str, uid: str, me) -> None:
+    """Add uid to a town under the name and color they picked, unless someone there already has them."""
+    if db.table("town_members").select("user_id").eq("town_id", town_id).eq("user_id", uid).execute().data:
+        raise HTTPException(status_code=409, detail="you're already in this town")
+    check_identity(town_identities(db, town_id), me.name, me.color)
+    db.table("town_members").insert({"town_id": town_id, "user_id": uid, **me.model_dump()}).execute()
+
+
+def town_by_code(db, code: str) -> dict:
+    rows = db.table("towns").select("*").eq("invite_code", code.strip()).limit(1).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="invalid invite code")
     return rows[0]
+
+
+def identities_view(db, town: dict, uid: str) -> dict:
+    """What you need to pick (or change) your name and color in a town: what's taken and a free color."""
+    others = town_identities(db, town["id"], exclude=uid)
+    mine = db.table("town_members").select("name, color").eq("town_id", town["id"]).eq("user_id", uid).execute().data
+    return {
+        "town": {"id": town["id"], "name": town["name"]},
+        "taken": [{"name": p["name"], "color": p["color"]} for p in others],
+        "mine": mine[0] if mine else None,
+        "suggested_color": suggest_color([p["color"] for p in others]),
+    }
+
+
+@router.get("/lookup")
+def lookup_town(invite_code: str = Query(min_length=1, max_length=20), uid: str = Depends(current_user_id)):
+    """Before joining with a code: the town's name and the names/colors already taken there."""
+    db = get_client()
+    return identities_view(db, town_by_code(db, invite_code), uid)
 
 
 @router.post("/join")
 def join_town(body: JoinTown, uid: str = Depends(current_user_id)):
     db = get_client()
-    rows = db.table("towns").select("*").eq("invite_code", body.invite_code.strip()).limit(1).execute().data
-    if not rows:
-        raise HTTPException(status_code=404, detail="invalid invite code")
-    town = rows[0]
-    db.table("town_members").upsert(
-        {"town_id": town["id"], "user_id": uid}, on_conflict="town_id,user_id", ignore_duplicates=True
-    ).execute()
+    town = town_by_code(db, body.invite_code)
+    admit(db, town["id"], uid, body.me)
     return town
+
+
+@router.get("/{town_id}/identities")
+def town_identity_options(town_id: UUID, uid: str = Depends(current_user_id)):
+    """Names and colors taken in a town, for members and for anyone with a pending invite to it."""
+    db, tid = get_client(), str(town_id)
+    invited = db.table("town_invites").select("id").eq("town_id", tid).eq("to_user", uid).eq("status", "pending").execute().data
+    if not invited:
+        require_member(db, tid, uid)
+    return identities_view(db, load_town(db, tid), uid)
+
+
+@router.patch("/{town_id}/members/me/identity")
+def update_my_identity(town_id: UUID, body: IdentityUpdate, uid: str = Depends(current_user_id)):
+    """Change the name and/or color you go by in this town."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    changes = body.model_dump(exclude_none=True)
+    if not changes:
+        raise HTTPException(status_code=422, detail="nothing to update")
+    check_identity(town_identities(db, tid, exclude=uid), changes.get("name"), changes.get("color"))
+    return (
+        db.table("town_members").update({**changes, "updated_at": now_iso()})
+        .eq("town_id", tid).eq("user_id", uid).execute().data[0]
+    )
 
 
 @router.get("/{town_id}")

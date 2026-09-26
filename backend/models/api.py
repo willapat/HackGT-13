@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
@@ -56,10 +56,26 @@ class Home(BaseModel):
     block: Annotated[list[int], Field(min_length=4, max_length=4)] | None = None  # x0, y0, x1, y1 inclusive
 
 
+# Your name and color in one town (town_members.name / .color), picked when you create or join it
+TownName = Annotated[str, BeforeValidator(lambda v: " ".join(v.split()) if isinstance(v, str) else v), Field(min_length=1, max_length=30)]
+HexColor = Annotated[str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v), Field(pattern=r"^#[0-9a-f]{6}$")]
+
+
+class MemberIdentity(BaseModel):
+    name: TownName
+    color: HexColor
+
+
+class IdentityUpdate(BaseModel):
+    name: TownName | None = None
+    color: HexColor | None = None
+
+
 class TownCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     tiles: Tiles = Field(default_factory=list)
     map: TownMap = Field(default_factory=TownMap)
+    me: MemberIdentity
 
 
 class TownUpdate(BaseModel):
@@ -70,6 +86,7 @@ class TownUpdate(BaseModel):
 
 class JoinTown(BaseModel):
     invite_code: str = Field(min_length=1, max_length=20)
+    me: MemberIdentity
 
 
 class HouseUpdate(BaseModel):
@@ -115,6 +132,18 @@ class Respond(BaseModel):
     """Answer to an event, friend request, or town invite."""
 
     status: Literal["accepted", "declined"]
+
+
+class InviteRespond(Respond):
+    """Accepting a town invite also picks your name and color there."""
+
+    me: MemberIdentity | None = None
+
+    @model_validator(mode="after")
+    def identity_when_accepting(self):
+        if self.status == "accepted" and self.me is None:
+            raise ValueError("pick your name and color for this town (me: {name, color}) to accept")
+        return self
 
 
 class FriendRequestIn(BaseModel):

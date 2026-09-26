@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth import current_user_id, require_member
 from backend.db import get_client, now_iso
-from backend.models.api import Respond, TownInviteIn
+from backend.models.api import InviteRespond, TownInviteIn
 from backend.routes.friends import PUBLIC_PROFILE, are_friends
-from backend.routes.towns import load_town
+from backend.routes.towns import admit, load_town
 
 router = APIRouter(tags=["invites"])
 
@@ -57,7 +57,7 @@ def my_invites(uid: str = Depends(current_user_id)):
 
 
 @router.post("/invites/{invite_id}/respond")
-def respond_invite(invite_id: UUID, body: Respond, uid: str = Depends(current_user_id)):
+def respond_invite(invite_id: UUID, body: InviteRespond, uid: str = Depends(current_user_id)):
     db, iid = get_client(), str(invite_id)
     rows = db.table("town_invites").select("*").eq("id", iid).eq("to_user", uid).limit(1).execute().data
     if not rows:
@@ -65,9 +65,7 @@ def respond_invite(invite_id: UUID, body: Respond, uid: str = Depends(current_us
     if rows[0]["status"] != "pending":
         raise HTTPException(status_code=409, detail=f"invite is already {rows[0]['status']}")
     if body.status == "accepted":
-        db.table("town_members").upsert(
-            {"town_id": rows[0]["town_id"], "user_id": uid}, on_conflict="town_id,user_id", ignore_duplicates=True
-        ).execute()
+        admit(db, rows[0]["town_id"], uid, body.me)
     return (
         db.table("town_invites").update({"status": body.status, "responded_at": now_iso()})
         .eq("id", iid).execute().data[0]

@@ -1,5 +1,6 @@
 """Deterministic connection candidates. No model call."""
 
+from backend.identity import member_name
 from backend.models.enums import EventStatus, EventType
 
 ACTIVE_STATUSES = {EventStatus.suggested.value, EventStatus.scheduled.value, EventStatus.confirmed.value}
@@ -7,13 +8,13 @@ ACTIVE_STATUSES = {EventStatus.suggested.value, EventStatus.scheduled.value, Eve
 
 def find_connection_candidates(town_id: str, db) -> list[dict]:
     members = (
-        db.table("town_members").select("user_id, profiles(id, display_name, interests)")
+        db.table("town_members").select("user_id, name, profiles(id, display_name, interests)")
         .eq("town_id", town_id).execute().data or []
     )
     people = [
         {
             "user_id": row["user_id"],
-            "display_name": (row.get("profiles") or {}).get("display_name") or "",
+            "display_name": member_name(row),
             "interests": set((row.get("profiles") or {}).get("interests") or []),
         }
         for row in members

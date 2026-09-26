@@ -35,7 +35,7 @@ export function startTownBackend(api) {
   function applyCharacters(characters, members) {
     if (!characters || !Object.keys(characters).length) return;
     const nameOf = Object.fromEntries(
-      (members || []).map((m) => [m.user_id, ((m.profiles || {}).display_name || '').trim()]),
+      (members || []).map((m) => [m.user_id, (m.name || (m.profiles || {}).display_name || '').trim()]),
     );
     const cast = new Set();
     let renamed = false;
@@ -76,7 +76,7 @@ export function startTownBackend(api) {
 
   function applyMember(row) {
     const profile = row.profiles || {};
-    const f = remember(row.user_id, profile.display_name);
+    const f = remember(row.user_id, row.name || profile.display_name);
     if (!f) return;
     const activity = row.activity;
     const mood = row.mood;

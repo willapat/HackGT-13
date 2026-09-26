@@ -37,7 +37,8 @@ TOWN_MAP = {
     "landmarks": {"stadium": {"model": SP + "building-stadium"}},
 }
 
-# Demo role → home (house tile + town_members.home) and look (profiles.avatar). Roles match demo.ROLES.
+# Demo role → home (house tile + town_members.home), color in town (town_members.color) and look
+# (profiles.avatar). Roles match demo.ROLES.
 CAST = {
     "maya": {"house": (0, 4), "home": {"model": SP + "building-house-01-color01", "driveway": [1, 4], "door": [2, 4], "block": [0, 3, 1, 5]},
              "avatar": {"character": "character-female-a", "color": "#ff3b30"}},
@@ -88,7 +89,7 @@ def seed(town_id: str) -> None:
         c = CAST[role]
         (hx, hy), (dx, dy) = c["house"], c["home"]["door"]
         db.table("town_members").update(
-            {"house_x": hx, "house_y": hy, "home": c["home"], "updated_at": now_iso()}
+            {"house_x": hx, "house_y": hy, "home": c["home"], "color": c["avatar"]["color"], "updated_at": now_iso()}
         ).eq("town_id", town_id).eq("user_id", user_id).execute()
         db.table("agents").update({"x": dx, "y": dy}).eq("town_id", town_id).eq("user_id", user_id).execute()
         avatar = (db.table("profiles").select("avatar").eq("id", user_id).limit(1).execute().data or [{}])[0].get("avatar") or {}

@@ -4,9 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tiny Town</title>
+  <script>
+    // Apply the saved theme before first paint so dark mode doesn't flash light
+    try {
+      const t = localStorage.getItem('tt-theme') || 'system';
+      document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
+    } catch { document.documentElement.dataset.theme = 'light'; }
+  </script>
   <style>
     :root {
-      --sky: #9fd3ec;
+      --bg-top: #bfe3f4; --bg-mid: #9fd3ec; --bg-bottom: #8cc79a;
       --panel: #ffffff;
       --ink: #1f2430;
       --muted: #667085;
@@ -16,34 +23,89 @@
       --good: #2fb36d;
       --bad: #d64545;
       --soft: #f3f6fb;
+      --brand-ink: #1f2430;
+      --brand-sub: #2d4a5c;
+      --shadow: 0 10px 30px rgba(20, 50, 70, 0.15);
+      --msg-error-bg: #fdecec; --msg-error-ink: #9b2c2c;
+      --msg-info-bg: #eaf2ff; --msg-info-ink: #23407a;
+      --msg-success-bg: #e8f7ee; --msg-success-ink: #1d6b41;
+      color-scheme: light;
+    }
+    :root[data-theme="dark"] {
+      --bg-top: #0f1830; --bg-mid: #1b2b57; --bg-bottom: #1d3b33;
+      --panel: #1a2130;
+      --ink: #e8ecf4;
+      --muted: #97a1b5;
+      --line: rgba(232, 236, 244, 0.14);
+      --accent: #6d95f2;
+      --accent-ink: #0d1424;
+      --good: #4fcf8a;
+      --bad: #f06a6a;
+      --soft: #232b3d;
+      --brand-ink: #e8ecf4;
+      --brand-sub: #b8c6dd;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      --msg-error-bg: #3a1f24; --msg-error-ink: #f5b5b5;
+      --msg-info-bg: #1d2b4a; --msg-info-ink: #b9cdf5;
+      --msg-success-bg: #193428; --msg-success-ink: #a6e6c2;
+      color-scheme: dark;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
     body {
-      background: linear-gradient(180deg, #bfe3f4 0%, var(--sky) 55%, #8cc79a 100%);
+      background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 55%, var(--bg-bottom) 100%) fixed;
       color: var(--ink);
       font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      display: flex; justify-content: center; align-items: flex-start;
-      padding: 48px 16px;
+      min-height: 100vh;
     }
     [hidden] { display: none !important; }
+    a { color: var(--accent); }
 
-    .shell { width: 100%; max-width: 440px; display: grid; gap: 16px; }
+    /* ---- App bar (signed in) ---- */
+    .appbar {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+      background: color-mix(in srgb, var(--panel) 82%, transparent); backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+    .appbar .logo { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+    .appbar .spacer { flex: 1; }
+    .menu-wrap { position: relative; }
+    .avatar-btn { border: none; background: none; padding: 2px; border-radius: 50%; display: flex; align-items: center; gap: 6px; }
+    .avatar-btn:hover:not(:disabled) { border: none; box-shadow: 0 0 0 2px var(--accent); }
+    .menu {
+      position: absolute; right: 0; top: calc(100% + 8px); min-width: 230px; padding: 6px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+    }
+    .menu .menu-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+    .menu .menu-head .name { font-weight: 700; }
+    .menu [role="menuitem"] {
+      display: flex; width: 100%; align-items: center; gap: 10px; text-align: left; border: none; background: none;
+      padding: 8px 10px; border-radius: 8px; font-weight: 500; color: var(--ink);
+    }
+    .menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible { background: var(--soft); outline: none; border: none; }
+    .menu hr { border: none; border-top: 1px solid var(--line); margin: 6px 0; }
+
+    /* ---- Page layout ---- */
+    .page { display: flex; justify-content: center; padding: 32px 16px 48px; }
+    .shell { width: 100%; max-width: 440px; display: grid; gap: 16px; align-content: start; }
+    .shell.wide { max-width: 820px; }
     .brand { text-align: center; }
-    .brand h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; }
-    .brand p { margin: 4px 0 0; color: #2d4a5c; }
+    .brand h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; color: var(--brand-ink); }
+    .brand p { margin: 4px 0 0; color: var(--brand-sub); }
 
-    .card { background: var(--panel); border-radius: 16px; padding: 22px; box-shadow: 0 10px 30px rgba(20, 50, 70, 0.15); }
+    .card { background: var(--panel); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); min-width: 0; }
     .card h2 { margin: 0 0 4px; font-size: 20px; }
     .card .sub { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
     h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 
     label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
-    input {
+    input, select {
       font: inherit; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
-      background: #fff; color: var(--ink);
+      background: var(--panel); color: var(--ink);
     }
-    input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+    input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+    input:disabled { background: var(--soft); color: var(--muted); }
     .at-field { position: relative; }
     .at-field span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
     .at-field input { padding-left: 28px; }
@@ -52,25 +114,28 @@
     .hint.bad { color: var(--bad); }
 
     button {
-      font: inherit; font-weight: 600; border: 1px solid var(--line); background: #fff; color: var(--ink);
+      font: inherit; font-weight: 600; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
       border-radius: 10px; padding: 9px 14px; cursor: pointer;
     }
     button:hover:not(:disabled) { border-color: var(--accent); }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     button:disabled { opacity: 0.55; cursor: default; }
     button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
     button.full { width: 100%; padding: 11px 14px; }
     button.link { border: none; background: none; color: var(--accent); padding: 0; font-weight: 600; }
     button.small { padding: 5px 10px; font-size: 13px; }
     button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+    button.danger-solid { background: var(--bad); border-color: var(--bad); color: #fff; }
+    .actions-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
 
     .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--soft); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
     .tabs button { border: none; background: none; color: var(--muted); }
-    .tabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+    .tabs button[aria-selected="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
 
     .msg { margin: 10px 0 0; font-size: 13px; padding: 8px 10px; border-radius: 8px; }
-    .msg.error { background: #fdecec; color: #9b2c2c; }
-    .msg.info { background: #eaf2ff; color: #23407a; }
-    .msg.success { background: #e8f7ee; color: #1d6b41; }
+    .msg.error { background: var(--msg-error-bg); color: var(--msg-error-ink); }
+    .msg.info { background: var(--msg-info-bg); color: var(--msg-info-ink); }
+    .msg.success { background: var(--msg-success-bg); color: var(--msg-success-ink); }
 
     .me { display: flex; align-items: center; gap: 12px; }
     .avatar {
@@ -78,6 +143,7 @@
       color: #fff; font-weight: 700; font-size: 18px; background: var(--accent);
     }
     .avatar.sm { width: 34px; height: 34px; font-size: 14px; }
+    .avatar.lg { width: 64px; height: 64px; font-size: 24px; }
     .me .who { flex: 1; min-width: 0; }
     .me .name { font-weight: 700; font-size: 17px; }
     .handle { color: var(--muted); font-size: 13px; }
@@ -97,123 +163,506 @@
     ul.people li.town { cursor: pointer; }
     ul.people li.town:hover { outline: 2px solid var(--accent); }
 
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: var(--soft); font-size: 13px; font-weight: 500; }
+    .chip button { border: none; background: none; padding: 0 0 0 2px; color: var(--muted); font-size: 15px; line-height: 1; }
+    .chip button:hover:not(:disabled) { color: var(--bad); border: none; }
+    .chip-input { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .chip-input:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+    .chip-input input { border: none; padding: 3px 4px; flex: 1; min-width: 120px; width: auto; }
+    .chip-input input:focus { outline: none; }
+
     .spinner { width: 28px; height: 28px; border: 3px solid rgba(255, 255, 255, 0.5); border-top-color: #fff; border-radius: 50%; margin: 30px auto; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ---- Settings ---- */
+    .settings { display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: start; }
+    .settings nav { position: sticky; top: 72px; display: grid; gap: 2px; padding: 8px; }
+    .settings nav a {
+      display: block; padding: 9px 12px; border-radius: 9px; color: var(--ink); text-decoration: none; font-weight: 500;
+    }
+    .settings nav a:hover { background: var(--soft); }
+    .settings nav a[aria-current="page"] { background: var(--soft); color: var(--accent); font-weight: 700; }
+    .pane { display: grid; gap: 16px; }
+    .pane .card > h2 + .sub { margin-bottom: 18px; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; align-items: start; }
+    .preview-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--soft); }
+    .preview-row .name { font-weight: 600; }
+    .kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+    .kv:first-of-type { border-top: none; padding-top: 0; }
+    .kv .k { font-weight: 600; }
+    .kv .v { color: var(--muted); font-size: 13px; }
+    .danger-zone { border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
+    .danger-zone h2 { color: var(--bad); }
+    ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--ink); font-size: 14px; }
+
+    .segmented { display: inline-grid; grid-auto-flow: column; background: var(--soft); border-radius: 10px; padding: 4px; gap: 2px; }
+    .segmented button { border: none; background: none; color: var(--muted); padding: 7px 16px; }
+    .segmented button[aria-checked="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+
+    .character { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+    .stage { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, var(--bg-top), var(--bg-mid)); }
+    .stage canvas { width: 100%; height: 100%; display: block; }
+    .stage .tag {
+      position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 3px 10px; border-radius: 8px;
+      font-weight: 700; font-size: 13px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+    .stage .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+    .stage canvas { cursor: grab; touch-action: none; }
+    .stage canvas:active { cursor: grabbing; }
+    .stage .drag-hint { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 12px; color: #2d4a5c; pointer-events: none; }
+    .wheel-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .wheel { position: relative; width: 170px; height: 170px; flex: none; }
+    .wheel canvas { width: 100%; height: 100%; border-radius: 50%; cursor: crosshair; touch-action: none; display: block; }
+    .wheel canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .wheel-dots, .wheel-pick { position: absolute; inset: 0; pointer-events: none; }
+    .wheel-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: auto; }
+    .wheel-pick { width: 22px; height: 22px; inset: auto; margin: -11px 0 0 -11px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1.5px #1f2430, 0 2px 6px rgba(0, 0, 0, 0.3); }
+    .wheel-side { flex: 1; min-width: 150px; }
+    .wheel-side input[type="range"] { padding: 0; border: none; accent-color: var(--accent); }
+    dialog.wide-dialog { width: min(480px, calc(100vw - 32px)); }
+    .tag-preview { padding: 3px 10px; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; vertical-align: -1px; margin-right: 4px; box-shadow: 0 0 0 1px var(--line); }
+    .looks { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+    .look { padding: 0; aspect-ratio: 1; border-radius: 12px; background: var(--soft); overflow: hidden; display: grid; place-items: center; font-size: 12px; color: var(--muted); }
+    .look img { width: 100%; height: 100%; object-fit: cover; }
+    .look[aria-checked="true"] { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+
+    details { border-top: 1px solid var(--line); padding: 12px 0; }
+    details:first-of-type { border-top: none; padding-top: 0; }
+    summary { cursor: pointer; font-weight: 600; }
+    details p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+
+    /* ---- Dialog + toasts ---- */
+    dialog {
+      border: none; border-radius: 16px; padding: 0; width: min(420px, calc(100vw - 32px));
+      background: var(--panel); color: var(--ink); box-shadow: var(--shadow);
+    }
+    dialog::backdrop { background: rgba(10, 20, 35, 0.45); }
+    dialog form { padding: 22px; margin: 0; }
+    dialog h2 { margin: 0 0 8px; font-size: 19px; }
+    dialog p { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+    .toasts { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; z-index: 50; width: max-content; max-width: calc(100vw - 32px); }
+    .toast {
+      padding: 10px 16px; border-radius: 10px; background: var(--ink); color: var(--panel); font-size: 14px; font-weight: 500;
+      box-shadow: var(--shadow); animation: toast-in 0.2s ease-out;
+    }
+    .toast.error { background: var(--bad); color: #fff; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+    @media (max-width: 720px) {
+      .settings { grid-template-columns: 1fr; }
+      .settings nav { position: static; display: flex; overflow-x: auto; padding: 6px; }
+      .settings nav a { white-space: nowrap; }
+      .character { grid-template-columns: 1fr; }
+      .stage { max-width: 260px; width: 100%; margin: 0 auto; }
+      .field-grid { grid-template-columns: 1fr; }
+    }
     @media (max-width: 480px) {
-      body { padding: 24px 12px; }
+      .page { padding: 20px 12px 40px; }
       .card { padding: 18px; }
+      .kv { flex-wrap: wrap; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .toast { animation: none; }
+      .spinner { animation-duration: 2s; }
     }
   </style>
+  <script type="importmap">
+    { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
+  </script>
 </head>
 <body>
-  <main class="shell">
-    <header class="brand">
-      <h1>Tiny Town</h1>
-      <p>A little city full of your real friends</p>
-    </header>
-
-    <!-- Loading -->
-    <section id="view-loading"><div class="spinner" aria-label="Loading"></div></section>
-<!-- 
-  <section id="triggers" class="panel">
-    <h2>Demo signals</h2>
-    <button data-trigger="goodNews">🎉 Maya shares good news</button>
-    <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
-    <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
-    <button data-trigger="reset">↺ Reset town</button>
-    <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
-  </section> -->
-    <!-- Can't reach backend / Supabase -->
-    <section id="view-error" class="card" hidden>
-      <h2>Something's not running</h2>
-      <p class="sub" id="error-text"></p>
-      <button class="primary full" id="retry">Try again</button>
-    </section>
-
-    <!-- Sign in / create account -->
-    <section id="view-auth" class="card" hidden>
-      <div class="tabs" role="tablist">
-        <button role="tab" id="tab-signin" aria-selected="true">Sign in</button>
-        <button role="tab" id="tab-signup" aria-selected="false">Create account</button>
+  <!-- Top bar, shown once signed in -->
+  <header class="appbar" id="appbar" hidden>
+    <a class="logo" href="#/">Tiny Town</a>
+    <div class="spacer"></div>
+    <div class="menu-wrap">
+      <button class="avatar-btn" id="account-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu" aria-label="Account menu">
+        <span class="avatar sm" id="bar-avatar"></span>
+      </button>
+      <div class="menu" id="account-menu" role="menu" hidden>
+        <div class="menu-head">
+          <div class="name" id="menu-name"></div>
+          <div class="handle" id="menu-handle"></div>
+        </div>
+        <button role="menuitem" data-go="#/">Home</button>
+        <button role="menuitem" data-go="#/settings/profile">Profile</button>
+        <button role="menuitem" data-go="#/settings/account">Settings</button>
+        <button role="menuitem" data-go="#/help">Help</button>
+        <hr />
+        <button role="menuitem" id="menu-sign-out">Sign out</button>
       </div>
-      <form id="auth-form" novalidate>
-        <label id="name-field" hidden>Your name
-          <input id="auth-name" autocomplete="name" maxlength="50" placeholder="e.g. Maya Chen" />
-        </label>
-        <label>Email
-          <input id="auth-email" type="email" autocomplete="email" required placeholder="you@example.com" />
-        </label>
-        <label>Password
-          <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" placeholder="At least 6 characters" />
-        </label>
-        <button class="primary full" id="auth-submit" type="submit">Sign in</button>
-        <p class="msg" id="auth-msg" hidden></p>
-      </form>
-    </section>
+    </div>
+  </header>
 
-    <!-- First time: choose a username -->
-    <section id="view-username" class="card" hidden>
-      <h2>Pick your username</h2>
-      <p class="sub">This is how friends find you. You can't search by email, only by username.</p>
-      <form id="username-form" novalidate>
-        <label>Your name <span class="hint">(shown above your character in town)</span>
-          <input id="profile-name" maxlength="50" autocomplete="name" />
-        </label>
-        <label>Username
-          <div class="at-field"><span>@</span><input id="username-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="maya_chen" /></div>
-          <span class="hint" id="username-hint">3–20 characters: lowercase letters, numbers, underscores</span>
-        </label>
-        <button class="primary full" id="username-submit" type="submit" disabled>Continue</button>
-        <p class="msg" id="username-msg" hidden></p>
-      </form>
-    </section>
+  <div class="page">
+    <main class="shell" id="shell">
+      <header class="brand" id="brand">
+        <h1>Tiny Town</h1>
+        <p>A little city full of your real friends</p>
+      </header>
 
-    <!-- Home: profile, friends, enter town -->
-    <section id="view-home" hidden>
-      <div class="shell">
-        <div class="card me">
-          <div class="avatar" id="me-avatar"></div>
-          <div class="who">
-            <div class="name" id="me-name"></div>
-            <div class="handle" id="me-handle"></div>
-          </div>
-          <button class="small" id="sign-out">Sign out</button>
+      <!-- Loading -->
+      <section id="view-loading"><div class="spinner" aria-label="Loading"></div></section>
+
+      <!-- Can't reach backend / Supabase -->
+      <section id="view-error" class="card" hidden>
+        <h2>Something's not running</h2>
+        <p class="sub" id="error-text"></p>
+        <button class="primary full" id="retry">Try again</button>
+      </section>
+
+      <!-- Sign in / create account -->
+      <section id="view-auth" class="card" hidden>
+        <div class="tabs" role="tablist">
+          <button role="tab" id="tab-signin" aria-selected="true">Sign in</button>
+          <button role="tab" id="tab-signup" aria-selected="false">Create account</button>
         </div>
+        <form id="auth-form" novalidate>
+          <label id="name-field" hidden>Your name
+            <input id="auth-name" autocomplete="name" maxlength="50" placeholder="e.g. Maya Chen" />
+          </label>
+          <label>Email
+            <input id="auth-email" type="email" autocomplete="email" required placeholder="you@example.com" />
+          </label>
+          <label>Password
+            <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" placeholder="At least 6 characters" />
+          </label>
+          <button class="primary full" id="auth-submit" type="submit">Sign in</button>
+          <p class="msg" id="auth-msg" hidden></p>
+        </form>
+      </section>
 
-        <div class="card">
-          <h3>Your towns</h3>
-          <ul class="people" id="towns"></ul>
-          <p class="empty" id="no-towns">None yet. When a friend invites you to their town, it shows up here.</p>
+      <!-- First time: choose a username -->
+      <section id="view-username" class="card" hidden>
+        <h2>Pick your username</h2>
+        <p class="sub">This is how friends find you. You can't search by email, only by username.</p>
+        <form id="username-form" novalidate>
+          <label>Your name <span class="hint">(shown above your character in town)</span>
+            <input id="profile-name" maxlength="50" autocomplete="name" />
+          </label>
+          <label>Username
+            <div class="at-field"><span>@</span><input id="username-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="maya_chen" /></div>
+            <span class="hint" id="username-hint">3–20 characters: lowercase letters, numbers, underscores</span>
+          </label>
+          <button class="primary full" id="username-submit" type="submit" disabled>Continue</button>
+          <p class="msg" id="username-msg" hidden></p>
+        </form>
+      </section>
+
+      <!-- Home: profile, towns, friends -->
+      <section id="view-home" hidden>
+        <div class="shell">
+          <div class="card me">
+            <div class="avatar" id="me-avatar"></div>
+            <div class="who">
+              <div class="name" id="me-name"></div>
+              <div class="handle" id="me-handle"></div>
+              <div class="chips" id="me-interests" style="margin-top:6px"></div>
+            </div>
+            <button class="small" data-go="#/settings/profile">Edit profile</button>
+          </div>
+
+          <div class="card">
+            <div class="section">
+              <h3>Your towns</h3>
+              <ul class="people" id="towns"></ul>
+              <p class="empty" id="no-towns">None yet. When a friend invites you to their town, it shows up here.</p>
+            </div>
+            <div class="section" id="invites-section" hidden>
+              <h3>Town invites <span class="badge" id="invite-count"></span></h3>
+              <ul class="people" id="invites"></ul>
+            </div>
+            <div class="section">
+              <h3>Join with an invite code</h3>
+              <form class="row" id="join-form" novalidate>
+                <input id="join-code" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="invite code" />
+                <button class="primary" type="submit">Join</button>
+              </form>
+              <p class="msg" id="join-msg" hidden></p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section">
+              <h3>Add a friend</h3>
+              <form class="row" id="search-form" novalidate>
+                <div class="at-field" style="flex:1"><span>@</span><input id="search-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="their username" /></div>
+                <button class="primary" type="submit">Search</button>
+              </form>
+              <p class="msg" id="search-msg" hidden></p>
+              <ul class="people" id="search-results" style="margin-top:10px"></ul>
+            </div>
+
+            <div class="section" id="requests-section">
+              <h3>Friend requests <span class="badge" id="request-count" hidden></span></h3>
+              <ul class="people" id="incoming"></ul>
+              <ul class="people" id="outgoing" style="margin-top:8px"></ul>
+              <p class="empty" id="no-requests">No pending requests.</p>
+            </div>
+
+            <div class="section">
+              <h3>Friends</h3>
+              <ul class="people" id="friends"></ul>
+              <p class="empty" id="no-friends">No friends yet. Search for someone's username above.</p>
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div class="card">
-          <div class="section">
-            <h3>Add a friend</h3>
-            <form class="row" id="search-form" novalidate>
-              <div class="at-field" style="flex:1"><span>@</span><input id="search-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="their username" /></div>
-              <button class="primary" type="submit">Search</button>
-            </form>
-            <p class="msg" id="search-msg" hidden></p>
-            <ul class="people" id="search-results" style="margin-top:10px"></ul>
-          </div>
+      <!-- Settings -->
+      <section id="view-settings" hidden>
+        <div class="settings">
+          <nav class="card" aria-label="Settings sections">
+            <a href="#/settings/profile" data-pane="profile">Profile</a>
+            <a href="#/settings/character" data-pane="character">Your character</a>
+            <a href="#/settings/towns" data-pane="towns">Towns</a>
+            <a href="#/settings/account" data-pane="account">Account</a>
+            <a href="#/settings/appearance" data-pane="appearance">Appearance</a>
+            <a href="#/settings/privacy" data-pane="privacy">Privacy &amp; data</a>
+          </nav>
 
-          <div class="section" id="requests-section">
-            <h3>Friend requests <span class="badge" id="request-count" hidden></span></h3>
-            <ul class="people" id="incoming"></ul>
-            <ul class="people" id="outgoing" style="margin-top:8px"></ul>
-            <p class="empty" id="no-requests">No pending requests.</p>
-          </div>
+          <div>
+            <!-- Profile -->
+            <div class="pane" data-pane="profile" hidden>
+              <form class="card" id="profile-form" novalidate>
+                <h2>Profile</h2>
+                <p class="sub">What your friends see when they find you.</p>
+                <div class="field-grid">
+                  <label>Name
+                    <input id="set-name" maxlength="50" autocomplete="name" />
+                    <span class="hint" id="set-name-hint">How friends see you. In each town you pick the name you go by there.</span>
+                  </label>
+                  <label>Username
+                    <div class="at-field"><span>@</span><input id="set-username" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" /></div>
+                    <span class="hint" id="set-username-hint"></span>
+                  </label>
+                </div>
+                <label>Interests <span class="hint">(helps the town notice what you have in common; press Enter to add)</span>
+                  <div class="chip-input" id="interests-box">
+                    <input id="interest-input" maxlength="40" placeholder="climbing, jazz, board games…" autocomplete="off" />
+                  </div>
+                </label>
+                <h3 style="margin-top:6px">Preview</h3>
+                <div class="preview-row">
+                  <div class="avatar sm" id="preview-avatar"></div>
+                  <div><div class="name" id="preview-name"></div><div class="handle" id="preview-handle"></div></div>
+                </div>
+                <p class="msg" id="profile-msg" hidden></p>
+                <div class="actions-row" style="margin-top:16px">
+                  <button type="button" id="profile-reset" disabled>Cancel</button>
+                  <button type="submit" class="primary" id="profile-save" disabled>Save changes</button>
+                </div>
+              </form>
+            </div>
 
-          <div class="section">
-            <h3>Friends</h3>
-            <ul class="people" id="friends"></ul>
-            <p class="empty" id="no-friends">No friends yet. Search for someone's username above.</p>
+            <!-- Character -->
+            <div class="pane" data-pane="character" hidden>
+              <div class="card">
+                <h2>Your character</h2>
+                <p class="sub">Your look in every town you're in. Your name and color are picked per town, under <a href="#/settings/towns">Towns</a>.</p>
+                <div class="character">
+                  <div class="stage" id="stage">
+                    <div class="loading" id="stage-loading">Loading characters…</div>
+                    <div class="drag-hint">Drag to turn · scroll to zoom</div>
+                  </div>
+                  <div>
+                    <h3>Look</h3>
+                    <div class="looks" id="looks" role="radiogroup" aria-label="Character"></div>
+                  </div>
+                </div>
+                <p class="msg" id="character-msg" hidden></p>
+                <div class="actions-row" style="margin-top:16px">
+                  <button type="button" id="character-reset" disabled>Cancel</button>
+                  <button type="button" class="primary" id="character-save" disabled>Save character</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Towns -->
+            <div class="pane" data-pane="towns" hidden>
+              <div class="card">
+                <h2>Towns</h2>
+                <p class="sub">In each town you pick the name you go by and your color (it paints your roof, car, mailbox, flag and name tag). Nobody else in that town can use the same name or a color too close to yours.</p>
+                <ul class="people" id="settings-towns"></ul>
+                <p class="empty" id="settings-no-towns">You're not in any towns yet.</p>
+              </div>
+            </div>
+
+            <!-- Account -->
+            <div class="pane" data-pane="account" hidden>
+              <div class="card">
+                <h2>Account</h2>
+                <p class="sub">Sign-in details. Only you can see your email; friends find you by username.</p>
+                <div class="kv">
+                  <div><div class="k">Email</div><div class="v" id="acct-email"></div></div>
+                  <button class="small" id="email-edit">Change</button>
+                </div>
+                <form id="email-form" hidden novalidate>
+                  <label>New email
+                    <input id="new-email" type="email" autocomplete="email" />
+                  </label>
+                  <div class="actions-row">
+                    <button type="button" id="email-cancel">Cancel</button>
+                    <button type="submit" class="primary" id="email-save">Send confirmation</button>
+                  </div>
+                </form>
+                <p class="msg" id="email-msg" hidden></p>
+                <div class="kv">
+                  <div><div class="k">Password</div><div class="v">Choose a new password for signing in.</div></div>
+                  <button class="small" id="password-edit">Change</button>
+                </div>
+                <form id="password-form" hidden novalidate>
+                  <div class="field-grid">
+                    <label>New password
+                      <input id="new-password" type="password" autocomplete="new-password" minlength="6" placeholder="At least 6 characters" />
+                    </label>
+                    <label>Confirm new password
+                      <input id="confirm-password" type="password" autocomplete="new-password" minlength="6" />
+                    </label>
+                  </div>
+                  <div class="actions-row">
+                    <button type="button" id="password-cancel">Cancel</button>
+                    <button type="submit" class="primary" id="password-save">Update password</button>
+                  </div>
+                </form>
+                <p class="msg" id="password-msg" hidden></p>
+                <div class="kv">
+                  <div><div class="k">Member since</div><div class="v" id="acct-since"></div></div>
+                </div>
+              </div>
+              <div class="card">
+                <h2>Sessions</h2>
+                <p class="sub">Signed in on a shared or lost device? Sign out everywhere, including here.</p>
+                <div class="actions-row" style="justify-content:flex-start">
+                  <button id="acct-sign-out">Sign out</button>
+                  <button class="danger" id="acct-sign-out-all">Sign out everywhere</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Appearance -->
+            <div class="pane" data-pane="appearance" hidden>
+              <div class="card">
+                <h2>Appearance</h2>
+                <p class="sub">Saved on this device.</p>
+                <div class="kv">
+                  <div><div class="k">Theme</div><div class="v">System follows your device's light or dark setting.</div></div>
+                  <div class="segmented" role="radiogroup" aria-label="Theme" id="theme-picker">
+                    <button role="radio" data-theme-choice="system">System</button>
+                    <button role="radio" data-theme-choice="light">Light</button>
+                    <button role="radio" data-theme-choice="dark">Dark</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Privacy & data -->
+            <div class="pane" data-pane="privacy" hidden>
+              <div class="card">
+                <h2>What friends can see</h2>
+                <p class="sub">Tiny Town only shows what you choose to share, and never makes things up about you.</p>
+                <ul class="plain">
+                  <li><b>Friends</b> see your name, @username, character and interests.</li>
+                  <li><b>People in your towns</b> also see the name and color you picked there, your house, and your character walking around.</li>
+                  <li><b>Anything you share</b> (like a good week or a rough one) is shown the way you pick: fully, vaguely, or not at all.</li>
+                  <li><b>Nothing leaves the town</b> (a message, an invite, a plan) unless a person approves it.</li>
+                  <li><b>Nobody can find you by email</b>, only by your username.</li>
+                </ul>
+              </div>
+              <div class="card">
+                <h2>Your data</h2>
+                <p class="sub">Download a copy of your profile, towns, friends and everything you've shared, as a JSON file.</p>
+                <button id="download-data">Download my data</button>
+              </div>
+              <div class="card danger-zone">
+                <h2>Delete account</h2>
+                <p class="sub">Permanently deletes your profile, friends, shared updates and characters. Towns you created pass to their longest-standing member; empty ones are deleted. This can't be undone.</p>
+                <button class="danger" id="delete-account">Delete my account…</button>
+              </div>
+            </div>
           </div>
         </div>
+      </section>
+
+      <!-- Help -->
+      <section id="view-help" hidden>
+        <div class="shell">
+          <div class="card">
+            <h2>Help</h2>
+            <p class="sub">Tiny Town is a little isometric city where every character is one of your real friends. The town notices what's going on in friends' lives (only what they share) and suggests real-world ways to show up for each other.</p>
+            <details open>
+              <summary>How do friends find me?</summary>
+              <p>By your @username. Share it with them, or search for theirs on the home page. Nobody can search by email.</p>
+            </details>
+            <details>
+              <summary>How do I join a town?</summary>
+              <p>A town's creator can invite any of their friends, or give out the town's invite code. When you join, you pick the name you'll go by there and your color.</p>
+            </details>
+            <details>
+              <summary>What does the town know about me?</summary>
+              <p>Only what you choose to share, shown fully, vaguely or not at all. See <a href="#/settings/privacy">Privacy &amp; data</a>.</p>
+            </details>
+            <details>
+              <summary>Can the town message my friends for me?</summary>
+              <p>No. Characters can suggest things inside the town, but nothing reaches a real person unless a human approves it.</p>
+            </details>
+            <details>
+              <summary>How do I change my look, name or color?</summary>
+              <p>Your character's look is the same everywhere: change it in <a href="#/settings/character">Your character</a>. Your name and color are picked per town when you join, and you can change them in <a href="#/settings/towns">Towns</a>. Nobody in the same town can share your name or a color too close to yours.</p>
+            </details>
+            <details>
+              <summary>How do I leave a town or delete my account?</summary>
+              <p>Both are in <a href="#/settings/privacy">Privacy &amp; data</a>.</p>
+            </details>
+          </div>
+          <div class="card">
+            <h3>Credits</h3>
+            <p class="empty">Characters and buildings by Kenney (CC0), SimplePoly City, and Coding Creature City Props. Built at HackGT 13.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="dialog">
+    <form method="dialog" id="dialog-form">
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-body"></p>
+      <label id="dialog-confirm-field" hidden><span id="dialog-confirm-label"></span>
+        <input id="dialog-confirm-input" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </label>
+      <div class="actions-row">
+        <button value="cancel" id="dialog-cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="dialog-ok">OK</button>
       </div>
-    </section>
-  </main>
+    </form>
+  </dialog>
+  <dialog id="identity-dialog" class="wide-dialog">
+    <form method="dialog" id="identity-form" novalidate>
+      <h2 id="identity-title"></h2>
+      <p id="identity-sub">Pick the name you go by in this town and your color. Dots on the wheel are people already there.</p>
+      <label>Your name in this town
+        <input id="identity-name" maxlength="30" autocomplete="off" />
+        <span class="hint" id="identity-name-hint"></span>
+      </label>
+      <div class="k" style="font-size:13px;margin-bottom:6px">Your color</div>
+      <div class="wheel-row" id="identity-wheel"></div>
+      <div class="row" style="align-items:center;margin-top:10px">
+        <span class="tag-preview" id="identity-tag"></span>
+        <span style="flex:1"></span>
+        <button type="button" class="small" id="identity-free">Pick a free color</button>
+      </div>
+      <p class="hint" id="identity-color-hint" style="margin:8px 0 12px"></p>
+      <p class="msg" id="identity-msg" hidden></p>
+      <div class="actions-row">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="identity-ok">Save</button>
+      </div>
+    </form>
+  </dialog>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <script src="lib/supabase.js"></script>
   <script src="config.js"></script>
