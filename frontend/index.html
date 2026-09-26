@@ -201,6 +201,11 @@
             <p class="msg" id="search-msg" hidden></p>
             <ul class="people" id="search-results" style="margin-top:10px"></ul>
           </div>
+          <div class="card" id="suggest-section" hidden>
+            <h3>People you may know</h3>
+            <p class="sub">Friends of your friends, and people in your towns.</p>
+            <ul class="people scroll" id="suggestions"></ul>
+          </div>
           <div class="card">
             <h3>Friends <span class="count" id="friend-count"></span></h3>
             <input class="filter" id="friend-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
@@ -661,6 +666,13 @@
   <dialog id="invite-dialog" class="wide-dialog">
     <form method="dialog" id="invite-form" novalidate>
       <h2 id="invite-title"></h2>
+      <div class="field-label">Invite code</div>
+      <div class="row invite-code">
+        <input class="pill" id="invite-code" readonly aria-label="Invite code" />
+        <button type="button" id="invite-copy">Copy</button>
+      </div>
+      <p class="hint">Anyone with the code can join from Your towns → Join with a code.</p>
+      <div class="field-label">Or invite friends</div>
       <p>They'll get it in their Inbox and pick their name and color when they join.</p>
       <input class="filter" id="invite-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
       <ul class="people scroll" id="invite-friends"></ul>

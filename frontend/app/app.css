@@ -202,6 +202,8 @@ button.danger-solid:hover:not(:disabled) { background: color-mix(in srgb, var(--
 .me .chips { margin-top: 8px; }
 
 .row { display: flex; gap: 8px; }
+.invite-code { margin-bottom: 4px; }
+.invite-code input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.04em; }
 .row input { flex: 1; }
 
 ul.people { list-style: none; margin: 0 -8px; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }

@@ -349,6 +349,7 @@ let feed = { towns: [], items: [], today: [], inbox: [] };
 let requests = { incoming: [], outgoing: [] };
 let invites = [];
 let allFriends = [];
+let suggestions = []; // GET /friends/suggestions: friends of friends and townmates you haven't added
 let stats = null; // GET /me/stats: highlights, closest people, who to catch up with
 let notices = []; // GET /me/notifications: things that happened to you (a town you were in was deleted)
 
@@ -363,7 +364,8 @@ function renderChips(el, items) {
 }
 
 async function refreshAll() {
-  const [f, fr, rq, inv, st, nt] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats'), api('/me/notifications')]);
+  const [f, fr, rq, inv, st, nt, sg] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats'), api('/me/notifications'), api('/friends/suggestions')]);
+  if (sg.status === 'fulfilled') suggestions = sg.value;
   if (f.status === 'fulfilled') feed = f.value;
   if (nt.status === 'fulfilled') notices = nt.value;
   if (st.status === 'fulfilled') stats = st.value;
@@ -453,13 +455,17 @@ function renderMyStatus() {
   for (const id of ['#bar-avatar', '#menu-avatar', '#composer-avatar', '#me-avatar']) ring($(id), st);
   for (const box of $$('.status-control')) {
     box.replaceChildren();
-    if (st?.source === 'calendar') { // busy because of your calendar: one tap says you're free anyway
+    if (st?.source === 'calendar') { // busy because of your calendar: a status you set replaces it
       const on = el('span', 'status-on busy', `📅 Busy · ${timeLeft(st.until)}`);
-      on.title = 'From your calendar';
-      const free = el('button', 'status-tap free', 'Free anyway');
-      free.type = 'button';
-      free.onclick = () => setStatus('free');
-      box.append(on, free);
+      on.title = 'From your calendar. Set your own status to replace it.';
+      box.append(on);
+      for (const [status, label] of [['free', 'Free anyway'], ['busy', 'Busy']]) {
+        const b = el('button', `status-tap ${status}`, label);
+        b.type = 'button';
+        b.title = `${status === 'free' ? 'Free' : 'Busy'} for the next ${STATUS_HOURS} hours, instead of what your calendar says`;
+        b.onclick = () => setStatus(status);
+        box.append(b);
+      }
     } else if (st) {
       const on = el('span', `status-on ${st.status}`, `${STATUS_LABEL[st.status]} · ${timeLeft(st.until)}`);
       const end = el('button', 'link small', 'End');
@@ -1144,6 +1150,39 @@ function renderFriends() {
   $('#no-matches').hidden = !(allFriends.length && !shown.length);
   fillList($('#outgoing'), requests.outgoing.map((r) => personRow(r.to_profile, [], 'request sent')));
   $('#outgoing-section').hidden = !requests.outgoing.length;
+  renderSuggestions();
+}
+
+// People you may know. "Hide" is remembered in this browser only.
+const HIDDEN_SUGGESTIONS = 'luma-hidden-suggestions';
+const hiddenSuggestions = () => { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_SUGGESTIONS)) || []); } catch { return new Set(); } };
+
+function whyYouMayKnow(s) {
+  const names = s.mutual_friends.map((f) => f.display_name).filter(Boolean);
+  const more = s.mutual_count - names.length;
+  const friendsNote = !s.mutual_count ? ''
+    : names.length === 1 && !more ? `Friends with ${names[0]}`
+    : names.length ? `Friends with ${names.slice(0, 2).join(', ')}${s.mutual_count > 2 ? ` +${s.mutual_count - 2}` : ''}`
+    : `${s.mutual_count} mutual friend${s.mutual_count === 1 ? '' : 's'}`;
+  const townNote = s.shared_towns.length ? `in ${s.shared_towns.slice(0, 2).join(', ')}${s.shared_towns.length > 2 ? ' +' + (s.shared_towns.length - 2) : ''}` : '';
+  return [friendsNote, townNote].filter(Boolean).join(' · ');
+}
+
+function renderSuggestions() {
+  const hidden = hiddenSuggestions();
+  const shown = suggestions.filter((s) => !hidden.has(s.id));
+  fillList($('#suggestions'), shown.map((s) => personRow(s, [
+    ['Add', async () => {
+      await api('/friends/requests', { method: 'POST', body: { username: s.username } });
+      toast(`Friend request sent to ${s.display_name || '@' + s.username}.`);
+    }, 'primary'],
+    ['Hide', () => {
+      hidden.add(s.id);
+      try { localStorage.setItem(HIDDEN_SUGGESTIONS, JSON.stringify([...hidden])); } catch { /* storage blocked: hidden until reload */ }
+      suggestions = suggestions.filter((x) => x.id !== s.id);
+    }],
+  ], whyYouMayKnow(s))));
+  $('#suggest-section').hidden = !shown.length;
 }
 
 $('#friend-filter').oninput = renderFriends;
@@ -2070,10 +2109,25 @@ const inviteFriends = (() => {
     const members = new Set(detail.members.map((m) => m.user_id));
     const pending = new Set(invites.filter((i) => i.status === 'pending').map((i) => i.to_user));
     $('#invite-title').textContent = `Invite friends to ${t.name}`;
+    $('#invite-code').value = t.invite_code || detail.town?.invite_code || '';
+    $('#invite-copy').textContent = 'Copy';
     message($('#invite-msg'), '');
     picker.load(friends, (f) => (members.has(f.id) ? 'already in this town' : pending.has(f.id) ? 'invite sent' : null));
     dialog.showModal();
   }
+
+  $('#invite-copy').onclick = async () => {
+    const code = $('#invite-code');
+    try {
+      await navigator.clipboard.writeText(code.value);
+    } catch { // no clipboard access (http on another host, old browser): select it so they can copy by hand
+      code.select();
+      return toast('Press Ctrl/⌘+C to copy the code.');
+    }
+    $('#invite-copy').textContent = 'Copied!';
+    toast(`Copied ${town.name}'s invite code.`);
+  };
+  $('#invite-code').onfocus = (e) => e.target.select();
 
   $('#invite-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return;
