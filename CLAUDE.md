@@ -95,6 +95,8 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: 3D polish (`frontend/main.js`). River is cut at each road (bridges' road tiles sit level with city roads) and ends flush with the grass. See-through buildings draw a depth-only pass first so only their front surface blends (no stacked glass "bars"). Windmill rotor spins (faster in rough weather). Weather is also in the lighting: one shader patch on every lit material (`addWeather`/`WX` in `main.js`) does snow cover, wet darkening + glossy roads in rain, overcast desaturation and drifting cloud shadows; overcast light is cool and flat with soft shadows, `scene.fog` hazes the far side in rain/snow/storm, and lamp pools grow on wet streets. Snow flakes are round and world-sized. The city and river belt share one base slab (no seam).
+
 - 2026-09-26: The 3D slider owns town time while you drag. `POST /demo/clock` sets the shared clock (`mode=scrub`) and `snap_town_to_clock` moves agents to that hour's calendar place immediately (no LLM). Snapshot `mode=live` does not steal the slider back. Live / Fast day return control to the running clock.
 - 2026-09-26: Full town layout in the DB (migration `20260926000006`): tile kinds in `towns.tiles`, places + scenery in `towns.map`, homes in `town_members.home`, looks in `profiles.avatar`. Doors are stored (not derivable: the café touches two roads). Frontend still draws its hard-coded copy; it should build from `/demo/snapshot` (`tiles`, `map`, member `home`, `profiles.avatar`).
 - 2026-09-26: Login/onboarding before the map: `index.html` is the auth + friends app, the 3D map moved to `town.html`. Username is required on first login.

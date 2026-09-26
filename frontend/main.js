@@ -147,6 +147,7 @@ $('#game').append(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#9fd3ec');
+scene.fog = new THREE.Fog('#9fd3ec', 1000, 2000); // weather haze; `updateSky` sets its range and color
 
 const VIEW = 17; // world units visible vertically at zoom 1
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -197,37 +198,45 @@ Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15, n
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
-// Base plate under the city, plus the green belt (sitting a hair lower, so tiles on it never z-fight)
+// One base plate under the city and the green belt (a hair below the tiles, so they never z-fight).
+// A single box, so its dirt rim has no seam where the city meets the river belt.
 const slab = (w, d, top, z) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, d), new THREE.MeshLambertMaterial({ color: '#b98a5a' }));
   m.position.set(0, top - 0.151, z);
   m.receiveShadow = true;
   scene.add(m);
 };
-slab(N + 0.4, N + 0.2, 0, -0.1);
-slab(N + 0.4, RIVER.band + 0.2, -0.01, N / 2 + (RIVER.band + 0.2) / 2);
+slab(N + 0.4, N + RIVER.band + 0.4, -0.01, RIVER.band / 2);
 
 // River centerline (world z) at world x, and the matching tile row
 const riverZ = (x) => N / 2 + RIVER.band / 2 + Math.sin(x * 0.42 + 0.6) * RIVER.amp + Math.sin(x * 0.9) * RIVER.amp * 0.3;
 
-// A strip following the river's curve, `width` wide, as flat XZ geometry at height y
+// A strip following the river's curve, `width` wide, as flat XZ geometry at height y. It is built in
+// straight cross-sections so it ends flush with the grass at the town's edges, and it stops at each
+// road so the bridges' road tiles sit level with the rest of the streets.
 function riverStrip(width, y) {
-  const xs = 90, across = 4, pos = [], idx = [];
-  for (let i = 0; i <= xs; i++) {
-    const x = -N / 2 - 0.2 + ((N + 0.4) * i) / xs;
-    const dz = (riverZ(x + 0.01) - riverZ(x - 0.01)) / 0.02; // tangent slope -> normal for even width
-    const len = Math.hypot(1, dz);
-    for (let j = 0; j <= across; j++) {
-      const o = (j / across - 0.5) * width;
-      pos.push(x - (dz / len) * o, y, riverZ(x) + o / len);
+  const pts = [], idx = [];
+  const gaps = ROADS.map((c) => pos(c, 0).x).map((x) => [x - 0.5, x + 0.5]);
+  const spans = [];
+  let from = -N / 2;
+  for (const [a, b] of gaps) { spans.push([from, a]); from = b; }
+  spans.push([from, N / 2]);
+  const across = 4;
+  for (const [x0, x1] of spans) {
+    const xs = Math.max(2, Math.ceil((x1 - x0) * 6)), first = pts.length / 3;
+    for (let i = 0; i <= xs; i++) {
+      const x = x0 + ((x1 - x0) * i) / xs;
+      const dz = (riverZ(x + 0.01) - riverZ(x - 0.01)) / 0.02;
+      const len = Math.hypot(1, dz); // stretch the vertical cross-section so the width stays even
+      for (let j = 0; j <= across; j++) pts.push(x, y, riverZ(x) + (j / across - 0.5) * width * len);
+    }
+    for (let i = 0; i < xs; i++) for (let j = 0; j < across; j++) {
+      const a = first + i * (across + 1) + j, b = a + across + 1;
+      idx.push(a, a + 1, b, b, a + 1, b + 1);
     }
   }
-  for (let i = 0; i < xs; i++) for (let j = 0; j < across; j++) {
-    const a = i * (across + 1) + j, b = a + across + 1;
-    idx.push(a, a + 1, b, b, a + 1, b + 1);
-  }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
@@ -238,6 +247,7 @@ function water(geometry) {
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: '#3fa7d6', roughness: 0.25, metalness: 0.1, flatShading: true, transparent: true, opacity: 0.92,
   }));
+  SNOW_SKIP.add(mesh.material);
   scene.add(mesh); // no shadows on the moving surface: they shimmer
   const attr = geometry.attributes.position;
   const base = Float32Array.from(attr.array);
@@ -275,6 +285,30 @@ function place(path, c, r, { fit, scale = 1, height = 1, rotY = 0 } = {}) {
   obj.traverse((m) => { if (m.isMesh) { m.castShadow = !flat; m.receiveShadow = true; } });
   scene.add(obj);
   return obj;
+}
+
+// The windmill model's rotor is its own mesh (the part above the tower's base). Re-hang it on a
+// pivot at its hub (the blades' vertex centroid) and turn it, faster when the weather is rough.
+function spinBlades(windmill) {
+  let rotor = null;
+  windmill.traverse((m) => {
+    if (!m.isMesh) return;
+    m.geometry.computeBoundingBox();
+    if (m.geometry.boundingBox.min.y > 5) rotor = m;
+  });
+  if (!rotor) return;
+  const p = rotor.geometry.attributes.position, hub = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) hub.add(new THREE.Vector3().fromBufferAttribute(p, i));
+  hub.divideScalar(p.count);
+  const pivot = new THREE.Object3D();
+  pivot.position.copy(hub);
+  rotor.parent.add(pivot);
+  pivot.add(rotor);
+  rotor.position.sub(hub);
+  animated.add({ update(dt) {
+    const wind = { storm: 3.2, rain: 1.8, snow: 1.4 }[sky.weather] ?? 1;
+    pivot.rotation.z -= dt * 1.1 * wind;
+  } });
 }
 
 // Buildings only go on lots that touch a road, and face it (models face +z). Corner lots pick
@@ -568,7 +602,7 @@ function buildCity() {
   // ---- Landmarks: the stadium at the pack's true scale fills its block; a windmill farm in the other corner
   const sc = STADIUM.tiles.reduce((a, [c, r]) => [a[0] + c / STADIUM.tiles.length, a[1] + r / STADIUM.tiles.length], [0, 0]);
   addOccluder(place(STADIUM.model, sc[0], sc[1], { scale: 1.3, rotY: Math.PI / 2 }));
-  place(PROPS.windmill, 0.5, 15.6, { scale: 2.2, rotY: Math.PI / 4 });
+  spinBlades(place(PROPS.windmill, 0.5, 15.6, { scale: 2.2, rotY: Math.PI / 4 }));
   for (const [x, z, rot] of [[0.5, 14.62, Math.PI / 2], [0.5, 16.38, Math.PI / 2], [-0.38, 15.5, 0], [1.38, 15.5, 0]]) {
     place(NATURE['grass-fence'], x, z, { scale: 2.4, rotY: rot });
   }
@@ -577,7 +611,7 @@ function buildCity() {
   // ---- Green belt with a winding river; roads run on through it and cross on bridges
   const rows = RIVER.band;
   for (let r = N; r < N + rows; r++) for (let c = 0; c < N; c++) {
-    if (ROADS.includes(c)) { place(ROAD.straight, c, r).position.y = 0.03; continue; }
+    if (ROADS.includes(c)) { place(ROAD.straight, c, r); continue; } // level with the city's roads; the river stops at their edges
     place(GROUND.grass, c, r);
   }
   const sand = new THREE.Mesh(riverStrip(RIVER.width + 0.3, 0.006), new THREE.MeshLambertMaterial({ color: '#d9c58f' }));
@@ -587,8 +621,8 @@ function buildCity() {
   const stone = new THREE.MeshLambertMaterial({ color: '#cfc8bb' });
   for (const c of ROADS) {
     const x = pos(c, 0).x, z = riverZ(x), span = RIVER.width + 0.45;
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, span), stone); // top sits just under the road tiles
-    deck.position.set(x, -0.02, z);
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.06, span), stone); // top sits just under the road tile
+    deck.position.set(x, -0.035, z);
     scene.add(deck);
     for (const s of [-0.47, 0.47]) {
       const railing = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, span), stone);
@@ -1153,9 +1187,15 @@ const FADED_OPACITY = 0.1;
 const fadeState = new Map(); // occluder root -> current opacity
 const occRay = new THREE.Raycaster();
 
+// A faded building first writes only its depth, so just its nearest surface blends in. Without it,
+// every wall, floor and pane behind the front one stacks up and glass columns read as solid bars.
+const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true });
+const noRaycast = () => {};
 function setOpacity(root, a) {
-  root.traverse((m) => {
-    if (!m.isMesh) return;
+  const faded = a < 0.999;
+  const meshes = [];
+  root.traverse((m) => { if (m.isMesh && !m.userData.depthPass) meshes.push(m); });
+  for (const m of meshes) {
     if (!m.userData.ownMaterial) { // kit models share materials; buildings may carry [wall, lit window] pairs
       m.material = Array.isArray(m.material)
         ? m.material.map((x) => { const c = x.clone(); if (windowMats.has(x)) windowMats.add(c); return c; })
@@ -1164,10 +1204,20 @@ function setOpacity(root, a) {
     }
     for (const mat of [m.material].flat()) {
       mat.opacity = a;
-      mat.transparent = a < 0.999;
-      mat.depthWrite = a >= 0.999;
+      mat.transparent = faded;
+      mat.depthWrite = !faded;
     }
-  });
+    if (faded && !m.userData.depth) {
+      const d = new THREE.Mesh(m.geometry, depthOnly);
+      Object.assign(d.userData, { depthPass: true });
+      d.raycast = noRaycast; // occlusion rays must only hit the building itself
+      d.renderOrder = 1; // after other see-through things (water, glows), before any faded building's color
+      m.add(d);
+      m.userData.depth = d;
+    }
+    if (m.userData.depth) m.userData.depth.visible = faded;
+    m.renderOrder = faded ? 2 : 0;
+  }
 }
 
 function updateOcclusion(dt) {
@@ -1258,11 +1308,11 @@ const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent
 const sky = {
   hour: 12, live: true, fast: false, backend: false,
   weather: 'clear', autoWeather: true, nextWeatherAt: 0,
-  cloud: 0, precip: 0, flash: 0, nextFlashAt: 0, night: 0,
+  cloud: 0, precip: 0, haze: 0, flash: 0, nextFlashAt: 0, night: 0, patchAt: 0,
 };
-const WEATHER = { // cloud cover, precipitation kind
-  clear: { cloud: 0, kind: null }, rain: { cloud: 0.6, kind: 'rain' },
-  storm: { cloud: 0.85, kind: 'rain' }, snow: { cloud: 0.5, kind: 'snow' },
+const WEATHER = { // cloud cover, precipitation kind, haze (how far you can see)
+  clear: { cloud: 0, kind: null, haze: 0 }, rain: { cloud: 0.6, kind: 'rain', haze: 0.35 },
+  storm: { cloud: 0.85, kind: 'rain', haze: 0.6 }, snow: { cloud: 0.5, kind: 'snow', haze: 0.45 },
 };
 const C = (h) => new THREE.Color(h);
 const SKY = { day: C('#9fd3ec'), dusk: C('#f3a36b'), night: C('#1b2b57'), overcastDay: C('#9aa5b3'), overcastNight: C('#232b3d') };
@@ -1276,13 +1326,99 @@ const dropSeed = Float32Array.from({ length: DROPS * 3 }, Math.random);
 const rainGeo = new THREE.BufferGeometry();
 rainGeo.setAttribute('position', new THREE.BufferAttribute(dropPos, 3));
 const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: '#b9d6ff', transparent: true, opacity: 0.55 }));
-const flakePos = new Float32Array(DROPS * 3);
+// Snow flakes are soft round discs sized in world units, so they grow as the camera zooms in (a
+// plain PointsMaterial stays a fixed few pixels under the orthographic camera and reads as noise).
+const FLAKES = 4000;
+const flakePos = new Float32Array(FLAKES * 3);
+const flakeSeed = Float32Array.from({ length: FLAKES * 4 }, Math.random);
 const snowGeo = new THREE.BufferGeometry();
 snowGeo.setAttribute('position', new THREE.BufferAttribute(flakePos, 3));
-const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 3 * Math.min(devicePixelRatio, 2), sizeAttenuation: false }));
+snowGeo.setAttribute('size', new THREE.BufferAttribute(Float32Array.from({ length: FLAKES }, () => 0.5 + Math.random() ** 2 * 1.3), 1));
+const snow = new THREE.Points(snowGeo, new THREE.ShaderMaterial({
+  uniforms: { world: { value: 0.05 }, halfH: { value: 450 }, color: { value: new THREE.Color('#ffffff') }, opacity: { value: 0.95 } },
+  vertexShader: `
+    attribute float size;
+    uniform float world, halfH;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      float persp = projectionMatrix[3][3] == 0.0 ? 1.0 / -mv.z : 1.0;
+      gl_PointSize = max(1.5, size * world * projectionMatrix[1][1] * halfH * persp);
+    }`,
+  fragmentShader: `
+    uniform vec3 color;
+    uniform float opacity;
+    void main() {
+      float d = length(gl_PointCoord - 0.5);
+      gl_FragColor = vec4(color, opacity * smoothstep(0.5, 0.2, d));
+    }`,
+  transparent: true, depthWrite: false,
+}));
 rain.frustumCulled = snow.frustumCulled = false;
 scene.add(rain, snow);
 let fallT = 0;
+const wrap = (v, lo, hi) => lo + ((((v - lo) % (hi - lo)) + (hi - lo)) % (hi - lo));
+
+// Weather on surfaces, patched into every lit material's shader (one shared program variant):
+// - snow cover: upward faces (grass, roofs, treetops, roads a little) whiten while it snows, melt after
+// - wetness: in rain everything darkens a touch, up-facing ground more, and roads turn glossy
+// - grey: overcast light washes some color out of the town
+// - cloud shadows: soft patches drift across the town while the sun is up
+const WX = {
+  snowCover: { value: 0 }, wet: { value: 0 }, grey: { value: 0 }, cloudShade: { value: 0 },
+  cloudOffset: { value: new THREE.Vector2() },
+};
+const SNOW_SKIP = new Set(); // water stays as it is
+const patched = new WeakSet(); // not userData: clones (see-through buildings) copy that but not the shader hook
+const WX_VERTEX = `
+  vec4 wxWorld = modelMatrix * vec4(transformed, 1.0);
+  vWxXZ = wxWorld.xz;`;
+const WX_FRAGMENT = `
+  float wxUp = smoothstep(0.5, 0.85, vWxUp);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))), grey);
+  float wxWet = wet * wetAmount;
+  diffuseColor.rgb *= 1.0 - wxWet * mix(0.12, 0.38, wxUp);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.95, 0.98), snowCover * snowAmount * wxUp);
+  vec2 wxP = vWxXZ * 0.11 + cloudOffset;
+  float wxN = wxNoise(wxP) * 0.65 + wxNoise(wxP * 2.3 + 7.1) * 0.35;
+  diffuseColor.rgb *= 1.0 - cloudShade * smoothstep(0.48, 0.68, wxN);`;
+const WX_NOISE = `
+  varying float vWxUp;
+  varying vec2 vWxXZ;
+  uniform float snowCover, snowAmount, wet, wetAmount, grey, cloudShade;
+  uniform vec2 cloudOffset;
+  float wxHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float wxNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(wxHash(i), wxHash(i + vec2(1.0, 0.0)), f.x), mix(wxHash(i + vec2(0.0, 1.0)), wxHash(i + 1.0), f.x), f.y);
+  }`;
+function addWeather(mat, { snow = 1, wet = 0.5 } = {}) {
+  if (patched.has(mat) || SNOW_SKIP.has(mat) || !(mat.isMeshStandardMaterial || mat.isMeshLambertMaterial || mat.isMeshPhongMaterial)) return;
+  patched.add(mat);
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, WX, { snowAmount: { value: snow }, wetAmount: { value: wet } });
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vWxUp;\nvarying vec2 vWxXZ;')
+      .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvWxUp = normalize(mat3(modelMatrix) * objectNormal).y;')
+      .replace('#include <project_vertex>', `#include <project_vertex>${WX_VERTEX}`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>${WX_NOISE}`)
+      .replace('#include <map_fragment>', `#include <map_fragment>${WX_FRAGMENT}`)
+      // wet roads gloss up (standard materials only; the others have no roughness)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.28, wxWet * wxUp * step(0.9, wetAmount));');
+  };
+  mat.customProgramCacheKey = () => 'weather';
+  mat.needsUpdate = true;
+}
+function patchWeather() {
+  const roads = new Set();
+  for (const p of [...Object.values(ROAD), GROUND.paved]) models[p].scene.traverse((m) => { if (m.isMesh) [m.material].flat().forEach((x) => roads.add(x)); });
+  scene.traverse((m) => {
+    if (!m.isMesh || m.isSkinnedMesh || m.userData.depthPass) return;
+    for (const mat of [m.material].flat()) addWeather(mat, roads.has(mat) ? { snow: 0.45, wet: 1 } : undefined);
+  });
+}
 
 // Night lighting: a glowing bulb and a pool of light under every street light, and lit windows
 const glowTex = (() => {
@@ -1296,7 +1432,8 @@ const lampGlow = [];
 const LAMPS = []; // every street light placed in buildCity: tile position and rotation
 function addStreetLamps() {
   const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffc27a', transparent: true }); // warm sodium-ish glow
-  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  lampGlow.pools = [];
   for (const { x, z, rotY } of LAMPS) {
     // The lamp's arm reaches 0.207 tiles along its local -x; rotate that to find the bulb
     const head = pos(x - 0.207 * Math.cos(rotY), z + 0.207 * Math.sin(rotY));
@@ -1307,6 +1444,7 @@ function addStreetLamps() {
     pool.position.copy(head).setY(0.025);
     scene.add(bulb, pool);
     lampGlow.push(bulb, pool);
+    lampGlow.pools.push(pool);
   }
   lampGlow.materials = [bulbMat, poolMat];
 }
@@ -1400,6 +1538,7 @@ function updateSky(dt) {
   const w = WEATHER[sky.weather];
   sky.cloud += (w.cloud - sky.cloud) * Math.min(1, dt * 0.6);
   sky.precip += ((w.kind ? 1 : 0) - sky.precip) * Math.min(1, dt * 0.5);
+  sky.haze += (w.haze - sky.haze) * Math.min(1, dt * 0.4);
 
   // Sun: rises at 6, sets at 18. `el` is its height (-1..1); twilight glows near the horizon.
   const a = ((sky.hour - 6) / 12) * Math.PI, el = Math.sin(a);
@@ -1413,11 +1552,30 @@ function updateSky(dt) {
   const up = Math.max(el, 0.18);
   if (day > 0.02) sun.position.set(-Math.cos(a) * 14, up * 16, 6);
   else sun.position.set(Math.cos(a) * 10, 12, -4); // moonlight from the other side
-  sun.color.copy(C('#fff4e0')).lerp(C('#ffb070'), twilight).lerp(C('#9fb3ff'), 1 - day);
-  sun.intensity = (0.6 + 1.6 * day) * (1 - 0.7 * sky.cloud) + sky.flash * 2;
-  hemi.intensity = (0.85 + 0.75 * day) * (1 - 0.3 * sky.cloud) + sky.flash * 1.5;
-  hemi.color.copy(C('#8494cc')).lerp(C('#ffffff'), day);
-  hemi.groundColor.copy(C('#34405a')).lerp(C(sky.weather === 'snow' ? '#dfe6ee' : '#8a9a7a'), day);
+  // Under cloud the sun goes cool and weak and shadows soften, so the light is flat and grey; the
+  // sky light carries more of the scene. Snow on the ground bounces light back up.
+  sun.color.copy(C('#fff4e0')).lerp(C('#ffb070'), twilight).lerp(C('#9fb3ff'), 1 - day).lerp(C('#c9d3e2'), sky.cloud * 0.8 * day);
+  sun.intensity = (0.6 + 1.6 * day) * (1 - 0.8 * sky.cloud) + sky.flash * 2.5;
+  sun.shadow.intensity = 1 - 0.75 * sky.cloud;
+  hemi.intensity = (0.85 + 0.75 * day) * (1 - 0.2 * sky.cloud) + sky.flash * 1.5;
+  hemi.color.copy(C('#8494cc')).lerp(C('#ffffff'), day).lerp(C('#c4cfdf'), sky.cloud * 0.7 * day);
+  hemi.groundColor.copy(C('#34405a')).lerp(C('#8a9a7a'), day).lerp(C('#dfe6ee'), WX.snowCover.value * day);
+
+  // Haze: the far side of town fades into the sky color. The range is measured from the camera's
+  // distance to what it looks at, so it reads the same zoomed in, zoomed out or following someone.
+  const look = following ? following.obj.position : controls.target;
+  const d = activeCam.position.distanceTo(look);
+  scene.fog.color.copy(col);
+  scene.fog.near = sky.haze > 0.01 ? d - 4 : 1000;
+  scene.fog.far = sky.haze > 0.01 ? d - 4 + 14 / sky.haze : 2000;
+
+  // Surfaces: wet in rain (dries slowly), a little greyer under cloud, and cloud shadows drifting by
+  // while the sun is up (a few fair-weather clouds even on clear days)
+  WX.wet.value = Math.min(1, Math.max(0, WX.wet.value + (w.kind === 'rain' ? dt / 15 : -dt / 60)));
+  WX.grey.value = sky.cloud * 0.45;
+  WX.cloudShade.value = (sky.weather === 'clear' ? 0.2 : 0.1 + 0.22 * 4 * sky.cloud * (1 - sky.cloud)) * day;
+  WX.cloudOffset.value.x -= dt * 0.035 * (sky.weather === 'storm' ? 3 : 1);
+  WX.cloudOffset.value.y -= dt * 0.02 * (sky.weather === 'storm' ? 3 : 1);
 
   // Lightning in storms: a quick double flash every few seconds
   if (sky.weather === 'storm' && performance.now() > sky.nextFlashAt) {
@@ -1430,28 +1588,45 @@ function updateSky(dt) {
   const lit = smooth(0.35, 0.8, sky.night + sky.cloud * 0.25);
   for (const m of lampGlow.materials ?? []) m.opacity = lit;
   for (const g of lampGlow) g.visible = lit > 0.01;
+  if (lampGlow.materials) lampGlow.materials[1].opacity = lit * (1 + 0.6 * WX.wet.value); // wet streets throw the light back
+  for (const g of lampGlow.pools ?? []) g.scale.setScalar(1 + 0.35 * WX.wet.value);
   for (const m of windowMats) m.emissiveIntensity = lit * 1.4;
 
   // Precipitation: only a share of the drops fall, ramping with the weather
   fallT += dt;
   const kind = w.kind ?? (sky.precip > 0.02 ? (snow.visible ? 'snow' : 'rain') : null);
   const count = Math.floor(DROPS * sky.precip * (sky.weather === 'storm' ? 1 : 0.6));
+  const flakes = Math.floor(FLAKES * sky.precip);
   rain.visible = kind === 'rain' && count > 0;
-  snow.visible = kind === 'snow' && count > 0;
+  snow.visible = kind === 'snow' && flakes > 0;
   const span = VOLUME.z1 - VOLUME.z0;
-  for (let i = 0; i < count; i++) {
+  if (rain.visible) for (let i = 0; i < count; i++) {
     const [sx, sy, sz] = [dropSeed[i * 3], dropSeed[i * 3 + 1], dropSeed[i * 3 + 2]];
     const x = (sx * 2 - 1) * VOLUME.x, z = VOLUME.z0 + sz * span;
-    if (rain.visible) {
-      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 9) % VOLUME.h);
-      dropPos.set([x, y, z, x - 0.04, y + 0.28, z - 0.02], i * 6);
-    } else if (snow.visible) {
-      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 0.7) % VOLUME.h);
-      flakePos.set([x + Math.sin(fallT * 0.8 + sx * 20) * 0.15, y, z + Math.cos(fallT * 0.6 + sz * 20) * 0.15], i * 3);
-    }
+    const y = VOLUME.h - ((sy * VOLUME.h + fallT * 9) % VOLUME.h);
+    dropPos.set([x, y, z, x - 0.04, y + 0.28, z - 0.02], i * 6);
+  }
+  if (snow.visible) for (let i = 0; i < flakes; i++) {
+    // Each flake falls at its own pace, flutters, and drifts with a light breeze (wrapping around the volume)
+    const [sx, sy, sz, sp] = [flakeSeed[i * 4], flakeSeed[i * 4 + 1], flakeSeed[i * 4 + 2], flakeSeed[i * 4 + 3]];
+    const fall = fallT * (0.35 + sp * 0.35);
+    const y = VOLUME.h - ((sy * VOLUME.h + fall) % VOLUME.h);
+    const x = wrap((sx * 2 - 1) * VOLUME.x + fall * 0.35 + Math.sin(fallT * (0.6 + sp) + sx * 40) * 0.25, -VOLUME.x, VOLUME.x);
+    const z = wrap(VOLUME.z0 + sz * span + Math.cos(fallT * (0.5 + sp) + sz * 40) * 0.25, VOLUME.z0, VOLUME.z1);
+    flakePos.set([x, y, z], i * 3);
   }
   rainGeo.setDrawRange(0, count * 2);
-  snowGeo.setDrawRange(0, count);
+  snowGeo.setDrawRange(0, flakes);
+  snow.material.uniforms.halfH.value = renderer.domElement.height / 2;
+  snow.material.uniforms.color.value.setScalar(0.55 + 0.45 * (1 - sky.night)); // flakes dim at night
+
+  // Snow settles while it snows and melts (faster in rain) once it stops
+  const settle = sky.weather === 'snow' ? dt / 30 : -dt / (w.kind === 'rain' ? 12 : 45);
+  WX.snowCover.value = Math.min(1, Math.max(0, WX.snowCover.value + settle));
+  if (performance.now() > sky.patchAt) { // pick up materials cloned since (see-through buildings)
+    patchWeather();
+    sky.patchAt = performance.now() + 2000;
+  }
   rainGeo.attributes.position.needsUpdate = snowGeo.attributes.position.needsUpdate = true;
   rain.material.opacity = sky.weather === 'storm' ? 0.7 : 0.5;
 
@@ -1511,6 +1686,8 @@ function wireSkyControls() {
     setWeather(p.get('weather'));
     sky.cloud = WEATHER[sky.weather].cloud;
     sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
+    if (sky.weather === 'snow') WX.snowCover.value = 1;
+    if (WEATHER[sky.weather].kind === 'rain') WX.wet.value = 1;
   }
 }
 
@@ -1529,6 +1706,7 @@ await loadAll(allModels);
 buildCity();
 addStreetLamps();
 scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.building); });
+patchWeather();
 wireSkyControls();
 spawnFriends();
 renderResidents();
