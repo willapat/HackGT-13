@@ -71,6 +71,10 @@ MID (apartments and bigger shops, ~1-1.4 tiles): {mid}
 SMALL (one-storey shops and cafés, ~1 tile): {small}
 HOUSES are chosen by the engine; don't list them.
 
+REVISIONS: if the request has "your_previous_town", the user looked at that town and wants
+"requested_changes". Return the complete updated plan: make the changes they asked for, fully (places,
+names, buildings, parks, landmarks, density...), and keep everything else the same.
+
 OUTPUT: a single JSON object matching this schema, and nothing else (no prose, no markdown fences):
 {schema}
 """
@@ -84,8 +88,11 @@ def planner_system_prompt() -> str:
 
 
 def planner_user_message(user_prompt: str, grid_size: int, members: int, name: str | None,
-                         places: list[str] = (), custom: list[str] = (), landmarks: list[str] = ()) -> str:
+                         places: list[str] = (), custom: list[str] = (), landmarks: list[str] = (),
+                         previous: dict | None = None, changes: str | None = None) -> str:
+    revision = {"your_previous_town": previous, "requested_changes": changes} if previous else {}
     return json.dumps({
+        **revision,
         "user_description": user_prompt,
         "grid_size": grid_size,   # decided by the engine from the member count
         "members": members,

@@ -4,7 +4,7 @@
 // the middle, houses at the edge). Drawn once per layout and cached as an image.
 
 const cache = new Map();
-const W = 780, H = 240; // about 2x the card banner (same shape), so it stays crisp
+const BANNER_W = 780, BANNER_H = 240; // about 2x the card banner (same shape), so it stays crisp
 
 const GROUND = {
   road: '#8b909c', driveway: '#cfc8bc', plaza: '#e4ddcf', patio: '#e4ddcf', farm: '#d6b25f',
@@ -46,20 +46,23 @@ function classify(kind, x, y, n, m, homesAt, bgColor, roadNear) {
   return { ground: GRASS }; // park, yard, bench-*, and anything unknown
 }
 
-export function drawTown(layout) {
-  const key = JSON.stringify(layout);
+// `whole: true` draws the entire map (the create-town preview) instead of the card banner's close-up
+export function drawTown(layout, { whole = false } = {}) {
+  const key = JSON.stringify(layout) + whole;
   if (cache.has(key)) return cache.get(key);
   const tiles = layout.tiles;
   const m = tiles.length, n = tiles[0].length;
+  const [W, H] = whole ? [760, 470] : [BANNER_W, BANNER_H];
   const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const g = canvas.getContext('2d');
 
-  // Zoomed in on the middle of town: the grid spans most of the width and the far and near corners crop off,
-  // like looking down a street at the center with the edge of town trailing away
-  const tw = (W * 0.8) / ((n + m) / 2);
+  // Banner: zoomed in on the middle of town: the grid spans most of the width and the far and near corners crop
+  // off, like looking down a street at the center with the edge of town trailing away. Whole: all of it, sitting
+  // at the bottom so buildings have room to rise.
+  const tw = (W * (whole ? 0.94 : 0.8)) / ((n + m) / 2);
   const th = tw / 2;
   const ox = W / 2 - ((n - m) * tw) / 4;
-  const oy = H * 0.62 - (n + m) * th / 4;
+  const oy = whole ? H - 18 - (n + m) * th / 2 : H * 0.62 - (n + m) * th / 4;
   const P = (x, y, z = 0) => [ox + (x - y) * tw / 2, oy + (x + y) * th / 2 - z * tw];
 
   const homesAt = new Map();

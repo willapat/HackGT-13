@@ -57,12 +57,22 @@ def apply_choices(plan: TownPlan, places: list[str], custom: list[str], landmark
         plan.landmarks = list(dict.fromkeys(landmarks))
 
 
+def shown_town(revision: dict) -> dict:
+    """The plan of a town the user reviewed, for the model to edit (engine-set fields left out)."""
+    prev = TownPlan.model_validate((revision.get("map") or {}).get("plan") or {})
+    return prev.model_dump(exclude={"size", "home_slots"})
+
+
 def plan_town(user_prompt: str, members: int = 1, name: str | None = None, places: list[str] = (),
-              custom: list[str] = (), landmarks: list[str] = ()) -> tuple[TownPlan, str]:
-    """Ask the model for a plan; if its JSON is invalid, retry once with the error. Returns (plan, "ai" | "fallback")."""
+              custom: list[str] = (), landmarks: list[str] = (), revision: dict | None = None) -> tuple[TownPlan, str]:
+    """Ask the model for a plan; if its JSON is invalid, retry once with the error. Returns (plan, "ai" | "fallback").
+    With a revision ({tiles, map, feedback}: a previewed town and what the user wants changed) the model edits that
+    town's plan with the changes, keeping the rest."""
     size = size_for(members)
     system = planner_system_prompt()
-    message = planner_user_message(user_prompt, size, members, name, places, custom, landmarks)
+    message = planner_user_message(user_prompt, size, members, name, places, custom, landmarks,
+                                   previous=shown_town(revision) if revision else None,
+                                   changes=revision["feedback"] if revision else None)
     plan, err = None, None
     for _ in range(2):
         ask = message if err is None else f"{message}\n\nYour last answer was rejected: {err}. Reply with only the corrected JSON object."
@@ -81,6 +91,11 @@ def plan_town(user_prompt: str, members: int = 1, name: str | None = None, place
         except ValidationError as e:
             err = str(e)[:500]
     source = "ai" if plan else "fallback"
+    if plan is None and revision:  # model down mid-review: keep the town they were looking at
+        try:
+            plan = TownPlan.model_validate((revision.get("map") or {}).get("plan") or {})
+        except ValidationError:
+            plan = None
     plan = plan or TownPlan(theme=user_prompt[:200])
     if name:
         plan.name = name
@@ -103,8 +118,14 @@ def lay_out(plan: TownPlan, members: int, prompt: str) -> tuple[list[list[str]],
 
 
 def generate_town(user_prompt: str, members: int = 1, name: str | None = None, places: list[str] = (),
-                  custom: list[str] = (), landmarks: list[str] = ()) -> dict:
-    plan, source = plan_town(user_prompt, members, name, places, custom, landmarks)
+                  custom: list[str] = (), landmarks: list[str] = (), revision: dict | None = None,
+                  design: dict | None = None) -> dict:
+    """Design and lay out a town. `design` is the plan of a preview the user approved: it's laid out again with no
+    model call, and since layout is seeded by the plan, it comes out exactly as they saw it."""
+    if design is not None:
+        plan, source = TownPlan.model_validate(design), "approved"
+    else:
+        plan, source = plan_town(user_prompt, members, name, places, custom, landmarks, revision)
     tiles, town_map = lay_out(plan, members, user_prompt)
     return {"name": plan.name, "tiles": tiles, "map": town_map, "plan": town_map["plan"], "plan_source": source}
 

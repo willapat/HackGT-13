@@ -87,12 +87,20 @@ class TownUpdate(BaseModel):
     map: TownMap | None = None
 
 
+class TownRevision(BaseModel):
+    """A previewed town (the tiles and map POST /towns/generate returned) and what the user wants changed."""
+
+    tiles: list[list[str]] = Field(min_length=1, max_length=31)
+    map: dict
+    feedback: str = Field(min_length=1, max_length=600)
+
+
 class TownGenerate(BaseModel):
     """Describe a town and Gemini designs it (backend/towngen). The town rules always apply."""
 
     prompt: str = Field(min_length=1, max_length=1000)  # e.g. "a cozy seaside village with a climbing gym"
     name: str | None = Field(default=None, min_length=1, max_length=60)  # None = the planner names it
-    me: MemberIdentity
+    me: MemberIdentity | None = None  # required to create; a preview doesn't need it (you pick it after approving)
     invite_user_ids: list[UUID] = Field(default_factory=list, max_length=23)  # friends to invite as soon as it exists
     places: list[str] = Field(default_factory=list, max_length=19)  # ids from GET /towns/place-options; [] = planner picks
     custom_places: list[Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v), Field(min_length=1, max_length=40)]] = Field(
@@ -111,6 +119,8 @@ class TownGenerate(BaseModel):
             raise ValueError(f"pick at most {MAX_PLACES} places")
         return self
     preview: bool = False  # true = return the design without creating the town
+    revise: TownRevision | None = None  # redesign a previewed town with the user's changes (use with preview)
+    design: dict | None = None  # the `plan` of a preview the user approved: built exactly as shown, no model call
 
 
 class HouseName(BaseModel):

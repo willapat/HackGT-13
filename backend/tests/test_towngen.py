@@ -152,3 +152,41 @@ def test_a_full_town_regrows_from_its_saved_plan():
     tiles, town_map = towngen.lay_out(TownPlan(places=picks, landmarks=["stadium"]), 1, "p")
     grown, grown_map = towngen.grow({"tiles": tiles, "map": town_map}, 3)  # saved plan with 12 places must reload
     assert len(grown) == 13 and {p.id for p in picks} <= set(grown_map["places"]) and any("stadium" in r for r in grown)
+
+
+def test_an_approved_preview_is_built_exactly_as_shown_without_the_model(monkeypatch):
+    fake_model(monkeypatch, {"name": "Tidepool", "places": [{"id": "cafe", "name": "Bean There", "model": SMALL[9]}]})
+    preview = towngen.generate_town("a seaside town", places=["library"], landmarks=["farm"])
+
+    def no_model(*a, **k):
+        raise AssertionError("approving must not call the model")
+    monkeypatch.setattr(towngen, "complete", no_model)
+    built = towngen.generate_town("a seaside town", design=preview["plan"])
+    assert built["tiles"] == preview["tiles"] and built["map"]["places"] == preview["map"]["places"]
+    assert built["map"]["home_slots"] == preview["map"]["home_slots"] and built["plan_source"] == "approved"
+
+
+def test_a_revision_hands_the_model_its_plan_and_the_notes(monkeypatch):
+    fake_model(monkeypatch, {"name": "Tidepool", "places": [{"id": "cafe", "name": "Bean There", "model": SMALL[9]}]})
+    preview = towngen.generate_town("a seaside town")
+    seen = {}
+
+    def model(model, system, message, **k):
+        seen.update(json.loads(message))
+        return json.dumps({"name": "Tidepool", "landmarks": ["farm"]})
+    monkeypatch.setattr(towngen, "complete", model)
+    revised = towngen.generate_town("a seaside town", revision={"tiles": preview["tiles"], "map": preview["map"], "feedback": "add a farm"})
+    assert seen["requested_changes"] == "add a farm" and seen["your_previous_town"]["name"] == "Tidepool"
+    assert seen["your_previous_town"]["places"][0]["name"] == "Bean There" and "size" not in seen["your_previous_town"]
+    assert any("farm" in row for row in revised["tiles"])
+
+
+def test_if_the_model_is_down_mid_review_the_town_stays_as_it_was(monkeypatch):
+    fake_model(monkeypatch, {"name": "Tidepool", "places": [{"id": "cafe", "name": "Bean There", "model": SMALL[9]}]})
+    preview = towngen.generate_town("a seaside town")
+
+    def down(*a, **k):
+        raise RuntimeError("no key")
+    monkeypatch.setattr(towngen, "complete", down)
+    kept = towngen.generate_town("a seaside town", revision={"tiles": preview["tiles"], "map": preview["map"], "feedback": "more trees"})
+    assert kept["name"] == "Tidepool" and kept["tiles"] == preview["tiles"]

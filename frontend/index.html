@@ -600,7 +600,7 @@
   <dialog id="create-dialog" class="wide-dialog">
     <form method="dialog" id="create-form" novalidate>
       <h2>Create a town</h2>
-      <p>Describe the town you'd like and the town planner will build it for you. It starts small and grows as friends move in.</p>
+      <p>Describe the town you'd like and the town planner will design it. You'll see the design before it's built, and can ask for changes. It grows as friends move in.</p>
       <label>What should it be like?
         <textarea id="create-prompt" rows="4" maxlength="1000" placeholder="A cozy seaside village with a climbing gym, a bakery and lots of trees"></textarea>
         <span class="hint" id="create-prompt-hint"></span>
@@ -625,6 +625,29 @@
       <div class="actions-row">
         <button value="cancel" formnovalidate>Cancel</button>
         <button value="ok" class="primary" id="create-next">Next</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Review a designed town before it's created: approve it, ask for changes, or try another design -->
+  <dialog id="review-dialog" class="wide-dialog">
+    <form method="dialog" id="review-form" novalidate>
+      <h2 id="review-title"></h2>
+      <p id="review-theme"></p>
+      <div class="review-art" id="review-art"></div>
+      <p class="hint" id="review-key">Your home is the purple roof; the gray ones are for the friends you invite.</p>
+      <div class="chips" id="review-places" aria-label="Places in this town"></div>
+      <p class="hint" id="review-changed" hidden></p>
+      <label>Want changes?
+        <textarea id="review-feedback" rows="2" maxlength="600" placeholder="Add a climbing gym, rename the café, fewer tall buildings, a farm in the corner…"></textarea>
+      </label>
+      <p class="msg" id="review-msg" hidden></p>
+      <div class="actions-row">
+        <button value="back" formnovalidate>Back</button>
+        <span style="flex:1"></span>
+        <button value="fresh" id="review-fresh">Try another design</button>
+        <button value="revise" id="review-revise" disabled>Redo with changes</button>
+        <button value="ok" class="primary" id="review-ok">Create this town</button>
       </div>
     </form>
   </dialog>
