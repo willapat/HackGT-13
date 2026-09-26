@@ -13,7 +13,7 @@ from backend.models.api import BubbleIn, EventCreate, HouseName, MoodIn, HouseUp
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
 from backend.routes.me import plan_town_handoff
 from backend.calendar_drive import destination_for, estimate_travel_minutes, snap_member_to_clock
-from backend.schedules import TOWN_TZ, clock_mode, events_for_users, local_now
+from backend.schedules import clock_mode, events_for_users, local_now, user_tz
 from backend.writer import stamp
 from backend.town_map import buildings, house_building_id, in_bounds
 from backend.towngen import generate_town, grow, needs_to_grow
@@ -292,8 +292,10 @@ def update_my_identity(town_id: UUID, body: IdentityUpdate, uid: str = Depends(c
 
 
 @router.get("/{town_id}")
-def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
-    """Everything needed to render the town: map, members (with profile and AI-set mood/activity/state), agents."""
+def get_town(town_id: UUID, live: bool = Query(False, description="true: skip the town row (tiles + map); for polling"),
+             uid: str = Depends(current_user_id)):
+    """Everything needed to render the town: map, members (with profile and AI-set mood/activity/state), agents.
+    The 3D town loads the map once (plain call) and then polls with ?live=1: people move, the map doesn't."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
     members = (
@@ -307,16 +309,14 @@ def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
         for m in members
     }
     schedules = events_for_users(
-        db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3),
+        # From yesterday: "today" starts at a different moment for viewers in different time zones
+        db, list(names), now - timedelta(days=1), now + timedelta(days=3),
     )
     for ev in schedules:
         ev["display_name"] = names.get(ev["user_id"]) or "Friend"
-    # town_time is the hour these agent rows were placed for. A slow poll must not draw them
-    # under a different hour on the slider.
-    return {
-        "town": load_town(db, tid), "members": members, "agents": agents, "schedules": schedules,
-        "town_time": now.isoformat(), "mode": clock_mode(),
-    }
+    # town_time re-anchors the client's town clock, which places people and walks (the slider is lighting only).
+    view = {"members": members, "agents": agents, "schedules": schedules, "town_time": now.isoformat(), "mode": clock_mode()}
+    return view if live else {"town": load_town(db, tid), **view}
 
 
 @router.patch("/{town_id}")
@@ -497,7 +497,7 @@ def building_visits(town_id: UUID, building_id: str, uid: str = Depends(current_
     The 3D town adds who's there now and who's on the way from what it's drawing."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    midnight = datetime.now(TOWN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = datetime.now(user_tz(db, uid)).replace(hour=0, minute=0, second=0, microsecond=0)  # the viewer's own today
     rows = (
         db.table("agent_actions").select("user_id, action, created_at").eq("town_id", tid)
         .filter("details->>target_building_id", "eq", building_id).gte("created_at", midnight.isoformat())

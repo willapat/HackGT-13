@@ -2,7 +2,6 @@
 // Polls GET /demo/snapshot (backend secret key) so the judge UI works without a logged-in Supabase user.
 // Demo buttons POST /demo/trigger/{scenario} with a 3s timeout, then fall back to the scripted trigger().
 
-import { placementsMatchScreen } from './sky.js';
 
 const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
 
@@ -156,8 +155,7 @@ export function startTownBackend(api) {
     if (!res.ok) throw new Error(`snapshot ${res.status}`);
     const data = await res.json();
     if (gen !== pullGen) return;
-    if (data.town_time && !placementsMatchScreen(data.town_time, data.mode)) return;
-    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode, 'poll');
+    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode);
     if (gen !== pullGen) return;
     if (applyTownNames) applyTownNames(data.map);
     applyCharacters(data.characters, data.members);
@@ -212,20 +210,6 @@ export function startTownBackend(api) {
     }
   }
 
-  async function pushClock(body) {
-    pullGen++;
-    const res = await fetch(`${backendUrl()}/demo/clock`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`clock ${res.status}`);
-    const data = await res.json();
-    if (api.applyTownTime) api.applyTownTime(data.town_time, data.mode, 'push');
-    pullSnapshot().catch(() => {});
-    return data;
-  }
-
   fetch(`${backendUrl()}/demo/config`)
     .then((r) => r.json())
     .then((cfg) => {
@@ -235,5 +219,5 @@ export function startTownBackend(api) {
     })
     .catch(() => logFeed('Backend offline. Demo buttons use the scripted fallback.'));
 
-  return { triggerViaBackend, enterLiveMode, pushClock };
+  return { triggerViaBackend, enterLiveMode };
 }

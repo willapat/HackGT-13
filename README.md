@@ -6,13 +6,34 @@ The goal is to strengthen real friendships: help people notice when friends need
 
 Built for HackGT 13.
 
-# Run backend locally
-- make sure you are in the root HackGT-13 dir then run:
-python3 -m uvicorn backend.main:app --reload
+## Running locally
 
-# Run frontend locally (run backend first)
-From the repo root:
-python3 serve.py
+All commands run from the repo root (`HackGT-13/`). Needs Python 3.11+.
 
-Then open http://localhost:8080/frontend/ (the 3D town is at /town/). The account app lives in `frontend/`,
-the 3D town in `town/`; `serve.py` serves both (and nothing else, so `.env` stays private).
+**1. One-time setup**
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env   # then fill in the Supabase keys and an AI key (see comments in the file)
+```
+
+On Windows use `py -3 -m venv .venv` and `.venv\Scripts\python` instead of `.venv/bin/python`.
+
+**2. Start the backend** (port 8000; API docs at http://localhost:8000/docs)
+
+```sh
+.venv/bin/python -m uvicorn backend.main:app --reload
+```
+
+Set `DISABLE_LOOPS=1` to run the API without the AI town brain and character loops.
+
+**3. Start the web app** (in a second terminal, port 8080)
+
+```sh
+.venv/bin/python serve.py
+```
+
+Open http://localhost:8080/frontend/ for the account app. The 3D town is at http://localhost:8080/town/?town=<id>. `serve.py` serves only `frontend/` and `town/`, so `.env` stays private.
+
+**Tests:** `.venv/bin/python -m pytest`

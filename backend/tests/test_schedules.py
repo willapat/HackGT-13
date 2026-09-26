@@ -96,3 +96,27 @@ def test_personal_events_dedupe_shared_plans():
     assert all(r["building_id"] for r in rows)
     homes = [r for r in rows if r["text"] == "home"]
     assert homes and all(r["building_id"].startswith("house:") for r in homes)
+
+
+def test_times_show_in_each_persons_time_zone():
+    from backend.schedules import tz_for
+
+    moment = datetime(2026, 9, 26, 22, 0, tzinfo=timezone.utc)  # 6pm Eastern, 3pm Pacific
+    assert label(moment, tz_for("America/New_York")).endswith("6:00pm")
+    assert label(moment, tz_for("America/Los_Angeles")).endswith("3:00pm")
+    assert tz_for(None) == TOWN_TZ and tz_for("Mars/Base") == TOWN_TZ  # unknown zones fall back
+
+
+def test_plan_hours_follow_the_persons_zone():
+    from backend.schedules import tz_for
+
+    pacific = tz_for("America/Los_Angeles")
+    now = datetime(2026, 9, 26, 6, 0, tzinfo=pacific)
+    first = free_slots({}, now, days=1, count=1, tz=pacific)[0]
+    assert datetime.fromisoformat(first["start"]).astimezone(pacific).hour == 9  # 9am Pacific, not 9am Eastern
+
+
+def test_daylight_saving_is_handled():
+    # Eastern is UTC-4 in September and UTC-5 after Nov 1; the old fixed -4 offset would be an hour off
+    assert datetime(2026, 9, 26, 12, tzinfo=TOWN_TZ).utcoffset() == timedelta(hours=-4)
+    assert datetime(2026, 11, 26, 12, tzinfo=TOWN_TZ).utcoffset() == timedelta(hours=-5)

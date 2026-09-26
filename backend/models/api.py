@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
@@ -18,6 +19,20 @@ class ProfileUpdate(BaseModel):
     avatar: dict | None = None  # asset manifest keys
     interests: list[str] | None = Field(default=None, max_length=30)
     bio: str | None = Field(default=None, max_length=160)
+    # IANA name from the browser (Intl), e.g. "America/Los_Angeles": the person's own "today" and plan hours.
+    # Times themselves are always stored in UTC.
+    timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def _real_zone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("unknown time zone")
+        return v
 
 
 Tile = Annotated[list[int], Field(min_length=2, max_length=2)]  # [x, y]
@@ -183,7 +198,8 @@ class MoveIn(BaseModel):
     building_id: str = Field(min_length=1, max_length=80)  # a place id ("cafe") or "house:<user_id>"
     from_x: float = Field(ge=0)  # where your character is right now (fractional mid-walk is fine)
     from_y: float = Field(ge=0)
-    travel_minutes: int | None = Field(default=None, ge=1, le=180)  # how long the walk takes; omitted keeps the place estimate
+    # how long the walk takes; omitted keeps the place estimate. Float so the page can send seconds (s / 60).
+    travel_minutes: float | None = Field(default=None, gt=0, le=180)
 
 
 class SignalIn(BaseModel):
