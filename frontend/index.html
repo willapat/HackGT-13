@@ -2,127 +2,222 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>Tiny Town 3D</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiny Town</title>
   <style>
     :root {
-      --panel: rgba(255, 255, 255, 0.88);
+      --sky: #9fd3ec;
+      --panel: #ffffff;
       --ink: #1f2430;
       --muted: #667085;
-      --line: rgba(31, 36, 48, 0.1);
+      --line: rgba(31, 36, 48, 0.12);
       --accent: #3b6fe0;
+      --accent-ink: #ffffff;
+      --good: #2fb36d;
+      --bad: #d64545;
+      --soft: #f3f6fb;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; touch-action: pan-x pan-y; background: #9fd3ec; color: var(--ink);
-      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    #game { position: fixed; inset: 0; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: linear-gradient(180deg, #bfe3f4 0%, var(--sky) 55%, #8cc79a 100%);
+      color: var(--ink);
+      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; justify-content: center; align-items: flex-start;
+      padding: 48px 16px;
+    }
+    [hidden] { display: none !important; }
 
-    .panel { position: fixed; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
-    h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .shell { width: 100%; max-width: 440px; display: grid; gap: 16px; }
+    .brand { text-align: center; }
+    .brand h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; }
+    .brand p { margin: 4px 0 0; color: #2d4a5c; }
 
-    #side { top: 16px; left: 16px; width: 290px; max-height: calc(100% - 32px); padding: 14px; display: flex;
-      flex-direction: column; gap: 14px; }
-    #side .title { font-size: 20px; font-weight: 700; }
-    #side .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
-    #residents { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-    #residents li { display: flex; gap: 8px; align-items: flex-start; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; }
-    .status { color: var(--muted); font-size: 12px; }
-    #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 1; display: grid;
-      gap: 4px; align-content: start; font-size: 12.5px; }
-    #feed li { padding: 4px 0; border-top: 1px solid var(--line); }
-    #feed time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
-    .feedwrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+    .card { background: var(--panel); border-radius: 16px; padding: 22px; box-shadow: 0 10px 30px rgba(20, 50, 70, 0.15); }
+    .card h2 { margin: 0 0 4px; font-size: 20px; }
+    .card .sub { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+    h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 
-    #triggers { top: 16px; right: 16px; padding: 12px; width: 250px; display: grid; gap: 6px; }
-    #triggers button, .card button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
-      border-radius: 9px; padding: 7px 10px; text-align: left; cursor: pointer; }
-    #triggers button:hover, .card button:hover { border-color: var(--accent); }
-    #triggers .note { color: var(--muted); font-size: 11.5px; }
-    #triggers h2 + .sky-row { margin-top: -2px; }
-    .sky-row { display: flex; gap: 6px; align-items: center; }
-    .sky-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
-    #clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 88px; text-align: right; }
-    .sky-row button { flex: 1; }
-    .sky-row.weather button { padding: 4px 0; font-size: 15px; }
-    #triggers button.on { border-color: var(--accent); background: #eef3ff; }
+    label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+    input {
+      font: inherit; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+      background: #fff; color: var(--ink);
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+    .at-field { position: relative; }
+    .at-field span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+    .at-field input { padding-left: 28px; }
+    .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+    .hint.ok { color: var(--good); }
+    .hint.bad { color: var(--bad); }
 
-    #cards { position: fixed; right: 16px; bottom: 16px; width: 320px; display: grid; gap: 10px; }
-    .card { padding: 14px; border-left: 4px solid var(--accent); animation: pop 0.35s ease-out; position: static; }
-    .card .kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-    .card .text { margin: 4px 0 10px; }
-    .card .row { display: flex; gap: 6px; flex-wrap: wrap; }
-    .card button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-    @keyframes pop { from { transform: translateY(12px); opacity: 0; } }
+    button {
+      font: inherit; font-weight: 600; border: 1px solid var(--line); background: #fff; color: var(--ink);
+      border-radius: 10px; padding: 9px 14px; cursor: pointer;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: 0.55; cursor: default; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    button.full { width: 100%; padding: 11px 14px; }
+    button.link { border: none; background: none; color: var(--accent); padding: 0; font-weight: 600; }
+    button.small { padding: 5px 10px; font-size: 13px; }
+    button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
 
-    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
-    .panel, #cards { z-index: 10; }
-    .lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-weight: 700; font-size: 12px;
-      padding: 1px 6px; border-radius: 4px; }
-    .lbl.place { background: rgba(255, 255, 255, 0.85); color: var(--ink); font-size: 13px; }
-    .lbl.friend { color: #fff; pointer-events: auto; cursor: pointer; }
-    .bubble { position: absolute; transform: translate(-50%, -100%); background: #fff; color: var(--ink); padding: 5px 9px;
-      border-radius: 9px; font-size: 13px; max-width: 170px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      animation: pop 0.2s ease-out; }
-    #follow { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 10px 8px 14px; display: flex; gap: 10px;
-      align-items: center; }
-    #follow[hidden] { display: none; }
-    .follow-tip { color: var(--muted); font-size: 12px; }
-    @media (max-width: 800px) { .follow-tip { display: none; } }
-    #follow button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
-    #hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--muted); }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr; background: var(--soft); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
+    .tabs button { border: none; background: none; color: var(--muted); }
+    .tabs button[aria-selected="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
 
-    @media (max-width: 800px) {
-      #side { width: calc(100% - 32px); max-height: 38%; }
-      #triggers { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
-      #cards { width: calc(100% - 32px); bottom: 190px; }
-      #hint { display: none; }
+    .msg { margin: 10px 0 0; font-size: 13px; padding: 8px 10px; border-radius: 8px; }
+    .msg.error { background: #fdecec; color: #9b2c2c; }
+    .msg.info { background: #eaf2ff; color: #23407a; }
+    .msg.success { background: #e8f7ee; color: #1d6b41; }
+
+    .me { display: flex; align-items: center; gap: 12px; }
+    .avatar {
+      width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex: none;
+      color: #fff; font-weight: 700; font-size: 18px; background: var(--accent);
+    }
+    .avatar.sm { width: 34px; height: 34px; font-size: 14px; }
+    .me .who { flex: 1; min-width: 0; }
+    .me .name { font-weight: 700; font-size: 17px; }
+    .handle { color: var(--muted); font-size: 13px; }
+
+    .row { display: flex; gap: 8px; }
+    .row input { flex: 1; }
+
+    ul.people { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    ul.people li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--soft); }
+    ul.people .who { flex: 1; min-width: 0; }
+    ul.people .name { font-weight: 600; }
+    ul.people .actions { display: flex; gap: 6px; }
+    .empty { color: var(--muted); font-size: 14px; margin: 0; }
+    .badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--bad); color: #fff; font-size: 12px; text-align: center; margin-left: 6px; vertical-align: 1px; }
+    .section + .section { margin-top: 20px; }
+
+    .enter { display: flex; align-items: center; gap: 14px; }
+    .enter .txt { flex: 1; }
+    .enter .txt b { display: block; font-size: 16px; }
+    .enter .txt span { color: var(--muted); font-size: 13px; }
+
+    .spinner { width: 28px; height: 28px; border: 3px solid rgba(255, 255, 255, 0.5); border-top-color: #fff; border-radius: 50%; margin: 30px auto; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 480px) {
+      body { padding: 24px 12px; }
+      .card { padding: 18px; }
     }
   </style>
 </head>
 <body>
-  <div id="game"></div>
+  <main class="shell">
+    <header class="brand">
+      <h1>Tiny Town</h1>
+      <p>A little city full of your real friends</p>
+    </header>
 
-  <aside id="side" class="panel">
-    <div>
-      <div class="title">Tiny Town</div>
-      <div class="sub">Three.js + SimplePoly City + Kenney: rendering sandbox</div>
-    </div>
-    <div>
-      <h2>Residents</h2>
-      <ul id="residents"></ul>
-    </div>
-    <div class="feedwrap">
-      <h2>Town feed</h2>
-      <ul id="feed"></ul>
-    </div>
-  </aside>
-
+    <!-- Loading -->
+    <section id="view-loading"><div class="spinner" aria-label="Loading"></div></section>
+<!-- 
   <section id="triggers" class="panel">
     <h2>Demo signals</h2>
     <button data-trigger="goodNews">🎉 Maya shares good news</button>
     <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
     <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
     <button data-trigger="reset">↺ Reset town</button>
-    <h2>Time &amp; weather</h2>
-    <div class="sky-row"><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
-    <div class="sky-row"><button id="time-live">🕒 Live clock</button><button id="time-fast">⏩ Fast day</button></div>
-    <div class="sky-row weather">
-      <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
-      <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
-    </div>
     <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
-  </section>
+  </section> -->
+    <!-- Can't reach backend / Supabase -->
+    <section id="view-error" class="card" hidden>
+      <h2>Something's not running</h2>
+      <p class="sub" id="error-text"></p>
+      <button class="primary full" id="retry">Try again</button>
+    </section>
 
-  <div id="cards"></div>
-  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow</div>
+    <!-- Sign in / create account -->
+    <section id="view-auth" class="card" hidden>
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tab-signin" aria-selected="true">Sign in</button>
+        <button role="tab" id="tab-signup" aria-selected="false">Create account</button>
+      </div>
+      <form id="auth-form" novalidate>
+        <label id="name-field" hidden>Your name
+          <input id="auth-name" autocomplete="name" maxlength="50" placeholder="e.g. Maya Chen" />
+        </label>
+        <label>Email
+          <input id="auth-email" type="email" autocomplete="email" required placeholder="you@example.com" />
+        </label>
+        <label>Password
+          <input id="auth-password" type="password" autocomplete="current-password" required minlength="6" placeholder="At least 6 characters" />
+        </label>
+        <button class="primary full" id="auth-submit" type="submit">Sign in</button>
+        <p class="msg" id="auth-msg" hidden></p>
+      </form>
+    </section>
 
-  <div id="labels"></div>
-  <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>
-  <script type="importmap">
-    { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
-  </script>
-  <script type="module" src="main.js"></script>
+    <!-- First time: choose a username -->
+    <section id="view-username" class="card" hidden>
+      <h2>Pick your username</h2>
+      <p class="sub">This is how friends find you. You can't search by email, only by username.</p>
+      <form id="username-form" novalidate>
+        <label>Your name <span class="hint">(shown above your character in town)</span>
+          <input id="profile-name" maxlength="50" autocomplete="name" />
+        </label>
+        <label>Username
+          <div class="at-field"><span>@</span><input id="username-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="maya_chen" /></div>
+          <span class="hint" id="username-hint">3–20 characters: lowercase letters, numbers, underscores</span>
+        </label>
+        <button class="primary full" id="username-submit" type="submit" disabled>Continue</button>
+        <p class="msg" id="username-msg" hidden></p>
+      </form>
+    </section>
+
+    <!-- Home: profile, friends, enter town -->
+    <section id="view-home" hidden>
+      <div class="shell">
+        <div class="card me">
+          <div class="avatar" id="me-avatar"></div>
+          <div class="who">
+            <div class="name" id="me-name"></div>
+            <div class="handle" id="me-handle"></div>
+          </div>
+          <button class="small" id="sign-out">Sign out</button>
+        </div>
+
+        <div class="card enter">
+          <div class="txt"><b>Your town</b><span>Walk around and see what your friends are up to.</span></div>
+          <button class="primary" id="enter-town">Enter town →</button>
+        </div>
+
+        <div class="card">
+          <div class="section">
+            <h3>Add a friend</h3>
+            <form class="row" id="search-form" novalidate>
+              <div class="at-field" style="flex:1"><span>@</span><input id="search-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="their username" /></div>
+              <button class="primary" type="submit">Search</button>
+            </form>
+            <p class="msg" id="search-msg" hidden></p>
+            <ul class="people" id="search-results" style="margin-top:10px"></ul>
+          </div>
+
+          <div class="section" id="requests-section">
+            <h3>Friend requests <span class="badge" id="request-count" hidden></span></h3>
+            <ul class="people" id="incoming"></ul>
+            <ul class="people" id="outgoing" style="margin-top:8px"></ul>
+            <p class="empty" id="no-requests">No pending requests.</p>
+          </div>
+
+          <div class="section">
+            <h3>Friends</h3>
+            <ul class="people" id="friends"></ul>
+            <p class="empty" id="no-friends">No friends yet. Search for someone's username above.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="lib/supabase.js"></script>
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

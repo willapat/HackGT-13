@@ -69,11 +69,12 @@ call GET /friends 200 "$BEN"
 echo "     friends=$(jq length <<<"$BODY")"
 
 echo "--- towns"
-call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["grass","road","grass"],["grass","road","cafe"],["grass","road","grass"]]}'
+call POST /towns 201 "$ANA" '{"name":"Smoke Town","tiles":[["lot","road","lot"],["lot","road","lot"],["home","road","lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[2,1],"door":[1,1]}},"river":{"band":4}}}'
+call POST /towns 422 "$ANA" '{"name":"Bad Map","tiles":[["lot"]],"map":{"places":{"cafe":{"name":"Cafe","tile":[5,5],"door":[0,0]}}}}'
 TOWN_ID=$(jq -r .id <<<"$BODY"); CODE=$(jq -r .invite_code <<<"$BODY")
 call GET "/towns/$TOWN_ID" 404 "$BEN"
 call POST /towns/join 200 "$BEN" "{\"invite_code\":\"$CODE\"}"
-call PATCH "/towns/$TOWN_ID/members/me" 200 "$BEN" '{"house_x":0,"house_y":2}'
+call PATCH "/towns/$TOWN_ID/members/me" 200 "$BEN" '{"house_x":0,"house_y":2,"home":{"model":"city-kit-suburban/building-type-k","door":[1,2]}}'
 call PATCH "/towns/$TOWN_ID/members/me" 422 "$BEN" '{"house_x":9,"house_y":9}'
 call PATCH "/towns/$TOWN_ID" 403 "$BEN" '{"name":"Hijacked"}'
 call GET "/towns/$TOWN_ID" 200 "$BEN"

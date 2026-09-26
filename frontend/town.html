@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Tiny Town 3D</title>
+  <style>
+    :root {
+      --panel: rgba(255, 255, 255, 0.88);
+      --ink: #1f2430;
+      --muted: #667085;
+      --line: rgba(31, 36, 48, 0.1);
+      --accent: #3b6fe0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; touch-action: pan-x pan-y; background: #9fd3ec; color: var(--ink);
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #game { position: fixed; inset: 0; }
+
+    .panel { position: fixed; background: var(--panel); backdrop-filter: blur(8px); border-radius: 14px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); }
+    h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+
+    #side { top: 16px; left: 16px; width: 290px; max-height: calc(100% - 32px); padding: 14px; display: flex;
+      flex-direction: column; gap: 14px; }
+    #side .title { font-size: 20px; font-weight: 700; }
+    #side .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    #residents { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    #residents li { display: flex; gap: 8px; align-items: flex-start; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; }
+    .status { color: var(--muted); font-size: 12px; }
+    #feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 1; display: grid;
+      gap: 4px; align-content: start; font-size: 12.5px; }
+    #feed li { padding: 4px 0; border-top: 1px solid var(--line); }
+    #feed time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+    .feedwrap { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+    #triggers { top: 16px; right: 16px; padding: 12px; width: 250px; display: grid; gap: 6px; }
+    #triggers button, .card button { font: inherit; border: 1px solid var(--line); background: #fff; color: var(--ink);
+      border-radius: 9px; padding: 7px 10px; text-align: left; cursor: pointer; }
+    #triggers button:hover, .card button:hover { border-color: var(--accent); }
+    #triggers .note { color: var(--muted); font-size: 11.5px; }
+    #triggers h2 + .sky-row { margin-top: -2px; }
+    .sky-row { display: flex; gap: 6px; align-items: center; }
+    .sky-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
+    #clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 88px; text-align: right; }
+    .sky-row button { flex: 1; }
+    .sky-row.weather button { padding: 4px 0; font-size: 15px; }
+    #triggers button.on { border-color: var(--accent); background: #eef3ff; }
+
+    #cards { position: fixed; right: 16px; bottom: 16px; width: 320px; display: grid; gap: 10px; }
+    .card { padding: 14px; border-left: 4px solid var(--accent); animation: pop 0.35s ease-out; position: static; }
+    .card .kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .card .text { margin: 4px 0 10px; }
+    .card .row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .card button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    @keyframes pop { from { transform: translateY(12px); opacity: 0; } }
+
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+    .panel, #cards { z-index: 10; }
+    .lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-weight: 700; font-size: 12px;
+      padding: 1px 6px; border-radius: 4px; }
+    .lbl.place { background: rgba(255, 255, 255, 0.85); color: var(--ink); font-size: 13px; }
+    .lbl.friend { color: #fff; pointer-events: auto; cursor: pointer; }
+    .bubble { position: absolute; transform: translate(-50%, -100%); background: #fff; color: var(--ink); padding: 5px 9px;
+      border-radius: 9px; font-size: 13px; max-width: 170px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      animation: pop 0.2s ease-out; }
+    #follow { top: 16px; left: 50%; transform: translateX(-50%); padding: 8px 10px 8px 14px; display: flex; gap: 10px;
+      align-items: center; }
+    #follow[hidden] { display: none; }
+    .follow-tip { color: var(--muted); font-size: 12px; }
+    @media (max-width: 800px) { .follow-tip { display: none; } }
+    #follow button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+    .back { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; }
+    #hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--muted); }
+
+    @media (max-width: 800px) {
+      #side { width: calc(100% - 32px); max-height: 38%; }
+      #triggers { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
+      #cards { width: calc(100% - 32px); bottom: 190px; }
+      #hint { display: none; }
+    }
+  </style>
+  <script src="lib/supabase.js"></script>
+  <script src="config.js"></script>
+  <script type="module">
+    // Signed-out visitors go to the login page. If the backend is down, the scripted town still runs.
+    import { getSupabase } from './session.js';
+    try {
+      const sb = await getSupabase();
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) location.replace('index.html');
+    } catch { /* backend unreachable: allow the offline demo */ }
+  </script>
+</head>
+<body>
+  <div id="game"></div>
+
+  <aside id="side" class="panel">
+    <div>
+      <a class="back" href="index.html">← Friends</a>
+      <div class="title">Tiny Town</div>
+      <div class="sub">Three.js + SimplePoly City + Kenney: rendering sandbox</div>
+    </div>
+    <div>
+      <h2>Residents</h2>
+      <ul id="residents"></ul>
+    </div>
+    <div class="feedwrap">
+      <h2>Town feed</h2>
+      <ul id="feed"></ul>
+    </div>
+  </aside>
+
+  <section id="triggers" class="panel">
+    <h2>Demo signals</h2>
+    <button data-trigger="goodNews">🎉 Maya shares good news</button>
+    <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
+    <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
+    <button data-trigger="reset">↺ Reset town</button>
+    <h2>Time &amp; weather</h2>
+    <div class="sky-row"><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
+    <div class="sky-row"><button id="time-live">🕒 Live clock</button><button id="time-fast">⏩ Fast day</button></div>
+    <div class="sky-row weather">
+      <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
+      <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
+    </div>
+    <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
+  </section>
+
+  <div id="cards"></div>
+  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow</div>
+
+  <div id="labels"></div>
+  <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>
+  <script type="importmap">
+    { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

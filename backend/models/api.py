@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
 
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
@@ -18,14 +18,54 @@ class ProfileUpdate(BaseModel):
     interests: list[str] | None = Field(default=None, max_length=30)
 
 
+Tile = Annotated[list[int], Field(min_length=2, max_length=2)]  # [x, y]
+MAX_GRID = 64
+
+
+def _rectangular(tiles: list[list[str]]) -> list[list[str]]:
+    if tiles and len({len(row) for row in tiles}) != 1:
+        raise ValueError("every tiles row must have the same length")
+    if len(tiles) > MAX_GRID or (tiles and len(tiles[0]) > MAX_GRID):
+        raise ValueError(f"town map can be at most {MAX_GRID}x{MAX_GRID}")
+    return tiles
+
+
+# tiles[y][x]: any width x height (all rows the same width), see backend/town_map.py
+Tiles = Annotated[list[list[Annotated[str, Field(min_length=1, max_length=80)]]], AfterValidator(_rectangular)]
+
+
+class Place(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    tile: Tile
+    door: Tile  # where characters stand when they visit
+
+
+class TownMap(BaseModel):
+    """towns.map. Named places plus scenery settings (e.g. "river"), which pass through as-is."""
+
+    model_config = ConfigDict(extra="allow")
+    places: dict[str, Place] = Field(default_factory=dict)
+
+
+class Home(BaseModel):
+    """town_members.home. The house tile itself is house_x/house_y."""
+
+    model: str | None = Field(default=None, max_length=80)
+    driveway: Tile | None = None
+    door: Tile | None = None
+    block: Annotated[list[int], Field(min_length=4, max_length=4)] | None = None  # x0, y0, x1, y1 inclusive
+
+
 class TownCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    tiles: list[list[str]] = Field(default_factory=list)  # tiles[y][x], asset manifest keys
+    tiles: Tiles = Field(default_factory=list)
+    map: TownMap = Field(default_factory=TownMap)
 
 
 class TownUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=60)
-    tiles: list[list[str]] | None = None
+    tiles: Tiles | None = None
+    map: TownMap | None = None
 
 
 class JoinTown(BaseModel):
@@ -35,6 +75,7 @@ class JoinTown(BaseModel):
 class HouseUpdate(BaseModel):
     house_x: int = Field(ge=0)
     house_y: int = Field(ge=0)
+    home: Home | None = None
 
 
 class MoveIn(BaseModel):

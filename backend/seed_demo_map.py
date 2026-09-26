@@ -1,50 +1,82 @@
-"""Write the frontend's hard-coded 12x12 city into a town's `tiles`, and put the demo cast in their houses.
+"""Write the frontend's hard-coded 17x17 city into a town: tiles, map (places + scenery), and each demo
+character's home and look.
 
     python3 -m backend.seed_demo_map              # DEMO_TOWN_ID from .env
     python3 -m backend.seed_demo_map <town_id>
-    python3 -m backend.seed_demo_map --dry-run    # print the tiles, write nothing
+    python3 -m backend.seed_demo_map --dry-run    # print what would be written, write nothing
 
-Mirrors buildCity() / PLACES / FRIENDS in frontend/main.js so both draw the same town.
+Copied from the constants at the top of frontend/main.js (N, ROADS, inPark, TREES, STADIUM, FARM, RIVER,
+PLACES, FRIENDS). "lot" tiles are filled by buildCity()'s own zone rules, exactly as the hard-coded
+version does today. Model keys are asset paths without "assets/" and ".glb".
 """
 
 import json
-import math
 import sys
 
-N, ROADS = 12, (2, 6, 10)
-PLACES = {"library": (3, 1), "gym": (5, 1), "cafe": (7, 3), "market": (9, 5), "downtown": (7, 5)}
-# Demo role → (house tile, house model key); roles match demo.ROLES and main.js FRIENDS.
-HOUSES = {
-    "maya": ((1, 3), "house-c"),
-    "jordan": ((3, 5), "house-h"),
-    "sam": ((5, 7), "house-k"),
-    "priya": ((11, 7), "house-n"),
-    "leo": ((1, 9), "house-r"),
+N, ROADS, CENTER = 17, (2, 6, 10, 14), 8
+SP, SUB = "simplepoly-city/", "city-kit-suburban/"
+
+
+def block(x0: int, x1: int, y0: int, y1: int) -> list[tuple[int, int]]:
+    return [(x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+
+
+PARK = block(7, 9, 7, 9)
+TREES = [(7, 7), (9, 7), (7, 9), (9, 9)]
+STADIUM, FARM = block(11, 13, 11, 13), block(0, 1, 15, 16)
+
+TOWN_MAP = {
+    "places": {
+        "library": {"name": "Library", "model": SP + "building-books-shop", "tile": [3, 1], "door": [3, 2]},
+        "gym": {"name": "Boulder Gym", "model": SP + "building-auto-service", "tile": [5, 1], "door": [5, 2]},
+        "cafe": {"name": "Bean There Café", "model": SP + "building-coffee-shop", "tile": [7, 3], "door": [6, 3]},
+        "market": {"name": "Market", "model": SP + "building-super-market", "tile": [9, 5], "door": [9, 6]},
+        "park": {"name": "Central Park", "tile": [8, 7], "door": [8, 6]},
+        "downtown": {"name": "downtown", "tile": [7, 5], "door": [7, 6]},
+    },
+    "landmarks": {"stadium": {"model": SP + "building-stadium"}},
+    "river": {"band": 4, "width": 1, "amp": 0.75},
 }
-TREES = {(9, 7), (7, 9), (9, 9), (8, 7)}
-SKYSCRAPERS = [f"skyscraper-{c}" for c in "abcde"]
-COMMERCIAL = [f"commercial-{c}" for c in "abcdefghijklmn"]
-FILLER_HOUSES = [f"house-{c}" for c in "abcdefghijklmnopqrstu"]
+
+# Demo role → home (house tile + town_members.home) and look (profiles.avatar). Roles match demo.ROLES.
+CAST = {
+    "maya": {"house": (0, 4), "home": {"model": SP + "building-house-01-color01", "driveway": [1, 4], "door": [2, 4], "block": [0, 3, 1, 5]},
+             "avatar": {"character": "character-female-a", "color": "#ff3b30"}},
+    "jordan": {"house": (12, 0), "home": {"model": SUB + "building-type-k", "driveway": [12, 1], "door": [12, 2], "block": [11, 0, 13, 1]},
+               "avatar": {"character": "character-male-b", "color": "#ff2d95"}},
+    "sam": {"house": (4, 16), "home": {"model": SP + "building-house-03-color01", "driveway": [4, 15], "door": [4, 14], "block": [3, 15, 5, 16]},
+            "avatar": {"character": "character-male-d", "color": "#ffd60a"}},
+    "priya": {"house": (16, 8), "home": {"model": SUB + "building-type-r", "driveway": [15, 8], "door": [14, 8], "block": [15, 7, 16, 9]},
+              "avatar": {"character": "character-female-c", "color": "#ff9500"}},
+    "leo": {"house": (0, 12), "home": {"model": SP + "building-house-02-color01", "driveway": [1, 12], "door": [2, 12], "block": [0, 11, 1, 13]},
+            "avatar": {"character": "character-male-f", "color": "#a24bff"}},
+}
 
 
 def demo_tiles() -> list[list[str]]:
-    fixed = {xy: pid for pid, xy in PLACES.items()} | {xy: model for xy, model in HOUSES.values()}
-    tiles = []
-    for y in range(N):
-        row = []
-        for x in range(N):
-            if x in ROADS or y in ROADS:
-                row.append("road")
-            elif 7 <= x <= 9 and 7 <= y <= 9:
-                row.append("tree" if (x, y) in TREES else "park")
-            elif (x, y) in fixed:
-                row.append(fixed[(x, y)])
-            else:  # same deterministic filler as main.js: taller buildings toward the centre
-                d = math.hypot(x - 5.5, y - 5.5)
-                pool = SKYSCRAPERS if d < 3.2 else COMMERCIAL if d < 5.3 else FILLER_HOUSES
-                row.append(pool[(x * 7 + y * 13 + x * y) % len(pool)])
-        tiles.append(row)
-    return tiles
+    kind: dict[tuple[int, int], str] = {}
+    for xy in PARK:
+        kind[xy] = "park"
+    kind[(CENTER, CENTER)] = "pond"
+    for xy in TREES:
+        kind[xy] = "tree"
+    for xy in STADIUM:
+        kind[xy] = "stadium"
+    for xy in FARM:
+        kind[xy] = "farm"
+    for c in CAST.values():
+        x0, y0, x1, y1 = c["home"]["block"]
+        for xy in block(x0, x1, y0, y1):
+            kind[xy] = "yard"
+        kind[tuple(c["home"]["driveway"])] = "driveway"
+        kind[c["house"]] = "home"
+    for p in TOWN_MAP["places"].values():
+        if "model" in p:
+            kind[tuple(p["tile"])] = p["model"]
+    return [
+        ["road" if x in ROADS or y in ROADS else kind.get((x, y), "lot") for x in range(N)]
+        for y in range(N)
+    ]
 
 
 def seed(town_id: str) -> None:
@@ -52,24 +84,28 @@ def seed(town_id: str) -> None:
     from backend.routes.demo import _town_members, cast_roles, primary_roles
 
     db = get_client()
-    db.table("towns").update({"tiles": demo_tiles()}).eq("id", town_id).execute()
+    db.table("towns").update({"tiles": demo_tiles(), "map": TOWN_MAP}).eq("id", town_id).execute()
     for user_id, role in primary_roles(cast_roles(_town_members(db, town_id))).items():
-        (x, y), _ = HOUSES[role]
-        db.table("town_members").update({"house_x": x, "house_y": y, "updated_at": now_iso()}).eq(
-            "town_id", town_id).eq("user_id", user_id).execute()
-        db.table("agents").update({"x": x, "y": y}).eq("town_id", town_id).eq("user_id", user_id).execute()
-        print(f"{role:7} {user_id} house at ({x}, {y})")
-    print(f"town {town_id}: tiles written ({N}x{N})")
+        c = CAST[role]
+        (hx, hy), (dx, dy) = c["house"], c["home"]["door"]
+        db.table("town_members").update(
+            {"house_x": hx, "house_y": hy, "home": c["home"], "updated_at": now_iso()}
+        ).eq("town_id", town_id).eq("user_id", user_id).execute()
+        db.table("agents").update({"x": dx, "y": dy}).eq("town_id", town_id).eq("user_id", user_id).execute()
+        avatar = (db.table("profiles").select("avatar").eq("id", user_id).limit(1).execute().data or [{}])[0].get("avatar") or {}
+        db.table("profiles").update({"avatar": {**avatar, **c["avatar"]}}).eq("id", user_id).execute()
+        print(f"{role:7} {user_id} house ({hx}, {hy}), standing at door ({dx}, {dy})")
+    print(f"town {town_id}: {N}x{N} tiles + map written")
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
     tiles = demo_tiles()
-    from backend.town_map import place_positions
-
-    assert place_positions(tiles) == {**PLACES, "park": (7, 7)}, place_positions(tiles)
+    assert len(tiles) == N and all(len(row) == N for row in tiles)
+    assert tiles[3][7] == SP + "building-coffee-shop" and tiles[8][8] == "pond" and tiles[4][0] == "home"
+    assert all(tiles[y][x] == "road" for y in range(N) for x in ROADS)
+    args = sys.argv[1:]
     if "--dry-run" in args:
-        print(json.dumps(tiles))
+        print(json.dumps({"tiles": tiles, "map": TOWN_MAP, "homes": CAST}, indent=1))
         sys.exit(0)
     from backend.config import settings
 

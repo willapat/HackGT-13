@@ -1,7 +1,7 @@
 """Supabase client plus the few queries several modules share. No business logic."""
 
 from datetime import datetime, timedelta, timezone
-from functools import lru_cache
+import threading
 
 from supabase import Client, create_client
 
@@ -19,11 +19,18 @@ def parse_ts(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
-@lru_cache
+_local = threading.local()
+
+
 def get_client() -> Client:
-    if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY must be set")
-    return create_client(settings.SUPABASE_URL, settings.SUPABASE_SECRET_KEY)
+    """One Supabase client per thread. FastAPI runs sync routes on a thread pool, and a single shared
+    client breaks when two requests use its connection at once (httpx ReadError: Errno 35)."""
+    client = getattr(_local, "client", None)
+    if client is None:
+        if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY must be set")
+        client = _local.client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SECRET_KEY)
+    return client
 
 
 def last_brain_run_at(db, town_id: str) -> str | None:

@@ -61,10 +61,10 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
     if me is None:
         return None
     members = (
-        db.table("town_members").select("user_id, mood, activity, house_x, house_y, profiles(display_name)")
+        db.table("town_members").select("user_id, mood, activity, house_x, house_y, home, profiles(display_name)")
         .eq("town_id", town_id).execute().data or []
     )
-    tiles = (db.table("towns").select("tiles").eq("id", town_id).limit(1).execute().data or [{}])[0].get("tiles")
+    town_map = (db.table("towns").select("map").eq("id", town_id).limit(1).execute().data or [{}])[0].get("map")
     names = {m["user_id"]: (m.get("profiles") or {}).get("display_name") or "Friend" for m in members}
     events = (
         db.table("events")
@@ -111,7 +111,7 @@ def load_snapshot(db, town_id: str, user_id: str) -> tuple[AgentDecisionInput, d
             for e in mine
         ],
         available_actions=[a.value for a in AgentAction],
-        available_buildings=buildings(tiles, members),
+        available_buildings=buildings(town_map, members),
     )
     return ctx, me
 
@@ -144,7 +144,8 @@ def commit_decision(
     building_id = next_building(decision, user_id, ctx.current_location_building_id)
     spot = next((b for b in ctx.available_buildings if b["id"] == building_id), {})
     # Same target shape as user moves (routes/towns.py move_me): building plus its tile, when known.
-    target = {"building_id": building_id, "x": spot.get("x"), "y": spot.get("y"), "user_id": decision.target_user_id}
+    target = {"building_id": building_id, "x": spot.get("x"), "y": spot.get("y"), "door": spot.get("door"),
+              "user_id": decision.target_user_id}
     target = {k: v for k, v in target.items() if v is not None}
     db.table("agents").update(
         {"action": decision.action, "target": target or None, "next_decision_at": jittered_next_decision(),
