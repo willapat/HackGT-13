@@ -183,7 +183,8 @@ controls.maxPolarAngle = 1.15;
 controls.target.set(0, 0, RIVER.band / 2); // center on the city plus the river belt in front
 camera.position.z += RIVER.band / 2;
 
-scene.add(new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6));
+const hemi = new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff4e0', 2.2);
 sun.position.set(-8, 14, 6);
 sun.castShadow = true;
@@ -464,6 +465,7 @@ function buildCity() {
         if (h.house[0] === c && h.house[1] === r) {
           const home = paintRoof(place(h.model, c, r, { ...(h.model.startsWith(SP) ? { scale: 0.92 } : { fit: 0.8 }), rotY: facing }), friend.color);
           topOf[key(c, r)] = topOf[key(h.c, h.r)] = new THREE.Box3().setFromObject(home).max.y;
+
         } else if (h.c === c && h.r === r) {
           const [dc, dr] = [h.c - h.house[0], h.r - h.house[1]];
           const drive = new THREE.Mesh(new THREE.BoxGeometry(dc ? 1 : 0.36, 0.012, dr ? 1 : 0.36), new THREE.MeshLambertMaterial({ color: '#c9c3b8' }));
@@ -502,6 +504,7 @@ function buildCity() {
       place(suburb ? GROUND.grass : GROUND.paved, c, r);
       const isSP = model.startsWith(SP);
       const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
+      b.userData.building = isSP ? 'simplepoly' : 'kenney';
       if (suburb) { // flush to the street it faces, and to the cross street on a corner
         const front = [Math.round(Math.sin(rotY)), Math.round(Math.cos(rotY))];
         seat(b, c, r, [front, ...roadSides(c, r).filter(([x, y]) => x !== front[0] || y !== front[1])]);
@@ -620,8 +623,16 @@ function buildCity() {
     [CENTER + 0.4, CENTER - 1.2, 'pot-bush-small'], [CENTER - 0.4, CENTER + 1.2, 'bush-02']]) place(NATURE[m], c, r, { scale: 2.2 });
 
   // ---- Street furniture
+  // Street lights: one on each crossing, plus one mid-block on every other block face (skipping doorways)
+  const lamp = (x, z, rotY) => { place(PROPS['street-light'], x, z, { scale: 1.8, rotY }); LAMPS.push({ x, z, rotY }); };
+  for (const c of ROADS) for (const r of ROADS) lamp(c + 0.42, r + 0.42, -Math.PI / 4);
+  for (const i of [4, 8, 12]) for (const [k, road] of ROADS.entries()) { // middles of the blocks between roads
+    if ((i / 4 + k) % 2) continue;
+    const side = k % 2 ? 1 : -1;
+    if (!doors.has(key(road, i))) lamp(road + side * 0.44, i, side > 0 ? 0 : Math.PI); // along a north-south road
+    if (!doors.has(key(i, road))) lamp(i, road + side * 0.44, side > 0 ? -Math.PI / 2 : Math.PI / 2); // along an east-west road
+  }
   for (const c of ROADS) for (const r of ROADS) {
-    place(PROPS['street-light'], c + 0.42, r + 0.42, { scale: 1.8, rotY: -Math.PI / 4 });
     const inner = Math.abs(c - CENTER) < 5 && Math.abs(r - CENTER) < 5;
     if (inner) {
       place(PROPS['traffic-signal-big'], c - 0.42, r - 0.42, { scale: 1.8, rotY: (3 * Math.PI) / 4 });
@@ -1114,6 +1125,7 @@ function frame() {
     if (!f.busy && !f.path.length && now > f.nextThink) think(f);
   }
   for (const fx of animated) fx.update(dt);
+  updateSky(dt);
 
   if (focusGoal) {
     const delta = focusGoal.clone().sub(controls.target).multiplyScalar(Math.min(1, dt * 4));
@@ -1144,6 +1156,239 @@ function frame() {
 }
 const friendVisible = (l) => Object.values(friends).find((f) => l.el.textContent === f.name)?.obj.visible ?? true;
 
+// ---- Sky: time of day and weather ------------------------------------------------------------
+// Time follows the real local clock unless the slider takes over (or fast-forward is on). Weather
+// drifts on its own every couple of minutes until a weather button pins it.
+
+const sky = {
+  hour: 12, live: true, fast: false,
+  weather: 'clear', autoWeather: true, nextWeatherAt: 0,
+  cloud: 0, precip: 0, flash: 0, nextFlashAt: 0, night: 0,
+};
+const WEATHER = { // cloud cover, precipitation kind
+  clear: { cloud: 0, kind: null }, rain: { cloud: 0.6, kind: 'rain' },
+  storm: { cloud: 0.85, kind: 'rain' }, snow: { cloud: 0.5, kind: 'snow' },
+};
+const C = (h) => new THREE.Color(h);
+const SKY = { day: C('#9fd3ec'), dusk: C('#f3a36b'), night: C('#1b2b57'), overcastDay: C('#9aa5b3'), overcastNight: C('#232b3d') };
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+// Rain streaks and snow flakes share one volume over the town (and the river belt in front)
+const VOLUME = { x: N / 2 + 1, z0: -N / 2 - 1, z1: N / 2 + RIVER.band + 1, h: 9 };
+const DROPS = 2600;
+const dropPos = new Float32Array(DROPS * 6);
+const dropSeed = Float32Array.from({ length: DROPS * 3 }, Math.random);
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(dropPos, 3));
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: '#b9d6ff', transparent: true, opacity: 0.55 }));
+const flakePos = new Float32Array(DROPS * 3);
+const snowGeo = new THREE.BufferGeometry();
+snowGeo.setAttribute('position', new THREE.BufferAttribute(flakePos, 3));
+const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 3 * Math.min(devicePixelRatio, 2), sizeAttenuation: false }));
+rain.frustumCulled = snow.frustumCulled = false;
+scene.add(rain, snow);
+let fallT = 0;
+
+// Night lighting: a glowing bulb and a pool of light under every street light, and lit windows
+const glowTex = (() => {
+  const cv = Object.assign(document.createElement('canvas'), { width: 64, height: 64 });
+  const g = cv.getContext('2d').createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,170,80,1)'); g.addColorStop(0.45, 'rgba(255,150,60,0.45)'); g.addColorStop(1, 'rgba(255,140,50,0)');
+  const ctx = cv.getContext('2d'); ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+const lampGlow = [];
+const LAMPS = []; // every street light placed in buildCity: tile position and rotation
+function addStreetLamps() {
+  const bulbMat = new THREE.MeshBasicMaterial({ color: '#ffc27a', transparent: true }); // warm sodium-ish glow
+  const poolMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  for (const { x, z, rotY } of LAMPS) {
+    // The lamp's arm reaches 0.207 tiles along its local -x; rotate that to find the bulb
+    const head = pos(x - 0.207 * Math.cos(rotY), z + 0.207 * Math.sin(rotY));
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), bulbMat);
+    bulb.position.copy(head).setY(0.55);
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(0.55, 24), poolMat);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.copy(head).setY(0.025);
+    scene.add(bulb, pool);
+    lampGlow.push(bulb, pool);
+  }
+  lampGlow.materials = [bulbMat, poolMat];
+}
+// Lit windows. Each wall triangle of a building is sampled at its texture color: Kenney glass is a
+// light sky blue, SimplePoly windows a flat dark grey (its walls are often blue, so one color rule
+// can't serve both). Window faces go into a second material group that glows at night; only ~60% of
+// panes are lit so it reads as occupied rooms, not a glowing facade.
+const windowMats = new Set();
+const texPixels = new Map();
+function pixelsOf(tex) {
+  if (!texPixels.has(tex)) {
+    const img = tex.image;
+    const cv = Object.assign(document.createElement('canvas'), { width: img.width, height: img.height });
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    texPixels.set(tex, { w: cv.width, h: cv.height, data: ctx.getImageData(0, 0, cv.width, cv.height).data });
+  }
+  return texPixels.get(tex);
+}
+const isGlass = {
+  kenney: (r, g, b) => b > 165 && b - r > 40,
+  simplepoly: (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) < 18 && (r + g + b) / 3 > 40 && (r + g + b) / 3 < 110,
+};
+const litCopies = new Map();
+function lightWindows(obj, pack) {
+  obj.traverse((m) => {
+    if (!m.isMesh || Array.isArray(m.material) || !m.material.map) return;
+    const g = m.geometry;
+    if (!g.userData.windowTris) { // split once per shared geometry: [wall..., lit window...]
+      const src = g.index ? g.toNonIndexed() : g;
+      const P = src.attributes.position, UV = src.attributes.uv, tris = P.count / 3;
+      const px = pixelsOf(m.material.map);
+      const [a, b, c, n] = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      const lit = [];
+      for (let t = 0; t < tris; t++) {
+        a.fromBufferAttribute(P, t * 3); b.fromBufferAttribute(P, t * 3 + 1); c.fromBufferAttribute(P, t * 3 + 2);
+        n.subVectors(c, b).cross(a.clone().sub(b)).normalize();
+        let on = false;
+        if (UV && Math.abs(n.y) < 0.3 && ((Math.floor(t / 2) * 2654435761) >>> 0) % 10 < 6) {
+          const u = (UV.getX(t * 3) + UV.getX(t * 3 + 1) + UV.getX(t * 3 + 2)) / 3;
+          const v = (UV.getY(t * 3) + UV.getY(t * 3 + 1) + UV.getY(t * 3 + 2)) / 3;
+          const x = Math.min(px.w - 1, Math.max(0, Math.floor((((u % 1) + 1) % 1) * px.w)));
+          const y = Math.min(px.h - 1, Math.max(0, Math.floor((((v % 1) + 1) % 1) * px.h)));
+          const o = (y * px.w + x) * 4;
+          on = isGlass[pack](px.data[o], px.data[o + 1], px.data[o + 2]);
+        }
+        lit.push(on);
+      }
+      const order = [...Array(tris).keys()].sort((x, y) => lit[x] - lit[y]);
+      const out = new THREE.BufferGeometry();
+      for (const name of Object.keys(src.attributes)) {
+        const at = src.attributes[name], k = at.itemSize, arr = new Float32Array(at.count * k);
+        order.forEach((t, i) => { for (let v = 0; v < 3; v++) for (let j = 0; j < k; j++) arr[(i * 3 + v) * k + j] = at.getComponent(t * 3 + v, j); });
+        out.setAttribute(name, new THREE.BufferAttribute(arr, k, at.normalized));
+      }
+      const walls = lit.filter((x) => !x).length;
+      out.addGroup(0, walls * 3, 0);
+      out.addGroup(walls * 3, (tris - walls) * 3, 1);
+      out.userData.windowTris = tris - walls;
+      g.userData.windowTris = out; // later clones of this model reuse the split
+    }
+    const split = g.userData.windowTris instanceof THREE.BufferGeometry ? g.userData.windowTris : g;
+    if (!split.userData.windowTris) return;
+    if (!litCopies.has(m.material)) {
+      const glow = m.material.clone();
+      glow.emissive = new THREE.Color('#ffc978');
+      glow.emissiveIntensity = 0;
+      windowMats.add(glow);
+      litCopies.set(m.material, glow);
+    }
+    m.geometry = split;
+    m.material = [m.material, litCopies.get(m.material)];
+  });
+}
+
+function setWeather(w, pinned = true) {
+  sky.weather = w;
+  if (pinned) sky.autoWeather = false;
+  document.querySelectorAll('[data-weather]').forEach((b) => b.classList.toggle('on', b.dataset.weather === (sky.autoWeather ? 'auto' : w)));
+  logFeed(`Weather: ${w}${sky.autoWeather ? ' (changing on its own)' : ''}.`);
+}
+
+function updateSky(dt) {
+  const now = new Date();
+  if (sky.live) sky.hour = now.getHours() + now.getMinutes() / 60;
+  else if (sky.fast) sky.hour = (sky.hour + dt * (24 / 120)) % 24; // a whole day in two minutes
+  if (sky.autoWeather && performance.now() > sky.nextWeatherAt) {
+    if (sky.nextWeatherAt) setWeather(['clear', 'clear', 'rain', 'storm', 'snow'][Math.floor(Math.random() * 5)], false);
+    sky.nextWeatherAt = performance.now() + 70000 + Math.random() * 80000;
+  }
+  const w = WEATHER[sky.weather];
+  sky.cloud += (w.cloud - sky.cloud) * Math.min(1, dt * 0.6);
+  sky.precip += ((w.kind ? 1 : 0) - sky.precip) * Math.min(1, dt * 0.5);
+
+  // Sun: rises at 6, sets at 18. `el` is its height (-1..1); twilight glows near the horizon.
+  const a = ((sky.hour - 6) / 12) * Math.PI, el = Math.sin(a);
+  const day = smooth(-0.12, 0.2, el), twilight = Math.max(0, 1 - Math.abs(el) / 0.28) * smooth(-0.3, 0, el);
+  sky.night = 1 - day;
+  const col = SKY.night.clone().lerp(SKY.day, day).lerp(SKY.dusk, twilight * 0.7);
+  col.lerp(SKY.overcastNight.clone().lerp(SKY.overcastDay, day), sky.cloud * 0.8);
+  if (sky.flash > 0) col.lerp(C('#e8eeff'), sky.flash);
+  scene.background.copy(col);
+
+  const up = Math.max(el, 0.18);
+  if (day > 0.02) sun.position.set(-Math.cos(a) * 14, up * 16, 6);
+  else sun.position.set(Math.cos(a) * 10, 12, -4); // moonlight from the other side
+  sun.color.copy(C('#fff4e0')).lerp(C('#ffb070'), twilight).lerp(C('#9fb3ff'), 1 - day);
+  sun.intensity = (0.6 + 1.6 * day) * (1 - 0.7 * sky.cloud) + sky.flash * 2;
+  hemi.intensity = (0.85 + 0.75 * day) * (1 - 0.3 * sky.cloud) + sky.flash * 1.5;
+  hemi.color.copy(C('#8494cc')).lerp(C('#ffffff'), day);
+  hemi.groundColor.copy(C('#34405a')).lerp(C(sky.weather === 'snow' ? '#dfe6ee' : '#8a9a7a'), day);
+
+  // Lightning in storms: a quick double flash every few seconds
+  if (sky.weather === 'storm' && performance.now() > sky.nextFlashAt) {
+    sky.flash = 1;
+    sky.nextFlashAt = performance.now() + 3500 + Math.random() * 6000;
+  }
+  sky.flash = Math.max(0, sky.flash - dt * 5);
+
+  // Night lights
+  const lit = smooth(0.35, 0.8, sky.night + sky.cloud * 0.25);
+  for (const m of lampGlow.materials ?? []) m.opacity = lit;
+  for (const g of lampGlow) g.visible = lit > 0.01;
+  for (const m of windowMats) m.emissiveIntensity = lit * 1.4;
+
+  // Precipitation: only a share of the drops fall, ramping with the weather
+  fallT += dt;
+  const kind = w.kind ?? (sky.precip > 0.02 ? (snow.visible ? 'snow' : 'rain') : null);
+  const count = Math.floor(DROPS * sky.precip * (sky.weather === 'storm' ? 1 : 0.6));
+  rain.visible = kind === 'rain' && count > 0;
+  snow.visible = kind === 'snow' && count > 0;
+  const span = VOLUME.z1 - VOLUME.z0;
+  for (let i = 0; i < count; i++) {
+    const [sx, sy, sz] = [dropSeed[i * 3], dropSeed[i * 3 + 1], dropSeed[i * 3 + 2]];
+    const x = (sx * 2 - 1) * VOLUME.x, z = VOLUME.z0 + sz * span;
+    if (rain.visible) {
+      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 9) % VOLUME.h);
+      dropPos.set([x, y, z, x - 0.04, y + 0.28, z - 0.02], i * 6);
+    } else if (snow.visible) {
+      const y = VOLUME.h - ((sy * VOLUME.h + fallT * 0.7) % VOLUME.h);
+      flakePos.set([x + Math.sin(fallT * 0.8 + sx * 20) * 0.15, y, z + Math.cos(fallT * 0.6 + sz * 20) * 0.15], i * 3);
+    }
+  }
+  rainGeo.setDrawRange(0, count * 2);
+  snowGeo.setDrawRange(0, count);
+  rainGeo.attributes.position.needsUpdate = snowGeo.attributes.position.needsUpdate = true;
+  rain.material.opacity = sky.weather === 'storm' ? 0.7 : 0.5;
+
+  const label = document.querySelector('#clock');
+  if (label) {
+    const h = Math.floor(sky.hour), m = Math.floor((sky.hour % 1) * 60);
+    label.textContent = `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}${sky.live ? ' · live' : sky.fast ? ' · ⏩' : ''}`;
+    const slider = document.querySelector('#time');
+    if (document.activeElement !== slider) slider.value = sky.hour;
+  }
+}
+
+function wireSkyControls() {
+  const slider = document.querySelector('#time');
+  slider.oninput = () => { sky.live = false; sky.fast = false; sky.hour = +slider.value; };
+  document.querySelector('#time-live').onclick = () => { sky.live = true; sky.fast = false; };
+  document.querySelector('#time-fast').onclick = () => { sky.live = false; sky.fast = !sky.fast; };
+  document.querySelectorAll('[data-weather]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.weather === 'auto') { sky.autoWeather = true; sky.nextWeatherAt = 1; setWeather(sky.weather, false); return; }
+      setWeather(b.dataset.weather);
+    };
+  });
+  const p = new URLSearchParams(location.search);
+  if (p.has('hour')) { sky.live = false; sky.hour = +p.get('hour'); }
+  if (p.has('weather')) { // start already in that weather instead of easing in
+    setWeather(p.get('weather'));
+    sky.cloud = WEATHER[sky.weather].cloud;
+    sky.precip = WEATHER[sky.weather].kind ? 1 : 0;
+  }
+}
+
 // ---- Boot ----------------------------------------------------------------------------------------
 
 const allModels = [
@@ -1157,6 +1402,9 @@ const allModels = [
 logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
+addStreetLamps();
+scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.building); });
+wireSkyControls();
 spawnFriends();
 renderResidents();
 logFeed('Town loaded. Residents are wandering (scripted, not agent-driven).');

@@ -40,6 +40,13 @@
       border-radius: 9px; padding: 7px 10px; text-align: left; cursor: pointer; }
     #triggers button:hover, .card button:hover { border-color: var(--accent); }
     #triggers .note { color: var(--muted); font-size: 11.5px; }
+    #triggers h2 + .sky-row { margin-top: -2px; }
+    .sky-row { display: flex; gap: 6px; align-items: center; }
+    .sky-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
+    #clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 88px; text-align: right; }
+    .sky-row button { flex: 1; }
+    .sky-row.weather button { padding: 4px 0; font-size: 15px; }
+    #triggers button.on { border-color: var(--accent); background: #eef3ff; }
 
     #cards { position: fixed; right: 16px; bottom: 16px; width: 320px; display: grid; gap: 10px; }
     .card { padding: 14px; border-left: 4px solid var(--accent); animation: pop 0.35s ease-out; position: static; }
@@ -96,6 +103,13 @@
     <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
     <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
     <button data-trigger="reset">↺ Reset town</button>
+    <h2>Time &amp; weather</h2>
+    <div class="sky-row"><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
+    <div class="sky-row"><button id="time-live">🕒 Live clock</button><button id="time-fast">⏩ Fast day</button></div>
+    <div class="sky-row weather">
+      <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
+      <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
+    </div>
     <div class="note">Character behavior here is scripted and random. No model is making decisions yet.</div>
   </section>
 
