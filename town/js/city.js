@@ -394,7 +394,7 @@ export function buildCity() {
     const phase = f.name.length;
     animated.add({ update() { pivot.rotation.y = Math.sin(performance.now() / 450 + phase) * 0.4; } });
     const at = pos(...h.house).setY(topOf[key(...h.house)] + 0.2);
-    h.name = `${f.name}'s house`;
+    h.name ||= `${f.name}'s house`; // a member can name their own house (town_members.home.name)
     const lbl = addLabel('lbl place home', h.name, () => at);
     lbl.el.style.background = f.color;
     lbl.el.style.color = inkOn(f.color);
@@ -448,8 +448,11 @@ export function buildCity() {
   // Street lights: one on each crossing, plus one mid-block on every other block face (skipping doorways)
   const lamp = (x, z, rotY) => { place(PROPS['street-light'], x, z, { scale: 1.8, rotY }); LAMPS.push({ x, z, rotY }); };
   for (const c of ROADS) for (const r of ROADS) lamp(c + 0.42, r + 0.42, -Math.PI / 4);
-  for (const i of [4, 8, 12]) for (const [k, road] of ROADS.entries()) { // middles of the blocks between roads
-    if ((i / 4 + k) % 2) continue;
+  // Middles of the blocks along each road: between neighbouring roads and the map's edges, always on the grid
+  const bounds = [-1, ...ROADS, N];
+  const blockMids = bounds.slice(1).map((b, j) => Math.floor((bounds[j] + b) / 2)).filter((i) => i >= 0 && i < N && !ROADS.includes(i));
+  for (const [j, i] of blockMids.entries()) for (const [k, road] of ROADS.entries()) {
+    if ((j + k) % 2) continue; // every other block face, alternating sides
     const side = k % 2 ? 1 : -1;
     if (!doors.has(key(road, i))) lamp(road + side * 0.44, i, side > 0 ? 0 : Math.PI); // along a north-south road
     if (!doors.has(key(i, road))) lamp(i, road + side * 0.44, side > 0 ? -Math.PI / 2 : Math.PI / 2); // along an east-west road

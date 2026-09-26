@@ -2,7 +2,7 @@
 // plus the account menu, settings (#/settings/<pane>) and help (#/help). Routes live in the URL hash
 // so the back button and links work.
 import { api, getSupabase } from '../shared/session.js';
-import { confirmDialog, getTheme, setTheme, toast } from './ui.js';
+import { confirmDialog, getTheme, promptDialog, setTheme, toast } from './ui.js';
 import * as Colors from '../shared/colors.js';
 import { createWheel } from './wheel.js';
 
@@ -857,6 +857,64 @@ const createTown = (() => {
     onChange: (n) => { $('#create-picked').textContent = n ? `(${n} picked)` : ''; },
   });
 
+  // Places: a toggle chip per supported place type and landmark (GET /towns/place-options), plus "other
+  // buildings" typed by name (the backend puts each on a random building, under the name as typed)
+  let options = null, chosen = new Set(), custom = [];
+  const customInput = $('#create-custom');
+  const isLandmark = (id) => options.landmarks.some((l) => l.id === id);
+  const placeCount = () => [...chosen].filter((id) => !isLandmark(id)).length + custom.length;
+
+  function renderPlaces() {
+    const full = placeCount() >= options.max_places;
+    const box = $('#create-places');
+    box.innerHTML = '';
+    for (const o of [...options.places, ...options.landmarks]) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'chip toggle', textContent: o.label });
+      const on = chosen.has(o.id);
+      b.setAttribute('aria-pressed', String(on));
+      b.disabled = !on && full && !isLandmark(o.id);
+      b.onclick = () => { if (on) chosen.delete(o.id); else chosen.add(o.id); renderPlaces(); };
+      box.append(b);
+    }
+    const cbox = $('#create-custom-box');
+    cbox.querySelectorAll('.chip').forEach((c) => c.remove());
+    custom.forEach((text, i) => {
+      const chip = Object.assign(document.createElement('span'), { className: 'chip', textContent: text });
+      const x = Object.assign(document.createElement('button'), { type: 'button', textContent: '×' });
+      x.setAttribute('aria-label', `Remove ${text}`);
+      x.onclick = () => { custom.splice(i, 1); renderPlaces(); customInput.focus(); };
+      chip.append(x);
+      cbox.insertBefore(chip, customInput);
+    });
+    customInput.disabled = full;
+    customInput.placeholder = custom.length ? '' : 'Hospital, arcade, fire station…';
+    const n = placeCount();
+    $('#create-places-count').textContent = n ? `(${n} picked)` : '';
+    $('#create-places-hint').textContent = full ? `That's the most one town can hold (${options.max_places}).` : '';
+  }
+
+  // Adds what's typed as an "other building". Returns false (and says why, keeping the text) if it can't.
+  function addCustom() {
+    const text = customInput.value.trim().slice(0, 40);
+    if (!text) return true;
+    const hint = $('#create-places-hint');
+    if (custom.some((c) => c.toLowerCase() === text.toLowerCase())) { customInput.value = ''; return true; } // already added
+    if (placeCount() >= options.max_places) {
+      hint.textContent = `"${text}" didn't fit: a town holds ${options.max_places} places. Unpick one to add it.`;
+      return false;
+    }
+    customInput.value = '';
+    custom.push(text);
+    renderPlaces();
+    return true;
+  }
+  customInput.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addCustom(); }
+    else if (e.key === 'Backspace' && !customInput.value && custom.length) { custom.pop(); renderPlaces(); }
+  };
+  customInput.onblur = addCustom;
+  $('#create-custom-box').onclick = (e) => { if (e.target.id === 'create-custom-box') customInput.focus(); };
+
   function update() {
     const text = prompt.value.trim();
     $('#create-prompt-hint').textContent = text
@@ -868,7 +926,15 @@ const createTown = (() => {
 
   async function open() {
     let friends = allFriends;
-    try { friends = await api('/friends'); } catch { /* use the list the home page already has */ }
+    try {
+      [friends, options] = await Promise.all([api('/friends'), options || api('/towns/place-options')]);
+    } catch (err) {
+      if (!options) return toast(err.message, 'error');
+    }
+    chosen = new Set();
+    custom = [];
+    customInput.value = '';
+    renderPlaces();
     prompt.value = '';
     $('#create-name').value = '';
     message($('#create-msg'), '');
@@ -881,7 +947,11 @@ const createTown = (() => {
   $('#create-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return; // Cancel closes the dialog as usual
     e.preventDefault();
-    const body = { prompt: prompt.value.trim(), name: $('#create-name').value.trim() || null, invite_user_ids: picker.picked() };
+    if (!addCustom()) return customInput.focus(); // a name still being typed counts; never drop it silently
+    const body = {
+      prompt: prompt.value.trim(), name: $('#create-name').value.trim() || null, invite_user_ids: picker.picked(),
+      places: [...chosen].filter((id) => !isLandmark(id)), landmarks: [...chosen].filter(isLandmark), custom_places: custom,
+    };
     dialog.close();
     let created = null;
     const picked = await identityDialog.open({
@@ -895,7 +965,8 @@ const createTown = (() => {
     await reloadMe();
     renderTowns();
     const invited = created.invited ? ` Invited ${created.invited} friend${created.invited === 1 ? '' : 's'}.` : '';
-    toast(`${created.name} is ready!${invited}`);
+    const built = Object.entries(created.map?.places || {}).filter(([id]) => id !== 'park' && id !== 'outerpark').map(([, p]) => p.name);
+    toast(`${created.name} is ready!${built.length ? ` Built with: ${built.join(', ')}.` : ''}${invited}`);
   };
 
   $('#create-town').onclick = open;
@@ -950,16 +1021,39 @@ const townsPane = (() => {
     fillList($('#settings-towns'), townsIn().map((m) => {
       const t = m.towns;
       const li = document.createElement('li');
-      li.innerHTML = '<div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small">Name &amp; color</button><button class="small danger">Leave</button></div>';
+      li.innerHTML = '<div class="avatar sm"></div><div class="who"><div class="name"></div><div class="handle"></div></div><div class="actions"><button class="small">Name &amp; color</button><button class="small">House name</button><button class="small danger">Leave</button></div>';
       paintAvatar(li.querySelector('.avatar'), { id: t.id }, t.name);
       li.querySelector('.name').textContent = t.name;
-      li.querySelector('.handle').append(townIdentityNote(m));
-      const [edit, leave] = li.querySelectorAll('button');
+      const handle = li.querySelector('.handle');
+      handle.append(townIdentityNote(m));
+      if (m.house_x != null) handle.append(` · 🏠 ${houseName(m)}`);
+      const [edit, house, leave] = li.querySelectorAll('button');
       edit.onclick = () => editIdentity(t);
+      house.hidden = m.house_x == null; // no house in this town yet
+      house.onclick = () => renameHouse(t, m);
       leave.onclick = () => privacy.leave(t);
       return li;
     }));
     $('#settings-no-towns').hidden = townsIn().length > 0;
+  }
+
+  const houseName = (m) => m.home?.name || `${m.name || me.display_name}'s house`;
+
+  async function renameHouse(t, m) {
+    const name = await promptDialog({
+      title: `Your house in ${t.name}`,
+      body: 'This is the label on your house in town. Leave it empty to go back to the default.',
+      label: 'House name', value: m.home?.name || '', placeholder: `${m.name || me.display_name}'s house`, maxLength: 40,
+    });
+    if (name === null) return;
+    try {
+      await api(`/towns/${t.id}/members/me/home`, { method: 'PATCH', body: { name: name || null } });
+    } catch (err) {
+      return toast(err.message, 'error');
+    }
+    await reloadMe();
+    load();
+    toast(name ? `Your house is now “${name}”.` : 'Your house is back to its default name.');
   }
 
   async function editIdentity(t) {

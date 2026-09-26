@@ -10,6 +10,8 @@ hold no matter what the model or the user prompt says:
 """
 
 import math
+import random
+import zlib
 
 from backend.towngen.catalog import BUILDINGS, HOUSES, MID, SMALL, STADIUM, TALL, TownPlan
 
@@ -28,19 +30,35 @@ def default_palettes(size: int) -> tuple[list[str], list[str]]:
 
 
 def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
+    # Seeded by the plan, so the same town always builds the same way, but choices look organic, not patterned
+    rng = random.Random(zlib.crc32(f"{plan.name}|{plan.theme}|{plan.size}".encode()))
     N = grid_size(plan.size)
     c = N // 2
     pr = 1 if N < 21 else 2  # central park radius: 3x3, or 5x5 on big grids
     # Roads at c +/- d: the first leaves one ring of buildings around the park, then one every block_width+1,
     # stopping while the outer suburb ring is still at least 2 tiles deep (room for 2x2 homes).
+    bw = max(plan.block_width, 3) if "stadium" in plan.landmarks else plan.block_width  # a stadium needs 3x3 blocks
     dists = [pr + 2]
-    while c - (dists[-1] + plan.block_width + 1) >= 2:
-        dists.append(dists[-1] + plan.block_width + 1)
+    while c - (dists[-1] + bw + 1) >= 2:
+        dists.append(dists[-1] + bw + 1)
     roads = sorted({c - d for d in dists} | {c + d for d in dists})
     edge = dists[-1]
 
     T = [["road" if x in roads or y in roads else "lot" for x in range(N)] for y in range(N)]
     inb = lambda x, y: 0 <= x < N and 0 <= y < N
+
+    def varied(options, x, y, weights=None):
+        """A random pick (optionally weighted) that differs from the four tiles around (x, y)."""
+        near = {T[y + dy][x + dx] for dx, dy in NEIGHBORS if inb(x + dx, y + dy)}
+        fresh = [(o, w) for o, w in zip(options, weights or [1] * len(options)) if o not in near] or list(zip(options, weights or [1] * len(options)))
+        return rng.choices([o for o, _ in fresh], [w for _, w in fresh])[0]
+
+    def spread(items, k):
+        """k items spread along `items` with jitter: even overall, never a regular rhythm."""
+        if not k:
+            return []
+        step = len(items) / k
+        return [items[min(len(items) - 1, int(i * step + rng.random() * step))] for i in range(k)]
     road = lambda x, y: inb(x, y) and T[y][x] == "road"
     outer = lambda x, y: max(abs(x - c), abs(y - c)) > edge
     core = lambda x, y: max(abs(x - c), abs(y - c)) < dists[0]
@@ -82,12 +100,33 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
         if not options:
             break
         s = min(options, key=lambda s: gap(angle(*centre_of(s)), target))
-        s["model"] = HOUSES[(k * 7) % len(HOUSES)]
+        s["model"] = rng.choice(HOUSES)
         slots.append(s)
         used |= tiles_of(s["block"])
     for s in slots:  # unclaimed plots show as garden until someone joins (routes/towns.py claim_home_slot)
         for x, y in tiles_of(s["block"]):
             T[y][x] = "garden"
+
+    # ---- Landmarks the plan asks for come before the optional outer park, so they always get room first
+    landmarks = {}
+    if "farm" in plan.landmarks:
+        spots = [(x0, y0) for y0 in range(N - 1) for x0 in range(N - 1)
+                 if all(free(x, y) and outer(x, y) for x in (x0, x0 + 1) for y in (y0, y0 + 1))]
+        if spots:
+            x0, y0 = max(spots, key=lambda p: abs(p[0] + 0.5 - c) + abs(p[1] + 0.5 - c))  # a corner
+            for x in (x0, x0 + 1):
+                for y in (y0, y0 + 1):
+                    T[y][x] = "farm"
+    if "stadium" in plan.landmarks:  # a whole 3x3 block: in the city's middle ring if there is one, else the suburbs
+        square = lambda x0, y0: [(x, y) for x in range(x0, x0 + 3) for y in range(y0, y0 + 3)]
+        middle = [(x0, y0) for y0 in range(N - 2) for x0 in range(N - 2)
+                  if all(free(x, y) and not outer(x, y) and not core(x, y) for x, y in square(x0, y0))]
+        suburb = [(x0, y0) for y0 in range(N - 2) for x0 in range(N - 2) if all(free(x, y) and outer(x, y) for x, y in square(x0, y0))]
+        spot = middle[len(middle) // 2] if middle else (max(suburb, key=lambda p: abs(p[0] + 1 - c) + abs(p[1] + 1 - c)) if suburb else None)
+        if spot:
+            for x, y in square(*spot):
+                T[y][x] = "stadium"
+            landmarks["stadium"] = {"model": STADIUM}
 
     # ---- Outer park: a symmetric 3x3 in the suburbs, as far from the homes as possible
     if plan.outer_park:
@@ -111,32 +150,14 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
                 T[y0 + j][x0 + i] = k
             places["outerpark"] = {"name": plan.outer_park_name, "tile": list(tile), "door": door}
 
-    # ---- Landmark
-    landmarks = {}
-    if plan.landmark == "farm":
-        spots = [(x0, y0) for y0 in range(N - 1) for x0 in range(N - 1)
-                 if all(free(x, y) and outer(x, y) for x in (x0, x0 + 1) for y in (y0, y0 + 1))]
-        if spots:
-            x0, y0 = max(spots, key=lambda p: abs(p[0] + 0.5 - c) + abs(p[1] + 0.5 - c))  # a corner
-            for x in (x0, x0 + 1):
-                for y in (y0, y0 + 1):
-                    T[y][x] = "farm"
-    elif plan.landmark == "stadium":
-        spots = [(x0, y0) for y0 in range(N - 2) for x0 in range(N - 2)
-                 if all(free(x, y) and not outer(x, y) and not core(x, y) for x in range(x0, x0 + 3) for y in range(y0, y0 + 3))]
-        if spots:
-            x0, y0 = spots[len(spots) // 2]
-            for x in range(x0, x0 + 3):
-                for y in range(y0, y0 + 3):
-                    T[y][x] = "stadium"
-            landmarks["stadium"] = {"model": STADIUM}
-
-    # ---- Named places on street-facing lots in the city, spread around it
+    # ---- Named places on street-facing lots in the city, spread around it (overflowing into the suburbs)
     inner_front = sorted([(x, y) for y in range(N) for x in range(N) if free(x, y) and not outer(x, y) and frontage(x, y)],
                          key=lambda t: angle(*t))
-    wanted = [p for p in plan.places if p.id not in places and p.model in BUILDINGS][: len(inner_front)]
-    for i, p in enumerate(wanted):
-        x, y = inner_front[round(i * len(inner_front) / len(wanted))]
+    wanted = [p for p in plan.places if p.id not in places and p.model in BUILDINGS]
+    # More places than city lots: the rest go on street-facing suburb lots, so every requested place is built
+    extra = sorted([(x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y) and frontage(x, y)], key=lambda t: angle(*t))
+    spots = spread(inner_front, min(len(wanted), len(inner_front))) + spread(extra, max(0, len(wanted) - len(inner_front)))
+    for p, (x, y) in zip(wanted, spots):
         T[y][x] = p.model
         places[p.id] = {"name": p.name, "model": p.model, "tile": [x, y], "door": road_next_to(x, y)}
 
@@ -144,26 +165,26 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
     core_pal, mid_pal = default_palettes(N)
     core_pal = [m for m in plan.core_models if m in BUILDINGS] or core_pal
     mid_pal = [m for m in plan.middle_models if m in BUILDINGS] or mid_pal
-    for i, (x, y) in enumerate((x, y) for y in range(N) for x in range(N) if free(x, y) and not outer(x, y) and frontage(x, y)):
-        pal = core_pal if max(abs(x - c), abs(y - c)) <= dists[0] + 1 else mid_pal
-        T[y][x] = pal[(i * 5 + x) % len(pal)]
+    for x, y in [(x, y) for y in range(N) for x in range(N) if free(x, y) and not outer(x, y) and frontage(x, y)]:
+        T[y][x] = varied(core_pal if max(abs(x - c), abs(y - c)) <= dists[0] + 1 else mid_pal, x, y)
     # (inner lots with no street stay "lot": the frontend makes them courtyards)
 
     # ---- Suburbs: a few background houses spread along the streets, decor everywhere else
     street = sorted([(x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y) and frontage(x, y)],
                     key=lambda t: angle(*t))
     k = round(min(0.35, max(0.0, plan.background_density)) * len(street))
-    pick = {street[round(i * len(street) / k)] for i in range(k)} if k else set()
+    pick = set(spread(street, k))
     homes = []
-    for i, (x, y) in enumerate(sorted(pick)):
-        T[y][x] = HOUSES[(i * 3 + 1) % len(HOUSES)]
+    for x, y in sorted(pick):
+        T[y][x] = varied(HOUSES, x, y)
         homes.append({"model": T[y][x], "house": [x, y]})
-    decor = plan.decor or ["garden"]
-    for i, (x, y) in enumerate(t for t in street if t not in pick):
-        T[y][x] = decor[i % len(decor)]
-    back = ["tree", "garden", "lot", "tree", "picnic"]
-    for i, (x, y) in enumerate((x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y)):
-        T[y][x] = back[i % len(back)]
+    # Street-side scenes: the plan's decor, plus trees, scattered at random (no two alike side by side)
+    decor = list(dict.fromkeys(plan.decor or ["garden"])) + ["tree", "oak"]
+    for x, y in sorted(t for t in street if t not in pick):
+        T[y][x] = varied(decor, x, y)
+    # Behind the street: mostly trees and gardens, with the odd bushy lot, picnic spot or big oak
+    for x, y in [(x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y)]:
+        T[y][x] = varied(["tree", "garden", "lot", "picnic", "oak"], x, y, weights=[4, 4, 2, 1, 1])
 
     town_map = {"places": places, "home_slots": slots, "background_homes": {"color": plan.background_color, "homes": homes}}
     if landmarks:

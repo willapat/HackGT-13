@@ -51,6 +51,7 @@ class Home(BaseModel):
     """town_members.home. The house tile itself is house_x/house_y."""
 
     model: str | None = Field(default=None, max_length=80)
+    name: str | None = Field(default=None, max_length=40)  # your own name for your house; default "<you>'s house"
     driveway: Tile | None = None
     door: Tile | None = None
     block: Annotated[list[int], Field(min_length=4, max_length=4)] | None = None  # x0, y0, x1, y1 inclusive
@@ -91,7 +92,27 @@ class TownGenerate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=60)  # None = the planner names it
     me: MemberIdentity
     invite_user_ids: list[UUID] = Field(default_factory=list, max_length=23)  # friends to invite as soon as it exists
+    places: list[str] = Field(default_factory=list, max_length=19)  # ids from GET /towns/place-options; [] = planner picks
+    custom_places: list[Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v), Field(min_length=1, max_length=40)]] = Field(
+        default_factory=list, max_length=8)  # anything else, by name ("Hospital"): placed on a random building
+    landmarks: list[Literal["farm", "stadium"]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _known_places(self):
+        from backend.towngen.catalog import MAX_PLACES, PLACE_TYPES
+        unknown = [p for p in self.places if p not in PLACE_TYPES]
+        if unknown:
+            raise ValueError(f"unknown place types: {unknown}")
+        self.places = list(dict.fromkeys(self.places))
+        self.custom_places = list(dict.fromkeys(self.custom_places))
+        if len(self.places) + len(self.custom_places) > MAX_PLACES:
+            raise ValueError(f"pick at most {MAX_PLACES} places")
+        return self
     preview: bool = False  # true = return the design without creating the town
+
+
+class HouseName(BaseModel):
+    name: str | None = Field(default=None, max_length=40)  # null or "" = back to "<you>'s house"
 
 
 class JoinTown(BaseModel):

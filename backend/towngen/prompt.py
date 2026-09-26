@@ -1,6 +1,6 @@
 import json
 
-from backend.towngen.catalog import MID, SMALL, TALL, TownPlan
+from backend.towngen.catalog import MID, PLACE_TYPES, SMALL, TALL, TownPlan
 
 TOWN_PLANNER_PROMPT = """You are the town planner for Tiny Town, a cozy 3D isometric city where every
 resident is one of the user's real friends. A user is creating a new town and has described what they
@@ -48,12 +48,19 @@ PLACES: 4-8 named destinations that AI characters (and friends) visit and meet a
     a library, super-market or fruits-shop for a market, ...).
   Places should give friends reasons to hang out in real life: cafés, gyms, libraries, markets, music
   venues, bakeries, arcades... Match the user's theme.
+  THE USER MAY HAVE PICKED THEIR PLACES. If "requested_places" or "custom_places" in the request is
+  non-empty, the user chose the town's places themselves: the engine adds exactly those, named plainly by
+  their type ("Library", "Gym") or by the user's own words ("Hospital"). Return "places": [] and don't add
+  others, but let the picks inform the theme and the rest of your design.
 
-LANDMARK: "none", "farm" (a windmill farm in a suburb corner, good for rural/cozy towns) or "stadium" (a
-big stadium in the city, good for sporty/big towns; needs block_width 3+ to fit).
+LANDMARKS: a list with any of "farm" (a windmill farm in a suburb corner, good for rural/cozy towns) and
+"stadium" (a big stadium in the city, good for sporty/big towns; needs block_width 3+ to fit), or [].
+If the request has "requested_landmarks", the engine uses exactly those.
 
 DECOR: which small scenes to scatter through the suburbs, any of "garden", "picnic", "plaza", "patio",
-"tree". Pick the ones that fit the vibe (e.g. leafy = garden, tree, picnic; lively = plaza, patio).
+"tree". Pick at least four so the suburbs feel varied and alive; lean toward what fits the vibe (leafy =
+garden, tree, picnic; lively = plaza, patio, picnic). The engine scatters them organically at random, never
+in rows or a repeating rhythm, and mixes in trees and big oaks, so a varied list looks natural.
 
 COLORS: background_color is the roof color of background houses: a muted, earthy hex color that doesn't
 compete with members' bright colors (e.g. "#b8b2a7", "#a9b4a0", "#c2b19a").
@@ -76,11 +83,15 @@ def planner_system_prompt() -> str:
     )
 
 
-def planner_user_message(user_prompt: str, grid_size: int, members: int, name: str | None) -> str:
+def planner_user_message(user_prompt: str, grid_size: int, members: int, name: str | None,
+                         places: list[str] = (), custom: list[str] = (), landmarks: list[str] = ()) -> str:
     return json.dumps({
         "user_description": user_prompt,
         "grid_size": grid_size,   # decided by the engine from the member count
         "members": members,
         "requested_name": name,   # null = invent a fitting name
+        "requested_places": [{"id": t, "kind": PLACE_TYPES[t][0]} for t in places],  # [] = you choose the places
+        "custom_places": list(custom),
+        "requested_landmarks": list(landmarks) if (places or custom or landmarks) else None,  # None = you choose
     })
 

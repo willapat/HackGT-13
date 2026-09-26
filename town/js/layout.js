@@ -65,7 +65,7 @@ export const FRIENDS = TILES ? TOWN.members.filter((m) => m.house_x != null && m
     return {
       id: m.user_id, name: m.name || m.profiles?.display_name || 'Friend', color: m.color || look.color || fallback.color,
       model: look.character || fallback.model, block: block(h.block[0], h.block[2], h.block[1], h.block[3]),
-      home: { model: h.model ? asset(h.model) : fallback.home.model, house: [m.house_x, m.house_y], c: h.driveway[0], r: h.driveway[1], door: h.door },
+      home: { model: h.model ? asset(h.model) : fallback.home.model, name: h.name, house: [m.house_x, m.house_y], c: h.driveway[0], r: h.driveway[1], door: h.door },
     };
   }) : DEMO_FRIENDS;
 // Background houses (towns.map.background_homes = {color, homes: [{model, house: [x, y]}]}): plain one-tile

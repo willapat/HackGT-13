@@ -267,3 +267,8 @@ ul.people li.pick:hover:not(.locked) { outline: 2px solid var(--accent); }
 ul.people li.pick input[type="checkbox"] { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--accent); pointer-events: none; }
 ul.people li.pick.locked { cursor: default; opacity: 0.6; }
 dialog ul.people.scroll { max-height: 240px; }
+
+/* ---- Toggle chips (pick places when creating a town) ---- */
+button.chip.toggle { border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; cursor: pointer; font-weight: 500; }
+button.chip.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.chip.toggle:disabled { opacity: 0.45; cursor: default; }

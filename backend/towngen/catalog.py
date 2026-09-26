@@ -24,6 +24,33 @@ HOUSES = [KS + f"building-type-{c}" for c in "abcdefghijklmnopqrstu"] + [
     SP + f"building-house-0{n}-color0{k}" for n in (1, 2, 3, 4) for k in (1, 2, 3)
 ]
 STADIUM = SP + "building-stadium"
+
+# Named places users can pick when creating a town: id -> (label, building model). The label is also the
+# place's name in town ("Library", "Gym").
+# Anything else a user asks for ("Hospital") becomes a custom place on a random building (towngen.add_custom_places).
+PLACE_TYPES = {
+    "cafe": ("Café", SP + "building-coffee-shop"),
+    "library": ("Library", SP + "building-books-shop"),
+    "gym": ("Gym", KC + "building-j"),
+    "market": ("Market", SP + "building-super-market"),
+    "bakery": ("Bakery", SP + "building-bakery"),
+    "pizza": ("Pizzeria", SP + "building-pizza"),
+    "restaurant": ("Restaurant", SP + "building-restaurant"),
+    "fastfood": ("Fast food", SP + "building-fast-food"),
+    "chicken": ("Chicken shop", SP + "building-chicken-shop"),
+    "bar": ("Bar", SP + "building-bar"),
+    "music": ("Music store", SP + "building-music-store"),
+    "clothing": ("Clothing store", SP + "building-clothing"),
+    "shoes": ("Shoe store", SP + "building-shoes-shop"),
+    "gifts": ("Gift shop", SP + "building-gift-shop"),
+    "pharmacy": ("Pharmacy", SP + "building-drug-store"),
+    "grocer": ("Fruit stand", SP + "building-fruits-shop"),
+    "gas": ("Gas station", SP + "building-gas-station"),
+    "garage": ("Auto shop", SP + "building-auto-service"),
+    "factory": ("Factory", SP + "building-factory"),
+}
+LANDMARKS = {"stadium": "Stadium", "farm": "Farm with a windmill"}
+MAX_PLACES = 12
 BUILDINGS = set(TALL) | set(MID) | set(SMALL)
 DECOR = ("garden", "picnic", "plaza", "patio", "tree")
 
@@ -44,12 +71,12 @@ class TownPlan(BaseModel):
     custom_style: bool = False            # user asked for a building style/height: keep the palettes when the town grows
     core_models: list[str] = Field(default_factory=list)    # buildings ringing the central park
     middle_models: list[str] = Field(default_factory=list)  # buildings in the blocks between core and suburbs
-    places: list[PlacePlan] = Field(default_factory=list, max_length=10)
+    places: list[PlacePlan] = Field(default_factory=list, max_length=MAX_PLACES)
     park_name: str = Field(default="Central Park", max_length=40)
     home_slots: int = 6                   # set by the engine: 2x2 home plots, one per member the size tier holds
     background_density: float = 0.25     # share of free suburb street tiles given a background house, <= 0.35
     background_color: str = Field(default="#b8b2a7", pattern=r"^#[0-9a-fA-F]{6}$")
     outer_park: bool = True
     outer_park_name: str = Field(default="Pocket Park", max_length=40)
-    landmark: Literal["none", "farm", "stadium"] = "none"
+    landmarks: list[Literal["farm", "stadium"]] = Field(default_factory=list)
     decor: list[Literal["garden", "picnic", "plaza", "patio", "tree"]] = Field(default_factory=lambda: list(DECOR))

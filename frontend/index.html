@@ -398,6 +398,15 @@
       <label>Town name <span class="hint">(optional: leave blank and the planner names it)</span>
         <input id="create-name" maxlength="60" autocomplete="off" placeholder="e.g. Tidepool" />
       </label>
+      <div class="field-label">Places in your town <span class="count" id="create-places-count"></span></div>
+      <p class="hint" style="margin:-4px 0 8px">Pick the places you want friends to hang out at. Pick none and the planner chooses for you.</p>
+      <div class="chips" id="create-places" role="group" aria-label="Places in your town"></div>
+      <label style="margin-top:10px">Other buildings <span class="hint">(anything else, by name: press Enter to add)</span>
+        <div class="chip-input" id="create-custom-box">
+          <input id="create-custom" maxlength="40" placeholder="Hospital, arcade, fire station…" autocomplete="off" />
+        </div>
+      </label>
+      <p class="hint" id="create-places-hint" style="margin:-6px 0 12px"></p>
       <div class="field-label">Invite friends <span class="count" id="create-picked"></span></div>
       <input class="filter" id="create-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
       <ul class="people scroll" id="create-friends"></ul>

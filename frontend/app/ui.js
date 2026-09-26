@@ -35,6 +35,34 @@ export function confirmDialog({ title, body = '', confirmLabel = 'OK', danger = 
   });
 }
 
+// A styled replacement for prompt(), on the same dialog. Resolves the (trimmed) text, or null if cancelled.
+export function promptDialog({ title, body = '', label, value = '', placeholder = '', maxLength = 40, confirmLabel = 'Save' }) {
+  const dialog = $('#dialog');
+  $('#dialog-title').textContent = title;
+  $('#dialog-body').textContent = body;
+  $('#dialog-body').hidden = !body;
+  const ok = $('#dialog-ok');
+  ok.textContent = confirmLabel;
+  ok.className = 'primary';
+  ok.disabled = false;
+  const input = $('#dialog-confirm-input');
+  $('#dialog-confirm-field').hidden = false;
+  $('#dialog-confirm-label').textContent = label;
+  Object.assign(input, { value, placeholder, maxLength });
+  input.oninput = null;
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); dialog.close('ok'); } }; // Enter saves (the form's first button is Cancel)
+  dialog.returnValue = '';
+  dialog.showModal();
+  input.select();
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => {
+      const text = input.value.trim();
+      Object.assign(input, { placeholder: '', maxLength: 524288, onkeydown: null }); // back to confirmDialog's defaults
+      resolve(dialog.returnValue === 'ok' ? text : null);
+    }, { once: true });
+  });
+}
+
 // Theme: 'system' | 'light' | 'dark', kept on this device. The page applies it before first paint too.
 const THEME_KEY = 'tt-theme';
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');

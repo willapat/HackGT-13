@@ -3,14 +3,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import current_user_id, require_member
-from backend.db import get_client, iso_in, now_iso
+from backend.db import get_client, iso_in, now_iso, writer
 from backend.identity import check_identity, suggest_color, town_identities
-from backend.models.api import EventCreate, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownGenerate, TownUpdate
+from backend.models.api import EventCreate, HouseName, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownGenerate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
 from backend.calendar_drive import destination_for, estimate_travel_minutes
 from backend.schedules import local_now
 from backend.town_map import buildings, house_building_id, in_bounds
 from backend.towngen import generate_town, grow, needs_to_grow
+from backend.towngen.catalog import LANDMARKS, MAX_PLACES, PLACE_TYPES
 from backend.routes.friends import are_friends
 
 router = APIRouter(prefix="/towns", tags=["towns"])
@@ -55,7 +56,8 @@ def generate(body: TownGenerate, uid: str = Depends(current_user_id)):
     strangers = [i for i in invitees if not are_friends(db, uid, i)]
     if strangers:  # checked before the (slow) generation so nothing is half-made
         raise HTTPException(status_code=422, detail="you can only invite your friends")
-    made = generate_town(body.prompt, members=1, name=body.name)
+    made = generate_town(body.prompt, members=1, name=body.name, places=body.places, custom=body.custom_places,
+                         landmarks=body.landmarks)
     if body.preview:
         return made
     town = db.table("towns").insert(
@@ -68,12 +70,23 @@ def generate(body: TownGenerate, uid: str = Depends(current_user_id)):
     return {**load_town(db, town["id"]), "plan": made["plan"], "plan_source": made["plan_source"], "invited": len(invitees)}
 
 
+@router.get("/place-options")
+def place_options(uid: str = Depends(current_user_id)):
+    """What the create-town form can offer: named place types, landmarks, and how many places a town can have.
+    Anything not listed can be requested by name as a custom place."""
+    return {
+        "places": [{"id": pid, "label": label} for pid, (label, _) in PLACE_TYPES.items()],
+        "landmarks": [{"id": lid, "label": label} for lid, label in LANDMARKS.items()],
+        "max_places": MAX_PLACES,
+    }
+
+
 def slot_cells(slot: dict) -> list[tuple[int, int]]:
     b = slot["block"]
     return [(x, y) for x in range(b[0], b[2] + 1) for y in range(b[1], b[3] + 1)]
 
 
-def claim_home_slot(db, town: dict, uid: str) -> None:
+def claim_home_slot(db, town: dict, uid: str, house_name: str | None = None) -> None:
     """Give uid the first free 2x2 home plot in towns.map.home_slots (generated towns). No-op for towns without
     plots, or when every plot is taken (they still get a character, just no house)."""
     slots = (town.get("map") or {}).get("home_slots") or []
@@ -91,10 +104,12 @@ def claim_home_slot(db, town: dict, uid: str) -> None:
     tiles[slot["driveway"][1]][slot["driveway"][0]] = "driveway"
     tiles[slot["house"][1]][slot["house"][0]] = "home"
     home = {k: slot[k] for k in ("model", "driveway", "door", "block")}
+    if house_name:
+        home["name"] = house_name
     db.table("towns").update({"tiles": tiles}).eq("id", town["id"]).execute()
     db.table("town_members").update({"house_x": slot["house"][0], "house_y": slot["house"][1], "home": home,
                                      "updated_at": now_iso()}).eq("town_id", town["id"]).eq("user_id", uid).execute()
-    db.table("agents").update({"x": slot["door"][0], "y": slot["door"][1]}).eq("town_id", town["id"]).eq("user_id", uid).execute()
+    db.table("agents").update({"x": slot["door"][0], "y": slot["door"][1], "written_by": writer("home")}).eq("town_id", town["id"]).eq("user_id", uid).execute()
 
 
 def free_home_slot(db, town: dict, house: tuple) -> None:
@@ -126,14 +141,14 @@ def regrow_town(db, town: dict) -> None:
     """The town outgrew its size tier: rebuild it bigger from its saved plan, then re-house everyone in join
     order. Place ids stay the same, so plans and events that point at them keep working."""
     tid = town["id"]
-    members = db.table("town_members").select("user_id").eq("town_id", tid).order("joined_at").execute().data or []
+    members = db.table("town_members").select("user_id, home").eq("town_id", tid).order("joined_at").execute().data or []
     tiles, town_map = grow(town, len(members))
     db.table("towns").update({"tiles": tiles, "map": town_map}).eq("id", tid).execute()
     db.table("town_members").update({"house_x": None, "house_y": None, "home": {}, "updated_at": now_iso()}).eq("town_id", tid).execute()
-    db.table("agents").update({"action": AgentAction.idle.value, "target": None, "updated_at": now_iso()}).eq("town_id", tid).execute()
+    db.table("agents").update({"action": AgentAction.idle.value, "target": None, "updated_at": now_iso(), "written_by": writer("regrow")}).eq("town_id", tid).execute()
     grown = load_town(db, tid)
     for m in members:
-        claim_home_slot(db, grown, m["user_id"])  # sets house, home and puts their character at their door
+        claim_home_slot(db, grown, m["user_id"], (m["home"] or {}).get("name"))  # house, home (keeping its name), door
 
 
 def town_by_code(db, code: str) -> dict:
@@ -178,6 +193,25 @@ def town_identity_options(town_id: UUID, uid: str = Depends(current_user_id)):
     if not invited:
         require_member(db, tid, uid)
     return identities_view(db, load_town(db, tid), uid)
+
+
+@router.patch("/{town_id}/members/me/home")
+def name_my_house(town_id: UUID, body: HouseName, uid: str = Depends(current_user_id)):
+    """Name your house in this town (shown on its label). null or "" goes back to "<your name>'s house"."""
+    db, tid = get_client(), str(town_id)
+    mine = require_member(db, tid, uid)
+    if mine.get("house_x") is None:
+        raise HTTPException(status_code=409, detail="you don't have a house in this town yet")
+    home = dict(mine.get("home") or {})
+    name = (body.name or "").strip()
+    if name:
+        home["name"] = name
+    else:
+        home.pop("name", None)
+    return (
+        db.table("town_members").update({"home": home, "updated_at": now_iso()})
+        .eq("town_id", tid).eq("user_id", uid).execute().data[0]
+    )
 
 
 @router.patch("/{town_id}/members/me/identity")
@@ -241,7 +275,7 @@ def place_house(town_id: UUID, body: HouseUpdate, uid: str = Depends(current_use
         db.table("town_members").update(change)
         .eq("town_id", tid).eq("user_id", uid).execute().data[0]
     )
-    db.table("agents").update({"x": body.house_x, "y": body.house_y, "updated_at": now_iso()}).eq("town_id", tid).eq(
+    db.table("agents").update({"x": body.house_x, "y": body.house_y, "updated_at": now_iso(), "written_by": writer("house")}).eq("town_id", tid).eq(
         "user_id", uid
     ).execute()
     return row
@@ -273,7 +307,7 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
     row = (
         db.table("agents").update(
             {"x": body.from_x, "y": body.from_y, "action": action, "target": target,
-             "next_decision_at": iso_in(USER_MOVE_HOLD_SECONDS), "updated_at": now_iso()}
+             "next_decision_at": iso_in(USER_MOVE_HOLD_SECONDS), "updated_at": now_iso(), "written_by": writer("move")}
         ).eq("town_id", tid).eq("user_id", uid).execute().data
     )
     db.table("agent_actions").insert(
