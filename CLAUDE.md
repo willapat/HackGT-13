@@ -28,7 +28,7 @@ When choosing between features, pick whichever does more for real-world connecti
 - **Humans approve anything that leaves the town.** Agents never send messages as the user in real channels.
 - **Fixed action menu.** New actions get added to the menu deliberately.
 - **Pitch honestly.** Only call something an "agent" if a model is actually making decisions.
-- **LLM output never hits Postgres raw.** Brain and agents go through `backend/agent/validate.py` (Brain also `backend/brain/visibility.py`). Those loops are the only writers to `brain_runs`, town-member AI fields (`mood`/`activity`/`state`), `agents.action`/`target`, and `agent_actions`.
+- **LLM output never hits Postgres raw.** Brain and agents go through `backend/agent/validate.py` (Brain also `backend/brain/visibility.py`). Those loops are the only writers to `brain_runs`, town-member AI fields (`mood`/`activity`/`state`), `agents.action`/`target`, and `agent_actions`. The one exception is a person moving their own character via `POST /towns/{id}/members/me/move` (validated, marked `target.by = "user"`).
 - **`brain_runs` is readable by every town member.** Store only signal/member ids in `input` and only fully visible facts in `output`.
 
 ## Tech Stack
@@ -43,7 +43,7 @@ Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more onl
 
 **Tables**
 - `profiles`: one per user, auto-created on signup. Unique `username` (how people find each other; set via `PATCH /me`), avatar (JSON of asset keys) and `interests` (text array).
-- `towns`: name, `invite_code`, and `tiles`, a 2D JSON array of asset manifest keys indexed `tiles[y][x]` (e.g. `[["grass","road"],["cafe","grass"]]`). Buildings are just tiles.
+- `towns`: name, `invite_code`, and `tiles`, the town map: a 2D JSON array of asset manifest keys indexed `tiles[y][x]`. Keys: terrain (`road`, `park`, `tree`), filler buildings (`skyscraper-a`, `commercial-f`, `house-k`), and named places (`library`, `gym`, `cafe`, `market`, `park`, `downtown`; a place's tile is its location, see `backend/town_map.py`). Road pieces, facing and doors are derived from the grid, not stored. `python3 -m backend.seed_demo_map` writes the frontend's hard-coded city into `DEMO_TOWN_ID`.
 - `town_members`: who's in which town, their house position, and what the town hall AI currently shows for them (`mood`, `activity`, `state` JSON).
 - `friendships`: in-town agent relationship, one row per pair (`user_a < user_b`) with `path_score`. Not the same as account friends.
 - `signals`: raw inputs from users (`source` = manual, calendar, music, ...).
@@ -58,9 +58,9 @@ Hackathon-simple on purpose: 12 tables (10 core + friends/invites), add more onl
 Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reverts them (and the `claim_due_agents` / `towns_with_unprocessed_signals` functions, now done in Python in `backend/db.py`). Where the old concepts live now: facts → `brain_runs.output.facts` (id `<run_id>:<i>`), news → `events` with `type = 'news'`, conversations → `agent_actions.details.lines`, consent → posting a signal, per-person visibility → `signals.value.visibility` (`full`/`vague`/`hidden`). No gift inventory.
 
 **Conventions**
-- **Assets are not in the database.** Files live in the frontend with a code manifest; the DB stores manifest keys only. Building ids used by agents (`gym`, `cafe`, `house:{user_id}`) match the `PLACES` keys in `frontend/main.js`.
+- **Assets are not in the database.** Files live in the frontend with a code manifest; the DB stores manifest keys only. Building ids (`gym`, `cafe`, `house:{user_id}`) come from the town's `tiles` + members' `house_x/house_y` (`town_map.buildings`) and match the `PLACES` keys in `frontend/main.js`.
 - **Agents act on the town hall AI's output**, not on raw signals.
-- **Live movement is client-side.** `agents` rows update only when an agent decides, not per frame.
+- **Live movement is client-side.** `agents` rows update only when someone decides to move, not per frame. A move stores the start (`agents.x/y`), start time (`updated_at`) and `target {building_id, x, y}`; every client animates the same path from that, so late viewers can place a walker mid-route. Requires identical map, pathfinding and walk speed on all clients.
 - **Access:** the backend uses the secret key (bypasses RLS) for all AI/agent writes. The frontend (publishable key) can read everything in towns it belongs to, edit its own profile, add its own signals, and accept/decline its own events. Join a town with `supabase.rpc('join_town', { code })`; creating a town auto-adds the creator. Keys live in `.env` (gitignored); see `.env.example`.
 - Realtime is on for `town_members`, `agents`, `agent_actions`, `events`, `event_participants`.
 - The agent action menu is the `agent_action` enum; adding an action means a migration.
@@ -71,7 +71,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - `GET /users/search?username=` (exact match), `GET /friends`, `DELETE /friends/{user_id}`, `GET/POST /friends/requests`, `POST /friends/requests/{id}/respond` (requesting someone who already asked you accepts)
 - `GET/POST /towns/{id}/invites` (POST: creator only, friends only), `POST /invites/{id}/respond`
 - `POST/GET /signals` (own only; `value.visibility` optional)
-- `POST /towns`, `POST /towns/join {invite_code}`, `GET/PATCH /towns/{id}` (snapshot: town, members+profiles, agents; PATCH creator only), `PATCH/DELETE /towns/{id}/members/me` (place house / leave), `GET/POST /towns/{id}/events` (list with participants / propose a quest), `GET /towns/{id}/activity` (agent_actions)
+- `POST /towns`, `POST /towns/join {invite_code}`, `GET/PATCH /towns/{id}` (snapshot: town, members+profiles, agents; PATCH creator only), `PATCH/DELETE /towns/{id}/members/me` (place house / leave), `POST /towns/{id}/members/me/move {building_id, from_x, from_y}` (walk your character; pauses its AI for 10 min), `GET/POST /towns/{id}/events` (list with participants / propose a quest), `GET /towns/{id}/activity` (agent_actions)
 - `GET /events/{id}`, `POST /events/{id}/respond {status}`, `POST /events/{id}/approve`
 
 ## Demo Plan
@@ -93,6 +93,8 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Decisions Log
 
+- 2026-09-26: Town map lives in `towns.tiles` (no migration). Users can walk their own character to a building; clients animate from start point + time. Frontend still draws the hard-coded map; it should build from `tiles` (snapshot now returns `tiles`, agent `x`/`y`, member houses).
+- 2026-09-26: Known gap: `backend/seed_demo_map.py` still mirrors the old 12x12 city (roads 2/6/10, old friend house tiles). The frontend now draws a 17x17 town (roads 2/6/10/14, friend houses on their own outer blocks, `FRIENDS[].home.house`). Places kept their tiles, so building-id routing works; grid coordinates (house_x/y, agent x/y) need the seed updated before the frontend builds from `tiles`.
 - 2026-09-26: Day/night + weather in `frontend/main.js` (`sky`, `updateSky`): time follows the real local clock (slider, "Fast day", `?hour=`), weather clear/rain/storm/snow drifts on its own (buttons, `?weather=`). At night street lamps glow warm and ~60% of windows light up; windows are found per wall triangle by texture color (Kenney glass = light blue, SimplePoly = flat dark grey). Browser pinch-zoom is blocked so only the camera zooms.
 - 2026-09-26: Town is 17x17 (roads 2/6/10/14) around a central park with a pond, plus a winding river with bridges in a green belt in front. Outer ring of blocks is suburbs (2-3 houses a block); inner blocks zone by distance (Kenney skyscrapers only in the core, SimplePoly stretched at most 2x). Buildings only on road-facing lots, facing the road; suburb houses take every block corner first and sit flush to the street(s) (`seat()`); tiles with greenery are grass. Each friend owns an outer block: house with its roof in their color (`paintRoof()`) set back on a driveway, colored car/fence/mailbox/flag, "Name's house" label. Friend colors avoid scenery colors (no green/blue/grey/brown). Stadium fills a 3x3 block.
 - 2026-09-26: Town rebuilt on SimplePoly roads/greenery; buildings mix SimplePoly and Kenney City Kit Commercial/Suburban, interleaved per zone (Kenney roads kit removed). Same 12x12 grid, roads and `PLACES`. Place models: library = books shop, gym = auto service, cafe = coffee shop, market = super market. Buildings are zoned by distance from the (6,6) crossroad (`ZONES` in `main.js`): Kenney skyscrapers + SimplePoly towers stretched up to 3x in the core, then mid-rises, shops, houses at the edge. Jordan and Sam live in apartment towers.

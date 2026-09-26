@@ -3,11 +3,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import current_user_id, require_member
-from backend.db import get_client, now_iso
-from backend.models.api import EventCreate, HouseUpdate, JoinTown, TownCreate, TownUpdate
-from backend.models.enums import EventStatus, EventType, ParticipantStatus
+from backend.db import get_client, iso_in, now_iso
+from backend.models.api import EventCreate, HouseUpdate, JoinTown, MoveIn, TownCreate, TownUpdate
+from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
+from backend.town_map import buildings, house_building_id, in_bounds
 
 router = APIRouter(prefix="/towns", tags=["towns"])
+
+# After a person picks a destination, their AI character leaves them alone this long.
+USER_MOVE_HOLD_SECONDS = 600
 
 
 def load_town(db, town_id: str) -> dict:
@@ -79,6 +83,37 @@ def place_house(town_id: UUID, body: HouseUpdate, uid: str = Depends(current_use
         "user_id", uid
     ).execute()
     return row
+
+
+@router.post("/{town_id}/members/me/move")
+def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
+    """Walk your character to a building. Everyone sees it via the agents row (realtime / snapshot):
+    clients animate from (x, y) starting at updated_at, so late viewers can place you mid-walk."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    tiles = load_town(db, tid)["tiles"]
+    if not in_bounds(tiles, body.from_x, body.from_y):
+        raise HTTPException(status_code=422, detail="from_x/from_y is outside the town map")
+    members = db.table("town_members").select("user_id, house_x, house_y").eq("town_id", tid).execute().data or []
+    dest = next((b for b in buildings(tiles, members) if b["id"] == body.building_id), None)
+    if dest is None:
+        raise HTTPException(status_code=422, detail="no such building in this town")
+    if dest["x"] is None:
+        raise HTTPException(status_code=409, detail="that building has no position yet (no map, or house not placed)")
+    home = body.building_id == house_building_id(uid)
+    action = AgentAction.go_home.value if home else AgentAction.walk_to.value
+    target = {"building_id": dest["id"], "x": dest["x"], "y": dest["y"], "by": "user"}
+    row = (
+        db.table("agents").update(
+            {"x": body.from_x, "y": body.from_y, "action": action, "target": target,
+             "next_decision_at": iso_in(USER_MOVE_HOLD_SECONDS), "updated_at": now_iso()}
+        ).eq("town_id", tid).eq("user_id", uid).execute().data
+    )
+    db.table("agent_actions").insert(
+        {"town_id": tid, "user_id": uid, "action": action,
+         "details": {"by": "user", "target_building_id": dest["id"], "from": [body.from_x, body.from_y]}}
+    ).execute()
+    return row[0]
 
 
 @router.delete("/{town_id}/members/me", status_code=204)

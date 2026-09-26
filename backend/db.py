@@ -7,17 +7,6 @@ from supabase import Client, create_client
 
 from backend.config import settings
 
-# Manifest keys the frontend already uses. DB stores these ids, not asset files.
-TOWN_BUILDINGS = [
-    {"id": "library", "type": "library"},
-    {"id": "gym", "type": "gym"},
-    {"id": "cafe", "type": "cafe"},
-    {"id": "market", "type": "market"},
-    {"id": "park", "type": "park"},
-    {"id": "downtown", "type": "square"},
-]
-
-
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -35,15 +24,6 @@ def get_client() -> Client:
     if not settings.SUPABASE_URL or not settings.SUPABASE_SECRET_KEY:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY must be set")
     return create_client(settings.SUPABASE_URL, settings.SUPABASE_SECRET_KEY)
-
-
-def house_building_id(user_id: str) -> str:
-    return f"house:{user_id}"
-
-
-def buildings_for_town(member_user_ids: list[str]) -> list[dict]:
-    houses = [{"id": house_building_id(uid), "type": "house"} for uid in member_user_ids]
-    return [*TOWN_BUILDINGS, *houses]
 
 
 def last_brain_run_at(db, town_id: str) -> str | None:
