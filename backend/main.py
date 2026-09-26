@@ -34,6 +34,10 @@ for module in (me, signals, towns, events, demo):
     app.include_router(module.router)
 
 
+# Newer FastAPI router include can drop GET when POST is also registered on the same path.
+app.add_api_route("/demo/trigger/{scenario}", demo.trigger_demo, methods=["GET"])
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

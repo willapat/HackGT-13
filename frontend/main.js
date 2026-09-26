@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { startTownBackend } from './realtime.js';
 
 const N = 12;
 const ROADS = [2, 6, 10];
@@ -276,6 +277,7 @@ function spawnFriends() {
     const lbl = addLabel('lbl friend', def.name, () => obj.position.clone().setY(0.52));
     lbl.el.style.background = def.color;
     lbl.el.onclick = () => focusFriend(f.id);
+    f.label = lbl;
     friends[f.id] = f;
   });
 }
@@ -577,10 +579,16 @@ async function trigger(name) {
   }
 }
 
+function renameFriend(f, name) {
+  f.name = name;
+  f.label.el.textContent = name;
+}
+
 function resetTown() {
   for (const k of Object.keys(effects)) { effects[k].destroy(); delete effects[k]; }
   $('#cards').innerHTML = '';
   for (const f of Object.values(friends)) {
+    renameFriend(f, FRIENDS.find((d) => d.id === f.id).name);
     f.status = 'Just vibing';
     eventOwned.delete(f.id);
     f.obj.visible = true;
@@ -659,13 +667,14 @@ function renderResidents() {
 
 const clock = new THREE.Clock();
 const v = new THREE.Vector3();
+const townApi = { liveMode: false };
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   const now = performance.now();
   for (const f of Object.values(friends)) {
     stepFriend(f, dt);
     f.mixer.update(dt);
-    if (!f.busy && !f.path.length && now > f.nextThink) think(f);
+    if (!townApi.liveMode && !f.busy && !f.path.length && now > f.nextThink) think(f);
   }
   for (const fx of animated) fx.update(dt);
 
@@ -707,10 +716,15 @@ await loadAll(allModels);
 buildCity();
 spawnFriends();
 renderResidents();
-logFeed('Town loaded. Residents are wandering (scripted, not agent-driven).');
-document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => trigger(b.dataset.trigger); });
+logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
+Object.assign(townApi, {
+  friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend, renderResidents,
+  PLACES, FRIENDS, effects, trigger, liveMode: false,
+});
+const { triggerViaBackend } = startTownBackend(townApi);
+document.querySelectorAll('[data-trigger]').forEach((b) => { b.onclick = () => triggerViaBackend(b.dataset.trigger); });
 const params = new URLSearchParams(location.search);
 if (friends[params.get('follow')]) startFollow(friends[params.get('follow')]);
 const auto = params.get('auto');
-auto?.split(',').forEach((t, i) => setTimeout(() => trigger(t), 1500 + i * 2500));
+auto?.split(',').forEach((t, i) => setTimeout(() => triggerViaBackend(t), 1500 + i * 2500));
 frame();

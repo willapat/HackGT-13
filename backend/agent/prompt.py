@@ -14,7 +14,7 @@ HARD RULES:
   omitted.
 - target_building_id must be one of the ids listed under available_buildings,
   or omitted.
-- fact_ids must only reference facts given to you below.
+- fact_ids must only reference ids of facts or active events given to you below.
 - If nothing meaningful to do, choose "idle" or "go_home"; that is a normal,
   good answer. Do not force an interaction that isn't supported by a fact.
 - Respond with ONLY a single JSON object matching the schema. No prose.

@@ -18,8 +18,8 @@ When choosing between features, pick whichever does more for real-world connecti
 
 ## Architecture
 
-1. **Town brain**: `backend/loops/brain_loop.py` finds towns with signals newer than their last `brain_runs` row (`db.towns_with_unprocessed_signals`), then `run_brain_for_town` calls Gemini Flash. Output is Pydantic-validated and visibility-filtered, then written to `town_members` (mood/activity/state), `events` (news + quests) and `brain_runs.output` (facts).
-2. **Character agents**: `agent_loop` claims due `agents` rows (`db.claim_due_agents`, conditional update) and Gemini Flash-Lite picks from the fixed `agent_action` menu. A character's location is `agents.target.building_id`. Chat bubbles go in `agent_actions.details.lines`. Failures become `idle`.
+1. **Town brain**: `backend/loops/brain_loop.py` finds towns with signals newer than their last `brain_runs` row (`db.towns_with_unprocessed_signals`), then `run_brain_for_town` calls Gemini Flash via OpenRouter. Output is Pydantic-validated and visibility-filtered, then written to `town_members` (mood/activity/state), `events` (news + quests) and `brain_runs.output` (facts).
+2. **Character agents**: `agent_loop` claims due `agents` rows (`db.claim_due_agents`, conditional update) and Gemini Flash-Lite (OpenRouter) picks from the fixed `agent_action` menu. A character's location is `agents.target.building_id`. Chat bubbles go in `agent_actions.details.lines`. Failures become `idle`.
 3. **Plan drafting (stub, no model yet)**: when every participant accepts, `events.status` goes `suggested` → `scheduled` and `GET /events/{id}` includes a drafted `plan`. A participant approves it via `POST /events/{id}/approve` → `confirmed`. The draft is recomputed on read; persisting it needs a migration.
 
 ## Hard Rules
@@ -34,7 +34,7 @@ When choosing between features, pick whichever does more for real-world connecti
 ## Tech Stack
 
 - Rendering: Three.js with an orthographic camera + Kenney 3D kits (city buildings, roads, trees, characters), which read as isometric. Code in `frontend/`. (2D Phaser prototype was tried and dropped.)
-- Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), Google Gemini (`google-genai`). Town Brain + action agent: `gemini-2.5-flash`. Character agents: `gemini-2.5-flash-lite`. Two asyncio loops; no Redis/Celery.
+- Backend: Python 3.11+ / FastAPI, `supabase-py` (secret key), OpenRouter (`httpx` to `/api/v1/chat/completions`). `GEMINI_MODEL_KEY` is an OpenRouter key. Town Brain: `google/gemini-2.5-flash`. Character agents: `google/gemini-2.5-flash-lite`. Two asyncio loops; no Redis/Celery.
 - Database: Supabase (Postgres + Auth + Realtime).
 
 ## Database
@@ -72,7 +72,7 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 
 ## Demo Plan
 
-`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. The 3D frontend is not wired to it yet (the 2D Phaser version was); its buttons run the scripted `trigger()` in `frontend/main.js`. Demo town members must be named Maya, Jordan, Sam, Priya, Leo; set `DEMO_TOWN_ID`.
+`POST /demo/trigger/{goodNews|climbing|roughWeek}` inserts real `signals` only. Brain + agents produce the visible town. The 3D frontend (`frontend/realtime.js`) POSTs that endpoint with a 3s timeout, then falls back to scripted `trigger()` in `frontend/main.js`. Live state is polled from `GET /demo/snapshot` (no Supabase login required). Set `DEMO_TOWN_ID`; any members work. The backend casts them into the five 3D character slots (`maya`/`jordan`/`sam`/`priya`/`leo`). A matching display name wins; otherwise slots fill in join order, reusing members if there are fewer than five. Snapshot and trigger return `characters` (user_id → slot), and the frontend relabels those characters with real names and hides unused ones. The scripted fallback still uses the original five.
 
 ## Status
 
@@ -85,10 +85,13 @@ Migrations `20260926000000`-`000003` added 10 more tables; `20260926000004` reve
 - [x] Character agent loop + action menu
 - [x] Quest respond + approval flow
 - [x] Plan drafting (stub calendar/places, no model)
-- [x] Demo signal triggers + frontend Realtime + scripted fallback
+- [x] Demo signal triggers + 3D frontend live poll (`/demo/snapshot`) + scripted fallback
 
 ## Decisions Log
 
+- 2026-09-26: The demo no longer requires specific member names. Scenario targets are cast from whoever is in the demo town (`backend/routes/demo.py` `cast_roles`). Agents may cite active event ids as grounding, not just brain facts.
+
+- 2026-09-26: LLM calls go through OpenRouter (`GEMINI_MODEL_KEY` is an OpenRouter key). Default models `google/gemini-2.5-flash` and `google/gemini-2.5-flash-lite`. 3D demo buttons hit `POST /demo/trigger` and poll `GET /demo/snapshot`.
 - 2026-09-26: Switched LLM calls from Anthropic to Gemini (`GEMINI_MODEL_KEY`, `google-genai`). Brain/action: `gemini-2.5-flash`; character agents: `gemini-2.5-flash-lite`.
 - 2026-09-26: Dropped the 2D Phaser prototype (and its backend/realtime wiring); going with 3D. The realtime integration needs porting to `frontend/`.
 - 2026-09-25: `frontend/` 3D prototype (Three.js vendored in `lib/` via import map, orthographic camera, Kenney City Kit Commercial/Suburban/Roads + Mini Characters with walk/idle animations, MapControls for mouse + touch). Friends walk the streets (N/S/E/W only), stand on sidewalks at buildings, and can be followed with a third-person camera (click a person or `?follow=<id>`). `?auto=goodNews,climbing,roughWeek` plays the demo signals. Behavior is scripted, not agent-driven.

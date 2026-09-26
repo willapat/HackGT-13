@@ -10,10 +10,11 @@ class Settings(BaseSettings):
     SUPABASE_PUBLISHABLE_KEY: str = ""
     SUPABASE_SECRET_KEY: str = ""
     SUPABASE_DB_URL: str = ""
+    # OpenRouter key (sk-or-v1-...), used as Bearer token. Name kept from the Gemini switch.
     GEMINI_MODEL_KEY: str = ""
-    BRAIN_MODEL: str = "gemini-2.5-flash"
-    AGENT_MODEL: str = "gemini-2.5-flash-lite"
-    ACTION_AGENT_MODEL: str = "gemini-2.5-flash"
+    BRAIN_MODEL: str = "google/gemini-2.5-flash"
+    AGENT_MODEL: str = "google/gemini-2.5-flash-lite"
+    ACTION_AGENT_MODEL: str = "google/gemini-2.5-flash"
     BRAIN_LOOP_INTERVAL_SECONDS: float = 10
     AGENT_LOOP_INTERVAL_SECONDS: float = 2
     DEMO_TOWN_ID: str = ""

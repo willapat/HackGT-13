@@ -1,27 +1,50 @@
-from functools import lru_cache
+"""LLM calls go through OpenRouter's OpenAI-compatible API.
+
+`GEMINI_MODEL_KEY` is an OpenRouter key (`sk-or-v1-...`), not a Google AI Studio key.
+Model ids are OpenRouter slugs (e.g. `google/gemini-2.5-flash`). Bare `gemini-*` names
+are prefixed with `google/` so older .env values still work.
+"""
+
+import httpx
 
 from backend.config import settings
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-@lru_cache
-def _client():
-    from google import genai
 
-    return genai.Client(api_key=settings.GEMINI_MODEL_KEY)
+def _openrouter_model(model: str) -> str:
+    if "/" in model:
+        return model
+    if model.startswith("gemini"):
+        return f"google/{model}"
+    if model.startswith("claude"):
+        return f"anthropic/{model}"
+    return model
 
 
 def complete(model: str, system: str, user: str, max_tokens: int) -> str:
     if not settings.GEMINI_MODEL_KEY:
-        raise RuntimeError("GEMINI_MODEL_KEY is not set")
-    from google.genai import types
-
-    resp = _client().models.generate_content(
-        model=model,
-        contents=user,
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            max_output_tokens=max_tokens,
-            temperature=0.4,
-        ),
-    )
-    return (resp.text or "").strip()
+        raise RuntimeError("GEMINI_MODEL_KEY is not set (OpenRouter API key)")
+    payload = {
+        "model": _openrouter_model(model),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.4,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.GEMINI_MODEL_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://tinytown.local",
+        "X-Title": "Tiny Town",
+    }
+    with httpx.Client(timeout=90.0) as client:
+        resp = client.post(OPENROUTER_URL, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    try:
+        return (data["choices"][0]["message"]["content"] or "").strip()
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"unexpected OpenRouter response: {data!r}") from exc
