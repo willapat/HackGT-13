@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +10,7 @@ from backend.models.api import EventCreate, HouseName, HouseUpdate, IdentityUpda
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
 from backend.routes.me import plan_town_handoff
 from backend.calendar_drive import destination_for, estimate_travel_minutes
-from backend.schedules import local_now
+from backend.schedules import TOWN_TZ, local_now
 from backend.town_map import buildings, house_building_id, in_bounds
 from backend.towngen import generate_town, grow, needs_to_grow
 from backend.towngen.catalog import LANDMARKS, MAX_PLACES, PLACE_TYPES
@@ -110,7 +111,18 @@ def claim_home_slot(db, town: dict, uid: str, house_name: str | None = None) -> 
     db.table("towns").update({"tiles": tiles}).eq("id", town["id"]).execute()
     db.table("town_members").update({"house_x": slot["house"][0], "house_y": slot["house"][1], "home": home,
                                      "updated_at": now_iso()}).eq("town_id", town["id"]).eq("user_id", uid).execute()
-    db.table("agents").update({"x": slot["door"][0], "y": slot["door"][1], "written_by": writer("home")}).eq("town_id", town["id"]).eq("user_id", uid).execute()
+    park_at_home(db, town["id"], uid, slot["house"], slot["door"], "home")
+
+
+def park_at_home(db, town_id: str, uid: str, house: list, door: list, source: str) -> None:
+    """Stand uid's character idle on their own front door. Follows the DB's placement rules (agents_follow_calendar):
+    an idle row names its building and stands on that building's door, so town_members.home must be written first.
+    ponytail: towns with a town_clock row also need target.clock_at matching the calendar; no generated town has one."""
+    db.table("agents").update({
+        "action": AgentAction.idle.value, "x": door[0], "y": door[1],
+        "target": {"building_id": house_building_id(uid), "x": house[0], "y": house[1], "door": door},
+        "updated_at": now_iso(), "written_by": writer(source),
+    }).eq("town_id", town_id).eq("user_id", uid).execute()
 
 
 def free_home_slot(db, town: dict, house: tuple) -> None:
@@ -146,7 +158,8 @@ def regrow_town(db, town: dict) -> None:
     tiles, town_map = grow(town, len(members))
     db.table("towns").update({"tiles": tiles, "map": town_map}).eq("id", tid).execute()
     db.table("town_members").update({"house_x": None, "house_y": None, "home": {}, "updated_at": now_iso()}).eq("town_id", tid).execute()
-    db.table("agents").update({"action": AgentAction.idle.value, "target": None, "updated_at": now_iso(), "written_by": writer("regrow")}).eq("town_id", tid).execute()
+    # Characters are re-placed one by one below (each claim parks them on their new door); a bulk "reset" row with
+    # no building would break the placement rules.
     grown = load_town(db, tid)
     for m in members:
         claim_home_slot(db, grown, m["user_id"], (m["home"] or {}).get("name"))  # house, home (keeping its name), door
@@ -276,9 +289,9 @@ def place_house(town_id: UUID, body: HouseUpdate, uid: str = Depends(current_use
         db.table("town_members").update(change)
         .eq("town_id", tid).eq("user_id", uid).execute().data[0]
     )
-    db.table("agents").update({"x": body.house_x, "y": body.house_y, "updated_at": now_iso(), "written_by": writer("house")}).eq("town_id", tid).eq(
-        "user_id", uid
-    ).execute()
+    door = (row.get("home") or {}).get("door")
+    if door:  # without a door there's nowhere valid to stand them; they stay where they are
+        park_at_home(db, tid, uid, [body.house_x, body.house_y], door, "house")
     return row
 
 
@@ -313,7 +326,8 @@ def move_me(town_id: UUID, body: MoveIn, uid: str = Depends(current_user_id)):
     )
     db.table("agent_actions").insert(
         {"town_id": tid, "user_id": uid, "action": action,
-         "details": {"by": "user", "target_building_id": dest["id"], "from": [body.from_x, body.from_y]}}
+         "details": {"by": "user", "target_building_id": dest["id"], "from": [body.from_x, body.from_y]},
+         "written_by": writer("move")}
     ).execute()
     return row[0]
 
@@ -388,6 +402,24 @@ def propose_event(town_id: UUID, body: EventCreate, uid: str = Depends(current_u
     participants = [{"event_id": event["id"], "user_id": u, "status": ParticipantStatus.accepted.value} for u in [uid, *others]]
     db.table("event_participants").insert(participants).execute()
     return {**event, "event_participants": [{"user_id": p["user_id"], "status": p["status"]} for p in participants]}
+
+
+@router.get("/{town_id}/buildings/{building_id}/visits")
+def building_visits(town_id: UUID, building_id: str, uid: str = Depends(current_user_id)):
+    """Who headed to this building today (town time, from the activity log): each person's latest trip, newest first.
+    The 3D town adds who's there now and who's on the way from what it's drawing."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    midnight = datetime.now(TOWN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = (
+        db.table("agent_actions").select("user_id, action, created_at").eq("town_id", tid)
+        .filter("details->>target_building_id", "eq", building_id).gte("created_at", midnight.isoformat())
+        .order("created_at", desc=True).limit(300).execute().data or []
+    )
+    latest = {}
+    for r in rows:
+        latest.setdefault(r["user_id"], r)
+    return [{"user_id": u, "action": r["action"], "at": r["created_at"]} for u, r in latest.items()]
 
 
 @router.get("/{town_id}/activity")

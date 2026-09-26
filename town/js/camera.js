@@ -1,6 +1,7 @@
 // Camera focus and follow mode: auto-pan to a spot, click a person to follow them in third person.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { clickable } from './city.js';
 import { $, logFeed } from './hud.js';
 import { friends } from './people.js';
 import { camera, controls, renderer } from './stage.js';
@@ -69,7 +70,11 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   raycaster.setFromCamera(ndc, activeCam);
   const targets = Object.values(friends).filter((f) => f.obj.visible).map((f) => f.obj);
   const hit = raycaster.intersectObjects(targets, true).find((h) => h.object.userData.friendId);
-  if (hit) focusFriend(hit.object.userData.friendId);
+  if (hit) return focusFriend(hit.object.userData.friendId);
+  // Otherwise a named building (a place or a friend's house) opens its card (buildings.js)
+  for (let o = raycaster.intersectObjects(clickable, true)[0]?.object; o; o = o.parent) {
+    if (o.userData.buildingId) return dispatchEvent(new CustomEvent('town:building', { detail: o.userData.buildingId }));
+  }
 });
 addEventListener('keydown', (e) => { if (e.key === 'Escape') stopFollow(); });
 

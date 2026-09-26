@@ -52,6 +52,9 @@ function addOccluder(root) {
   root.traverse((m) => { m.userData.occluderRoot = root; });
 }
 export const topOf = {}; // building roof height by tile, for labels/effects
+// Named buildings you can click (places and friends' houses): their roots carry userData.buildingId
+export const clickable = [];
+const openBuilding = (id) => dispatchEvent(new CustomEvent('town:building', { detail: id })); // handled in buildings.js
 
 // Give a placed model its own materials, tinted toward `color` (textures multiply by it)
 function tint(obj, color, amount) {
@@ -173,6 +176,7 @@ function blockFence(f) {
 
 export function buildCity() {
   const reserved = new Map();
+  const placeIdAt = new Map(Object.entries(PLACES).filter(([, p]) => p.model).map(([id, p]) => [key(p.c, p.r), id]));
   const doorOf = new Map(); // named places face the road their door is on
   for (const p of Object.values(PLACES)) if (p.model) { reserved.set(key(p.c, p.r), p.model); doorOf.set(key(p.c, p.r), p.door); }
   for (const [c, r, model] of EXTRA_MODELS) reserved.set(key(c, r), model);
@@ -304,6 +308,8 @@ export function buildCity() {
           const home = paintRoof(place(h.model, c, r, { ...(h.model.startsWith(SP) ? { scale: 0.92 } : { fit: 0.8 }), rotY: facing }), friend.color);
           topOf[key(c, r)] = topOf[key(h.c, h.r)] = new THREE.Box3().setFromObject(home).max.y;
           addOccluder(home);
+          home.userData.buildingId = `house:${friend.id}`;
+          clickable.push(home);
 
         } else if (h.c === c && h.r === r) {
           const [dc, dr] = [h.c - h.house[0], h.r - h.house[1]];
@@ -344,6 +350,7 @@ export function buildCity() {
       const isSP = model.startsWith(SP);
       const b = place(model, c, r, { ...(isSP ? { scale: 0.92, height } : { fit: 0.86 }), rotY });
       if (BG_ROOFS.has(key(c, r))) paintRoof(b, BG_COLOR);
+      if (placeIdAt.has(key(c, r))) { b.userData.buildingId = placeIdAt.get(key(c, r)); clickable.push(b); }
       b.userData.building = isSP ? 'simplepoly' : 'kenney';
       addOccluder(b);
       if (suburb) { // flush to the street it faces, and to the cross street on a corner
@@ -396,6 +403,7 @@ export function buildCity() {
     const at = pos(...h.house).setY(topOf[key(...h.house)] + 0.2);
     h.name ||= `${f.name}'s house`; // a member can name their own house (town_members.home.name)
     const lbl = addLabel('lbl place home', h.name, () => at);
+    lbl.el.onclick = () => openBuilding(`house:${f.id}`);
     lbl.el.style.background = f.color;
     lbl.el.style.color = inkOn(f.color);
     f.homeLabel = lbl;
@@ -493,10 +501,11 @@ export function buildCity() {
   place(STREET.barrel_02_medium_red, rw + 0.38, 3.05, { scale: METER });
   }
 
-  for (const p of Object.values(PLACES)) {
+  for (const [id, p] of Object.entries(PLACES)) {
     if (!p.model) continue;
     const at = pos(p.c, p.r).setY(topOf[key(p.c, p.r)] + 0.15);
     p.label = addLabel('lbl place', p.name, () => at);
+    p.label.el.onclick = () => openBuilding(id);
   }
 }
 

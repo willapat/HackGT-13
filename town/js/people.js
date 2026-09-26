@@ -215,6 +215,7 @@ function placeAlongWalk(f) {
 }
 
 export function placeAgent(f, row) {
+  f.destId = row.target?.building_id || `house:${f.id}`; // for the building card: who's here / on the way
   const dest = destinationOf(row) || f.home;
   const walking = WALKING.has(row.action) && dest && row.target?.depart_at;
   interrupt(f);

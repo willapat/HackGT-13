@@ -211,5 +211,8 @@ def snap_town_to_clock(db, town_id: str, now: datetime) -> list[dict]:
         if xy is not None:
             change["x"], change["y"] = xy
         db.table("agents").update({**change, "written_by": writer("calendar")}).eq("town_id", town_id).eq("user_id", uid).execute()
+        # Logged like any other move, so the building card's "earlier today" includes calendar trips
+        db.table("agent_actions").insert({"town_id": town_id, "user_id": uid, "action": action, "written_by": writer("calendar"),
+                                          "details": {"by": "calendar", "target_building_id": dest, "reasoning": reason}}).execute()
         moved.append({"user_id": uid, "action": action, "target": target, "reason": reason})
     return moved

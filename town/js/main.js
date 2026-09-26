@@ -13,6 +13,7 @@ import { EXTRA_MODELS, FRIENDS, PLACES, STADIUM, TOWN, TOWN_ID, townApi } from '
 import { loadAll } from './models.js';
 import { updateOcclusion } from './occlusion.js';
 import { renderResidents, renderSchedules } from './panels.js';
+import './buildings.js'; // the building card (click a place's or house's name)
 import { friends, placeAgent, say, spawnFriends, stepFriend, think, walkTo } from './people.js';
 import { addStreetLamps, applyTownTime, lightWindows, patchWeather, updateSky, wireSkyControls } from './sky.js';
 import { animated, renderer, scene } from './stage.js';

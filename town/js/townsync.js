@@ -5,32 +5,14 @@ import { api } from '../../frontend/shared/session.js';
 
 const POLL_MS = 2000; // ponytail: polling; switch to Supabase Realtime on `agents` if 2s lag or load matters
 
-// What the page built the city and residents from. The scene is built once at load, so when this changes
-// (a friend moves in and claims a plot, the town regrows, someone renames their house or changes their name
-// or color) the page reloads to rebuild it. Moves, moods and chats are applied live without a reload.
-const layoutKey = (d) => JSON.stringify([
-  d.town?.tiles,
-  (d.members || []).filter((m) => m.house_x != null)
-    .map((m) => [m.user_id, m.house_x, m.house_y, m.home?.name ?? null, m.name ?? null, m.color ?? null])
-    .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
-]);
-const backendUrl = () => window.LUMA_BACKEND || 'http://127.0.0.1:8000';
-
 export function startTownSync(townId, initial, t) {
   const applied = {}; // user_id -> agents.updated_at already drawn
   const moodFx = {}; // user_id -> { kind, fx }
   let lastActionId = null;
 
-  const builtFrom = layoutKey(initial);
-  let reloading = false;
-
+  // The city and residents are built once, when you open the town; a friend moving in or the town regrowing shows
+  // up next time you enter it. Moves, moods, chats and house names below update live.
   function applyTown(data) {
-    if (!reloading && layoutKey(data) !== builtFrom) {
-      reloading = true;
-      t.logFeed('The town changed (someone moved in or it grew): refreshing…');
-      setTimeout(() => location.reload(), 1200);
-      return;
-    }
     for (const row of data.agents || []) {
       const f = t.friends[row.user_id];
       if (!f || applied[row.user_id] === row.updated_at) continue;
@@ -46,6 +28,11 @@ export function startTownSync(townId, initial, t) {
     for (const m of data.members || []) {
       const f = t.friends[m.user_id];
       if (!f) continue;
+      const houseName = m.home?.name || `${f.name}'s house`; // someone renamed their house: relabel it for everyone
+      if (f.home && f.home.name !== houseName) {
+        f.home.name = houseName;
+        if (f.homeLabel) f.homeLabel.el.textContent = houseName;
+      }
       const status = m.activity || m.mood;
       if (status && f.status !== status) t.setStatus(f.id, status);
       const kind = m.mood === 'sunny' || m.mood === 'rainbow' ? 'party' : m.mood === 'rainy' || m.mood === 'stormy' ? 'rain' : null;

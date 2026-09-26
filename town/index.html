@@ -57,8 +57,21 @@
     <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
   </section>
 
+  <section id="building" class="panel" hidden aria-live="polite">
+    <button class="close" id="bld-close" aria-label="Close">×</button>
+    <div class="kind" id="bld-kind"></div>
+    <div class="title" id="bld-name"></div>
+    <form id="bld-rename" hidden>
+      <input id="bld-rename-input" maxlength="40" placeholder="Name your house" aria-label="House name" />
+      <button type="submit">Rename</button>
+    </form>
+    <h2>Here now</h2><ul class="who" id="bld-here"></ul>
+    <h2>On the way</h2><ul class="who" id="bld-coming"></ul>
+    <h2>Earlier today</h2><ul class="who" id="bld-earlier"></ul>
+  </section>
+
   <div id="cards"></div>
-  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow</div>
+  <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow · click a building's name for who's there</div>
 
   <div id="labels"></div>
   <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>

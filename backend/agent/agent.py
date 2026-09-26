@@ -50,12 +50,14 @@ def _event_is_now(event: dict, now: datetime) -> bool:
 
 
 def write_idle(db, town_id: str, user_id: str, reason: str) -> None:
-    # Leave updated_at alone so a failed model call doesn't restart the walk the calendar just started.
+    # Don't move or re-target them: the placement rules reject an idle row that isn't on its building's door, and
+    # a failed model call shouldn't restart the walk the calendar started. Just look again later.
     db.table("agents").update(
-        {"action": AgentAction.idle.value, "next_decision_at": jittered_next_decision(), "written_by": writer("agent")}
+        {"next_decision_at": jittered_next_decision(), "written_by": writer("agent")}
     ).eq("town_id", town_id).eq("user_id", user_id).execute()
     db.table("agent_actions").insert(
-        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": reason}}
+        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": reason},
+         "written_by": writer("agent")}
     ).execute()
 
 
@@ -183,7 +185,7 @@ def commit_decision(
     if lines:
         details["lines"] = lines
     db.table("agent_actions").insert(
-        {"town_id": town_id, "user_id": user_id, "action": decision.action, "details": details}
+        {"town_id": town_id, "user_id": user_id, "action": decision.action, "details": details, "written_by": writer("agent")}
     ).execute()
 
     if decision.action in SOCIAL_ACTIONS and decision.target_user_id:
@@ -212,7 +214,8 @@ def _stay_home(db, town_id: str, user_id: str, ctx: AgentDecisionInput, me: dict
         change["x"], change["y"] = door
     db.table("agents").update({**change, "written_by": writer("agent")}).eq("town_id", town_id).eq("user_id", user_id).execute()
     db.table("agent_actions").insert(
-        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": decision.reason}}
+        {"town_id": town_id, "user_id": user_id, "action": AgentAction.idle.value, "details": {"reasoning": decision.reason},
+         "written_by": writer("agent")}
     ).execute()
     return decision
 

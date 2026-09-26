@@ -614,6 +614,18 @@ function townCard(t) {
   body.append(row, el('div', 'headline', t.headline || (size ? `${size} ${size === 1 ? 'resident' : 'residents'}` : 'Tap to look around')));
   const enter = el('div', 'enter');
   enter.append('Enter town', el('span', '', '→'));
+  const town = townsIn().find((m) => m.towns.id === t.id)?.towns;
+  if (town?.created_by === me.id) { // only a town's creator can invite. Not a <button>: the whole card is one
+    const invite = el('span', 'invite-plus'); // the + is drawn in CSS so it's exactly centered
+    invite.setAttribute('role', 'button');
+    invite.setAttribute('aria-label', `Invite friends to ${t.name}`);
+    invite.title = 'Invite friends';
+    invite.tabIndex = 0;
+    const go = (e) => { e.stopPropagation(); e.preventDefault(); inviteFriends.open(town); };
+    invite.onclick = go;
+    invite.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); };
+    banner.append(invite);
+  }
   body.append(enter);
   b.append(banner, body);
   b.onclick = () => enterTown(t.id);
