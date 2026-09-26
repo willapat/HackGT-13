@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from postgrest.exceptions import APIError
 
 from backend.auth import current_user_id
 from backend.db import get_client
@@ -30,7 +31,12 @@ def update_me(body: ProfileUpdate, uid: str = Depends(current_user_id)):
         changes["interests"] = list(dict.fromkeys(i.strip().lower() for i in changes["interests"] if i.strip()))
     if not changes:
         raise HTTPException(status_code=422, detail="nothing to update")
-    rows = get_client().table("profiles").update(changes).eq("id", uid).execute().data
+    try:
+        rows = get_client().table("profiles").update(changes).eq("id", uid).execute().data
+    except APIError as e:
+        if e.code == "23505":  # unique_violation: only the username column is unique here
+            raise HTTPException(status_code=409, detail="username is taken")
+        raise
     if not rows:
         raise HTTPException(status_code=404, detail="profile not found")
     return rows[0]

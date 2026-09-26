@@ -1,12 +1,18 @@
 """Request bodies for the REST API. Responses are the Supabase rows as-is."""
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
+
+# Matches the profiles.username check constraint; input is trimmed and lowercased first.
+Username = Annotated[
+    str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v), Field(pattern=r"^[a-z0-9_]{3,20}$")
+]
 
 
 class ProfileUpdate(BaseModel):
+    username: Username | None = None
     display_name: str | None = Field(default=None, min_length=1, max_length=50)
     avatar: dict | None = None  # asset manifest keys
     interests: list[str] | None = Field(default=None, max_length=30)
@@ -43,5 +49,15 @@ class EventCreate(BaseModel):
     participant_ids: list[UUID] = Field(min_length=1, max_length=10)  # townmates to invite, besides you
 
 
-class EventRespond(BaseModel):
+class Respond(BaseModel):
+    """Answer to an event, friend request, or town invite."""
+
     status: Literal["accepted", "declined"]
+
+
+class FriendRequestIn(BaseModel):
+    username: Username
+
+
+class TownInviteIn(BaseModel):
+    user_id: UUID  # must already be your friend

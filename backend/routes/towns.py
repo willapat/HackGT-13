@@ -10,7 +10,7 @@ from backend.models.enums import EventStatus, EventType, ParticipantStatus
 router = APIRouter(prefix="/towns", tags=["towns"])
 
 
-def _town(db, town_id: str) -> dict:
+def load_town(db, town_id: str) -> dict:
     rows = db.table("towns").select("*").eq("id", town_id).limit(1).execute().data
     if not rows:
         raise HTTPException(status_code=404, detail="town not found")
@@ -47,7 +47,7 @@ def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
         .eq("town_id", tid).order("joined_at").execute().data or []
     )
     agents = db.table("agents").select("*").eq("town_id", tid).execute().data or []
-    return {"town": _town(db, tid), "members": members, "agents": agents}
+    return {"town": load_town(db, tid), "members": members, "agents": agents}
 
 
 @router.patch("/{town_id}")
@@ -55,7 +55,7 @@ def update_town(town_id: UUID, body: TownUpdate, uid: str = Depends(current_user
     """Rename the town or replace its tile map. Creator only."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    if _town(db, tid)["created_by"] != uid:
+    if load_town(db, tid)["created_by"] != uid:
         raise HTTPException(status_code=403, detail="only the town's creator can edit it")
     changes = body.model_dump(exclude_none=True)
     if not changes:
@@ -68,7 +68,7 @@ def place_house(town_id: UUID, body: HouseUpdate, uid: str = Depends(current_use
     """Put your house on a tile. Your character moves there too."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    tiles = _town(db, tid)["tiles"]
+    tiles = load_town(db, tid)["tiles"]
     if tiles and not (body.house_y < len(tiles) and body.house_x < len(tiles[body.house_y])):
         raise HTTPException(status_code=422, detail="house is outside the town map")
     row = (
