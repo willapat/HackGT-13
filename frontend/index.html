@@ -112,7 +112,8 @@
             <div class="section">
               <h3>Your towns</h3>
               <ul class="people" id="towns"></ul>
-              <p class="empty" id="no-towns">None yet. When a friend invites you to their town, it shows up here.</p>
+              <p class="empty" id="no-towns">None yet. Create one, or join a friend's town when they invite you.</p>
+              <button class="primary full" id="create-town" style="margin-top:12px">+ Create a town</button>
             </div>
             <div class="section" id="invites-section" hidden>
               <h3>Town invites <span class="badge" id="invite-count"></span></h3>
@@ -385,6 +386,46 @@
       </div>
     </form>
   </dialog>
+  <!-- Create a town: describe it and pick friends to invite; then the identity dialog, then it's generated -->
+  <dialog id="create-dialog" class="wide-dialog">
+    <form method="dialog" id="create-form" novalidate>
+      <h2>Create a town</h2>
+      <p>Describe the town you'd like and the town planner will build it for you. It starts small and grows as friends move in.</p>
+      <label>What should it be like?
+        <textarea id="create-prompt" rows="4" maxlength="1000" placeholder="A cozy seaside village with a climbing gym, a bakery and lots of trees"></textarea>
+        <span class="hint" id="create-prompt-hint"></span>
+      </label>
+      <label>Town name <span class="hint">(optional: leave blank and the planner names it)</span>
+        <input id="create-name" maxlength="60" autocomplete="off" placeholder="e.g. Tidepool" />
+      </label>
+      <div class="field-label">Invite friends <span class="count" id="create-picked"></span></div>
+      <input class="filter" id="create-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
+      <ul class="people scroll" id="create-friends"></ul>
+      <p class="empty" id="create-no-friends">No friends yet. You can still create a town and invite people later.</p>
+      <p class="msg" id="create-msg" hidden></p>
+      <div class="actions-row">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="create-next">Next</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Invite friends to a town you created -->
+  <dialog id="invite-dialog" class="wide-dialog">
+    <form method="dialog" id="invite-form" novalidate>
+      <h2 id="invite-title"></h2>
+      <p>They'll see the invite on their home page and pick their name and color when they join.</p>
+      <input class="filter" id="invite-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
+      <ul class="people scroll" id="invite-friends"></ul>
+      <p class="empty" id="invite-no-friends">No friends yet. Add some from your home page first.</p>
+      <p class="msg" id="invite-msg" hidden></p>
+      <div class="actions-row">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="ok" class="primary" id="invite-ok" disabled>Send invites</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="identity-dialog" class="wide-dialog">
     <form method="dialog" id="identity-form" novalidate>
       <h2 id="identity-title"></h2>

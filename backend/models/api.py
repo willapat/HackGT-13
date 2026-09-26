@@ -84,6 +84,16 @@ class TownUpdate(BaseModel):
     map: TownMap | None = None
 
 
+class TownGenerate(BaseModel):
+    """Describe a town and Gemini designs it (backend/towngen). The town rules always apply."""
+
+    prompt: str = Field(min_length=1, max_length=1000)  # e.g. "a cozy seaside village with a climbing gym"
+    name: str | None = Field(default=None, min_length=1, max_length=60)  # None = the planner names it
+    me: MemberIdentity
+    invite_user_ids: list[UUID] = Field(default_factory=list, max_length=23)  # friends to invite as soon as it exists
+    preview: bool = False  # true = return the design without creating the town
+
+
 class JoinTown(BaseModel):
     invite_code: str = Field(min_length=1, max_length=20)
     me: MemberIdentity

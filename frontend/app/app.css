@@ -87,11 +87,12 @@ a { color: var(--accent); }
 h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 
 label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
-input, select {
+input, select, textarea {
   font: inherit; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--panel); color: var(--ink);
 }
-input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+textarea { resize: vertical; min-height: 84px; line-height: 1.4; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 input:disabled { background: var(--soft); color: var(--muted); }
 .at-field { position: relative; }
 .at-field span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
@@ -258,3 +259,11 @@ dialog p { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
   .toast { animation: none; }
   .spinner { animation-duration: 2s; }
 }
+
+/* ---- Friend checklists (create a town, invite friends) ---- */
+.field-label { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+ul.people li.pick { cursor: pointer; }
+ul.people li.pick:hover:not(.locked) { outline: 2px solid var(--accent); }
+ul.people li.pick input[type="checkbox"] { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--accent); pointer-events: none; }
+ul.people li.pick.locked { cursor: default; opacity: 0.6; }
+dialog ul.people.scroll { max-height: 240px; }
