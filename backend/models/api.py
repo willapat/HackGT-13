@@ -71,6 +71,7 @@ class Place(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     tile: Tile
     door: Tile  # where characters stand when they visit
+    model: str | None = Field(default=None, max_length=80)  # the building (asset key); the 3D town labels places that have one
 
 
 class TownMap(BaseModel):

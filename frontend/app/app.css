@@ -1012,7 +1012,7 @@ body:has(#shell.feed) .decor { --shell: 640px; }
   position: relative; z-index: 2; display: grid; justify-items: center; gap: 30px; padding: 44px 22px 0;
   width: min(100%, 264px);
 }
-.decor-ground { position: absolute; left: 0; bottom: 0; width: 420px; height: auto; max-height: 38vh; z-index: 1; }
+.decor-ground { position: absolute; left: 0; bottom: 0; width: 300px; height: auto; /* narrow enough that the lamp and trees stay whole in a small gap */ max-height: 38vh; z-index: 1; }
 .lamp-scene { max-height: 52vh; bottom: 30px; }
 .decor-side.right .decor-ground { left: auto; right: 0; }
 .lamp-light { fill: var(--orb); opacity: 0.12; }
