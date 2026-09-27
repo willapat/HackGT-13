@@ -79,6 +79,13 @@ class TownMap(BaseModel):
     model_config = ConfigDict(extra="allow")
     places: dict[str, Place] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def one_name_per_tile(self):
+        from backend.town_map import shared_tiles
+        if clash := shared_tiles(self.places):
+            raise ValueError(clash[0])
+        return self
+
 
 class Home(BaseModel):
     """town_members.home. The house tile itself is house_x/house_y."""

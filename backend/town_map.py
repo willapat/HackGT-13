@@ -39,6 +39,18 @@ def buildings(town_map: dict | None, members: list[dict]) -> list[dict]:
     return out
 
 
+def shared_tiles(places: dict) -> list[str]:
+    """Problems for places that sit on the same tile: one building, one name. Empty = OK."""
+    seen, out = {}, []
+    for pid, p in (places or {}).items():
+        tile = tuple(p["tile"]) if isinstance(p, dict) else tuple(p.tile)
+        if tile in seen:
+            out.append(f"places {seen[tile]} and {pid} share tile {list(tile)}")
+        else:
+            seen[tile] = pid
+    return out
+
+
 def in_bounds(tiles: list, x: float, y: float) -> bool:
     """Is (x, y) on the map? Fractional coordinates are fine (someone mid-walk between tiles)."""
     if not tiles:

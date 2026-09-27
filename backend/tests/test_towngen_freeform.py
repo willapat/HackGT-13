@@ -163,3 +163,13 @@ def test_if_the_model_is_down_mid_review_the_town_stays_as_it_was(monkeypatch):
     kept = towngen.generate_town("cabins", revision={"tiles": preview["tiles"], "map": preview["map"], "feedback": "more trees"})
     assert kept["map"].get("drawn") and kept["name"] == "Pine Hollow" and set(kept["map"]["places"]) == set(preview["map"]["places"])
     assert kept["map"]["places"]["lodge"]["tile"] == preview["map"]["places"]["lodge"]["tile"]
+
+
+def test_outdoor_places_drawn_on_the_same_spot_get_their_own_tiles():
+    from collections import Counter
+    plan = cabin_plan(places=[{"id": "dock", "name": "Dock", "model": None, "at": [3, 3]},
+                              {"id": "beach", "name": "Beach", "model": None, "at": [3, 3]},
+                              {"id": "fire", "name": "Fire Pit", "model": None, "at": [3, 3]}])
+    tiles, town_map = freeform.build(plan, 2, 11)
+    assert max(Counter(tuple(p["tile"]) for p in town_map["places"].values()).values()) == 1
+    assert freeform.problems(tiles, town_map, homes_needed=2) == []
