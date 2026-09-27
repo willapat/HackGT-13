@@ -6,13 +6,18 @@
   "outputDirectory": "public",
   "redirects": [
     {
-      "source": "/",
-      "destination": "/frontend/",
+      "source": "/frontend",
+      "destination": "/",
       "permanent": false
     },
     {
-      "source": "/frontend",
-      "destination": "/frontend/",
+      "source": "/frontend/",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/frontend/index.html",
+      "destination": "/",
       "permanent": false
     },
     {
@@ -45,6 +50,22 @@
     {
       "source": "/api/:path*",
       "destination": "https://luma-hackgt-api.fly.dev/:path*"
+    },
+    {
+      "source": "/",
+      "destination": "/frontend/index.html"
+    },
+    {
+      "source": "/app/:path*",
+      "destination": "/frontend/app/:path*"
+    },
+    {
+      "source": "/shared/:path*",
+      "destination": "/frontend/shared/:path*"
+    },
+    {
+      "source": "/lib/:path*",
+      "destination": "/frontend/lib/:path*"
     }
   ]
 }

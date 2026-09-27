@@ -11,3 +11,4 @@ venv/
 .vscode
 public/
 .vercel
+CLAUDE.md
