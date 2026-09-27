@@ -202,6 +202,8 @@ button.danger-solid:hover:not(:disabled) { background: color-mix(in srgb, var(--
 .me .chips { margin-top: 8px; }
 
 .row { display: flex; gap: 8px; }
+.invite-code { margin-bottom: 4px; }
+.invite-code input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.04em; }
 .row input { flex: 1; }
 
 ul.people { list-style: none; margin: 0 -8px; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -370,6 +372,31 @@ label.inline select { width: auto; padding: 7px 30px 7px 12px; border-radius: 99
 .post-actions { display: flex; gap: 4px; border-top: 1px solid var(--line); padding-top: 6px; margin: 0 -8px -6px; }
 .post-actions button { flex: 1; background: none; color: var(--muted); font-size: 14px; }
 .post-actions button:hover:not(:disabled) { background: var(--hover); }
+/* Reactions and comments on posts people wrote */
+.post-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 13px; min-height: 20px; }
+.post-summary .emojis { letter-spacing: 1px; }
+.post-summary .link { color: var(--muted); font-size: 13px; font-weight: 500; height: auto; }
+.post-summary + .post-actions { margin-top: -4px; }
+.react-wrap { flex: 1; position: relative; display: flex; }
+.post-actions .react-wrap > button.react { width: 100%; }
+.post-actions button.react.on { color: var(--accent); font-weight: 700; }
+.reaction-picker { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; display: flex; gap: 2px; padding: 4px; background: var(--panel); border-radius: 999px; box-shadow: var(--shadow-pop), 0 0 0 1px var(--line); }
+.reaction-picker[hidden] { display: none; }
+.reaction-picker::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 8px; } /* keeps hover alive on the way down */
+.post-actions .reaction-picker button { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 22px; transition: transform 0.12s; }
+.post-actions .reaction-picker button:hover:not(:disabled) { transform: scale(1.2); background: none; }
+.post-actions .reaction-picker button.on { background: var(--soft); }
+.comments { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: -4px; }
+.comments .more-comments { justify-self: start; color: var(--muted); font-size: 13px; height: auto; }
+.comment { display: flex; gap: 8px; align-items: flex-start; }
+.comment .avatar, .comment-form .avatar { width: 30px; height: 30px; font-size: 11px; flex: none; }
+.comment-body { min-width: 0; }
+.comment .bubble { background: var(--bg); border-radius: 16px; padding: 7px 12px; font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.comment .bubble b { display: block; font-size: 13px; font-weight: 700; cursor: pointer; }
+.comment-meta { color: var(--muted); font-size: 12px; padding: 2px 12px 0; }
+.comment-meta .link { font-size: 12px; color: var(--muted); height: auto; font-weight: 600; }
+.comment-form { display: flex; gap: 8px; align-items: center; }
+.comment-form input { flex: 1; min-width: 0; border-radius: 999px; }
 
 /* Rail */
 ul.today { list-style: none; margin: 0 -8px; padding: 0; display: grid; gap: 2px; }
@@ -662,3 +689,12 @@ button.pin-toggle { display: inline-flex; align-items: center; gap: 5px; }
 button.pin-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 button.pin-toggle.on { color: var(--accent); background: var(--accent-soft); }
 button.pin-toggle.on svg { fill: currentColor; }
+
+/* Create-town review: the whole designed map, drawn from its tiles (townart.js) */
+.review-art { aspect-ratio: 760 / 470; border-radius: 14px; background: linear-gradient(180deg, #9fd0f5, #e3f1fb); display: grid; place-items: center; overflow: hidden; margin: 4px 0 8px; }
+.review-art img { width: 100%; height: 100%; display: block; }
+.review-art .busy-note { color: #3b4a5c; font-size: 14px; text-align: center; }
+.review-art .busy-note .spinner { margin: 0 auto 12px; }
+#review-places { margin-bottom: 10px; }
+.look-row { margin-bottom: 6px; }
+#review-places .chip.look { font-weight: 600; }

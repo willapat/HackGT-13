@@ -144,8 +144,19 @@ async function afterSignIn() {
     return show('error');
   }
   if (!me.username) return showUsername();
+  saveTimeZone();
   renderIdentity();
   route();
+}
+
+// Times are stored in UTC; your profile remembers your time zone so plan hours and "today" use yours.
+// Kept up to date quietly, e.g. after you travel.
+function saveTimeZone() {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (!zone || me.timezone === zone) return;
+  api('/me', { method: 'PATCH', body: { timezone: zone } })
+    .then((row) => { if (row) me.timezone = row.timezone; })
+    .catch(() => {}); // e.g. the column isn't in the database yet: nothing to show the person
 }
 
 const signOut = async (scope = 'local') => {
@@ -349,6 +360,7 @@ let feed = { towns: [], items: [], today: [], inbox: [] };
 let requests = { incoming: [], outgoing: [] };
 let invites = [];
 let allFriends = [];
+let suggestions = []; // GET /friends/suggestions: friends of friends and townmates you haven't added
 let stats = null; // GET /me/stats: highlights, closest people, who to catch up with
 let notices = []; // GET /me/notifications: things that happened to you (a town you were in was deleted)
 
@@ -363,7 +375,8 @@ function renderChips(el, items) {
 }
 
 async function refreshAll() {
-  const [f, fr, rq, inv, st, nt] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats'), api('/me/notifications')]);
+  const [f, fr, rq, inv, st, nt, sg] = await Promise.allSettled([api('/me/feed'), api('/friends'), api('/friends/requests'), api('/me/invites'), api('/me/stats'), api('/me/notifications'), api('/friends/suggestions')]);
+  if (sg.status === 'fulfilled') suggestions = sg.value;
   if (f.status === 'fulfilled') feed = f.value;
   if (nt.status === 'fulfilled') notices = nt.value;
   if (st.status === 'fulfilled') stats = st.value;
@@ -453,13 +466,17 @@ function renderMyStatus() {
   for (const id of ['#bar-avatar', '#menu-avatar', '#composer-avatar', '#me-avatar']) ring($(id), st);
   for (const box of $$('.status-control')) {
     box.replaceChildren();
-    if (st?.source === 'calendar') { // busy because of your calendar: one tap says you're free anyway
+    if (st?.source === 'calendar') { // busy because of your calendar: a status you set replaces it
       const on = el('span', 'status-on busy', `📅 Busy · ${timeLeft(st.until)}`);
-      on.title = 'From your calendar';
-      const free = el('button', 'status-tap free', 'Free anyway');
-      free.type = 'button';
-      free.onclick = () => setStatus('free');
-      box.append(on, free);
+      on.title = 'From your calendar. Set your own status to replace it.';
+      box.append(on);
+      for (const [status, label] of [['free', 'Free anyway'], ['busy', 'Busy']]) {
+        const b = el('button', `status-tap ${status}`, label);
+        b.type = 'button';
+        b.title = `${status === 'free' ? 'Free' : 'Busy'} for the next ${STATUS_HOURS} hours, instead of what your calendar says`;
+        b.onclick = () => setStatus(status);
+        box.append(b);
+      }
     } else if (st) {
       const on = el('span', `status-on ${st.status}`, `${STATUS_LABEL[st.status]} · ${timeLeft(st.until)}`);
       const end = el('button', 'link small', 'End');
@@ -591,7 +608,10 @@ function renderFeed() {
   none.hidden = !(summaries.length && !shown.length);
   none.textContent = `No towns match "${townQuery.trim()}".`;
 
+  // Keep your place in a comment you're typing when the feed refreshes under you
+  const typing = document.activeElement?.dataset?.commentFor;
   $('#feed').replaceChildren(...feed.items.map(post));
+  if (typing) document.querySelector(`[data-comment-for="${typing}"]`)?.focus();
   $('#feed-empty').hidden = feed.items.length > 0;
 
   $('#today').replaceChildren(...feed.today.map((t) => {
@@ -715,21 +735,163 @@ function writtenPost(item) {
     card.append(el('p', 'hint', "Only your towns' AI read this. Your character's mood may change; nobody sees these words."));
     return card;
   }
+  if (!item.mine) who.firstChild.dataset.person = item.actor.user_id; // the name opens their profile too
+  const redraw = () => card.replaceWith(writtenPost(item));
+  const reactions = item.reactions || [];
+  const total = reactions.reduce((n, r) => n + r.count, 0);
+  const comments = item.comments || [];
+  if (total || comments.length) {
+    const summary = el('div', 'post-summary');
+    const emojis = el('span', 'reaction-summary');
+    if (total) emojis.append(el('span', 'emojis', reactions.slice(0, 3).map((r) => r.emoji).join('')), ` ${total}`);
+    summary.append(emojis);
+    if (comments.length) {
+      const count = el('button', 'link', `${comments.length} ${comments.length === 1 ? 'comment' : 'comments'}`);
+      count.type = 'button';
+      count.onclick = () => { openComments.add(item.id); redraw(); };
+      summary.append(count);
+    }
+    card.append(summary);
+  }
   const actions = el('div', 'post-actions');
+  const like = el('button', `react${item.my_reaction ? ' on' : ''}`, item.my_reaction ? `${item.my_reaction} ${REACTION_NAMES[item.my_reaction] || 'Liked'}` : '🤍 Like');
+  like.type = 'button';
+  like.title = 'Like, or hold for more reactions';
+  like.setAttribute('aria-pressed', String(!!item.my_reaction));
+  const picker = el('div', 'reaction-picker');
+  picker.hidden = true;
+  picker.setAttribute('role', 'toolbar');
+  picker.setAttribute('aria-label', 'Reactions');
+  for (const emoji of REACTIONS) {
+    const b = el('button', emoji === item.my_reaction ? 'on' : '', emoji);
+    b.type = 'button';
+    b.title = REACTION_NAMES[emoji];
+    b.onclick = (e) => { e.stopPropagation(); react(item, emoji === item.my_reaction ? null : emoji, redraw); };
+    picker.append(b);
+  }
+  // Tap = like (or take back your reaction); hold, right-click or hover a moment = pick a reaction
+  let held = false, holdTimer, hoverTimer;
+  const openPicker = () => { held = true; picker.hidden = false; };
+  like.onpointerdown = () => { held = false; holdTimer = setTimeout(openPicker, 450); };
+  like.onpointerup = like.onpointerleave = () => clearTimeout(holdTimer);
+  like.oncontextmenu = (e) => { e.preventDefault(); openPicker(); };
+  like.onclick = () => { if (held) return; react(item, item.my_reaction ? null : '❤️', redraw); };
+  const wrap = el('div', 'react-wrap');
+  wrap.onpointerenter = (e) => { if (e.pointerType !== 'touch') hoverTimer = setTimeout(openPicker, 600); };
+  wrap.onpointerleave = () => { clearTimeout(hoverTimer); picker.hidden = true; };
+  wrap.append(picker, like);
+  const comment = el('button', '', '💬 Comment');
+  comment.type = 'button';
+  comment.onclick = () => { openComments.add(item.id); redraw(); document.querySelector(`[data-comment-for="${item.id}"]`)?.focus(); };
+  actions.append(wrap, comment);
   if (item.audience === 'town') {
-    const visit = el('button', '', `Visit ${item.town.name}`);
+    const visit = el('button', '', `🏘️ Visit ${item.town.name}`);
     visit.type = 'button';
     visit.onclick = () => enterTown(item.town.id);
     actions.append(visit);
   }
-  if (!item.mine) {
-    const profile = el('button', '', `See ${item.actor.name}'s profile`);
-    profile.type = 'button';
-    profile.onclick = () => openPerson(item.actor.user_id);
-    actions.append(profile);
-  }
-  if (actions.children.length) card.append(actions);
+  card.append(actions);
+  if (comments.length || openComments.has(item.id)) card.append(commentThread(item, redraw));
   return card;
+}
+
+const REACTIONS = ['❤️', '😂', '🎉', '😮', '😢', '👏']; // matches backend/posts.py REACTIONS
+const REACTION_NAMES = { '❤️': 'Liked', '😂': 'Haha', '🎉': 'Yay', '😮': 'Wow', '😢': 'Sad', '👏': 'Proud' };
+const openComments = new Set(); // posts whose whole comment thread is shown
+const commentDrafts = new Map(); // post id -> what you've typed so far (survives the feed refreshing)
+const signalId = (item) => item.id.replace(/^post:/, '');
+
+// emoji = null takes your reaction back. Shows the change right away and puts it back if the request fails.
+async function react(item, emoji, redraw) {
+  const before = { reactions: item.reactions, my_reaction: item.my_reaction };
+  const counts = new Map((item.reactions || []).map((r) => [r.emoji, r.count]));
+  if (item.my_reaction) counts.set(item.my_reaction, counts.get(item.my_reaction) - 1);
+  if (emoji) counts.set(emoji, (counts.get(emoji) || 0) + 1);
+  item.reactions = [...counts].filter(([, n]) => n > 0).map(([e, n]) => ({ emoji: e, count: n })).sort((a, b) => b.count - a.count);
+  item.my_reaction = emoji;
+  redraw();
+  try {
+    const path = `/posts/${signalId(item)}/reaction`;
+    Object.assign(item, emoji ? await api(path, { method: 'PUT', body: { emoji } }) : await api(path, { method: 'DELETE' }));
+  } catch (err) {
+    Object.assign(item, before);
+    toast(err.message, 'error');
+  }
+  redraw();
+}
+
+// Comments under a post: the latest two until you open the thread, then all of them and a box to add yours
+function commentThread(item, redraw) {
+  const wrap = el('div', 'comments');
+  const all = item.comments || [];
+  const open = openComments.has(item.id);
+  const shown = open ? all : all.slice(-2);
+  if (shown.length < all.length) {
+    const more = el('button', 'link more-comments', `View all ${all.length} comments`);
+    more.type = 'button';
+    more.onclick = () => { openComments.add(item.id); redraw(); };
+    wrap.append(more);
+  }
+  for (const c of shown) {
+    const row = el('div', 'comment');
+    const body = el('div', 'comment-body');
+    const bubble = el('div', 'bubble');
+    const name = el('b', '', c.mine ? 'You' : c.author.name);
+    if (!c.mine) name.dataset.person = c.author.user_id;
+    bubble.append(name, el('span', 'comment-text', c.text));
+    const meta = el('div', 'comment-meta');
+    meta.append(el('span', '', timeAgo(c.at)));
+    if (c.can_delete) {
+      const del = el('button', 'link', 'Delete');
+      del.type = 'button';
+      del.onclick = async () => {
+        if (!await confirmDialog({ title: 'Delete this comment?', body: c.text, confirmLabel: 'Delete', danger: true })) return;
+        const keep = item.comments;
+        item.comments = keep.filter((x) => x.id !== c.id);
+        redraw();
+        try { await api(`/posts/${signalId(item)}/comments/${c.id}`, { method: 'DELETE' }); }
+        catch (err) { item.comments = keep; redraw(); toast(err.message, 'error'); }
+      };
+      meta.append(' · ', del);
+    }
+    body.append(bubble, meta);
+    row.append(personAvatar(c.author), body);
+    wrap.append(row);
+  }
+  if (open || !all.length) {
+    const form = el('form', 'comment-form');
+    const input = el('input');
+    input.placeholder = item.mine ? 'Reply to your friends…' : `Write something to ${item.actor.name}…`;
+    input.maxLength = 500;
+    input.value = commentDrafts.get(item.id) || '';
+    input.dataset.commentFor = item.id;
+    input.setAttribute('aria-label', 'Write a comment');
+    input.oninput = () => { commentDrafts.set(item.id, input.value); send.disabled = !input.value.trim(); };
+    const send = el('button', 'small', 'Send');
+    send.type = 'submit';
+    send.disabled = !input.value.trim();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      send.disabled = input.disabled = true;
+      try {
+        const c = await api(`/posts/${signalId(item)}/comments`, { method: 'POST', body: { text } });
+        item.comments = [...(item.comments || []), c];
+        commentDrafts.delete(item.id);
+        redraw();
+        document.querySelector(`[data-comment-for="${item.id}"]`)?.focus();
+      } catch (err) {
+        send.disabled = input.disabled = false;
+        toast(err.message, 'error');
+      }
+    };
+    const self = el('div', 'avatar sm');
+    paintAvatar(self, me);
+    form.append(self, input, send);
+    wrap.append(form);
+  }
+  return wrap;
 }
 
 function post(item) {
@@ -982,8 +1144,14 @@ function renderInbox() {
     const li = el('li');
     const who = el('div', 'who');
     const p = n.payload || {};
-    const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in` : 'Something changed';
-    who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · its houses, characters and plans are gone`));
+    const comment = n.kind === 'post_comment', mail = n.kind === 'mail';
+    const text = n.kind === 'town_deleted' ? `${p.by_name || 'Its creator'} deleted ${p.town_name || 'a town'} you were in`
+      : comment ? `${p.by_name || 'Someone'} commented: “${p.text || ''}”`
+      : mail ? `${p.by_name || 'Someone'} left you a note: “${p.text || ''}”` : 'Something changed';
+    const sub = comment ? (p.post_text ? `on “${p.post_text}”` : 'on your post')
+      : mail ? `in your mailbox in ${p.town_name || 'town'}` : 'its houses, characters and plans are gone';
+    who.append(el('div', 'name', text), el('div', 'handle', `${timeAgo(n.created_at)} · ${sub}`));
+    if ((comment || mail) && p.by_user_id) li.dataset.person = p.by_user_id;
     const dismiss = el('button', 'small', 'Dismiss');
     dismiss.type = 'button';
     dismiss.onclick = async () => {
@@ -992,7 +1160,15 @@ function renderInbox() {
       notices = notices.filter((x) => x.id !== n.id);
       renderInbox();
     };
-    li.append(el('div', 'notice-icon', n.kind === 'town_deleted' ? '🏚️' : '🔔'), who, dismiss);
+    const icon = n.kind === 'town_deleted' ? '🏚️' : comment ? '💬' : mail ? '📬' : '🔔';
+    const actions = [dismiss];
+    if (mail && p.town_id) { // open the town to read it in the mailbox
+      const open = el('button', 'small', 'Open mailbox');
+      open.type = 'button';
+      open.onclick = () => enterTown(p.town_id);
+      actions.unshift(open);
+    }
+    li.append(el('div', 'notice-icon', icon), who, ...actions);
     return li;
   }));
   $('#notices-section').hidden = !notices.length;
@@ -1144,6 +1320,39 @@ function renderFriends() {
   $('#no-matches').hidden = !(allFriends.length && !shown.length);
   fillList($('#outgoing'), requests.outgoing.map((r) => personRow(r.to_profile, [], 'request sent')));
   $('#outgoing-section').hidden = !requests.outgoing.length;
+  renderSuggestions();
+}
+
+// People you may know. "Hide" is remembered in this browser only.
+const HIDDEN_SUGGESTIONS = 'luma-hidden-suggestions';
+const hiddenSuggestions = () => { try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_SUGGESTIONS)) || []); } catch { return new Set(); } };
+
+function whyYouMayKnow(s) {
+  const names = s.mutual_friends.map((f) => f.display_name).filter(Boolean);
+  const more = s.mutual_count - names.length;
+  const friendsNote = !s.mutual_count ? ''
+    : names.length === 1 && !more ? `Friends with ${names[0]}`
+    : names.length ? `Friends with ${names.slice(0, 2).join(', ')}${s.mutual_count > 2 ? ` +${s.mutual_count - 2}` : ''}`
+    : `${s.mutual_count} mutual friend${s.mutual_count === 1 ? '' : 's'}`;
+  const townNote = s.shared_towns.length ? `in ${s.shared_towns.slice(0, 2).join(', ')}${s.shared_towns.length > 2 ? ' +' + (s.shared_towns.length - 2) : ''}` : '';
+  return [friendsNote, townNote].filter(Boolean).join(' · ');
+}
+
+function renderSuggestions() {
+  const hidden = hiddenSuggestions();
+  const shown = suggestions.filter((s) => !hidden.has(s.id));
+  fillList($('#suggestions'), shown.map((s) => personRow(s, [
+    ['Add', async () => {
+      await api('/friends/requests', { method: 'POST', body: { username: s.username } });
+      toast(`Friend request sent to ${s.display_name || '@' + s.username}.`);
+    }, 'primary'],
+    ['Hide', () => {
+      hidden.add(s.id);
+      try { localStorage.setItem(HIDDEN_SUGGESTIONS, JSON.stringify([...hidden])); } catch { /* storage blocked: hidden until reload */ }
+      suggestions = suggestions.filter((x) => x.id !== s.id);
+    }],
+  ], whyYouMayKnow(s))));
+  $('#suggest-section').hidden = !shown.length;
 }
 
 $('#friend-filter').oninput = renderFriends;
@@ -1833,6 +2042,21 @@ const createTown = (() => {
   // Places: a toggle chip per supported place type and landmark (GET /towns/place-options), plus "other
   // buildings" typed by name (the backend puts each on a random building, under the name as typed)
   let options = null, chosen = new Set(), custom = [];
+  // Look: one pick (or none) per row; the planner fills in whatever is left unpicked
+  const LOOK_ROWS = { landscape: ['#create-landscape', 'landscapes'], style: ['#create-style', 'styles'], greenery: ['#create-greenery', 'greenery'] };
+  let look = {};
+  function renderLook() {
+    for (const [key, [box, list]] of Object.entries(LOOK_ROWS)) {
+      $(box).replaceChildren(...(options[list] || []).map((o) => {
+        const b = Object.assign(document.createElement('button'), { type: 'button', className: 'chip toggle', textContent: o.label });
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(look[key] === o.id));
+        b.setAttribute('aria-pressed', String(look[key] === o.id));
+        b.onclick = () => { look[key] = look[key] === o.id ? null : o.id; renderLook(); };
+        return b;
+      }));
+    }
+  }
   const customInput = $('#create-custom');
   const isLandmark = (id) => options.landmarks.some((l) => l.id === id);
   const placeCount = () => [...chosen].filter((id) => !isLandmark(id)).length + custom.length;
@@ -1906,8 +2130,10 @@ const createTown = (() => {
     }
     chosen = new Set();
     custom = [];
+    look = {};
     customInput.value = '';
     renderPlaces();
+    renderLook();
     prompt.value = '';
     $('#create-name').value = '';
     message($('#create-msg'), '');
@@ -1924,23 +2150,109 @@ const createTown = (() => {
     const body = {
       prompt: prompt.value.trim(), name: $('#create-name').value.trim() || null, invite_user_ids: picker.picked(),
       places: [...chosen].filter((id) => !isLandmark(id)), landmarks: [...chosen].filter(isLandmark), custom_places: custom,
+      landscape: look.landscape || null, style: look.style || null, greenery: look.greenery || null,
     };
     dialog.close();
-    let created = null;
-    const picked = await identityDialog.open({
-      title: body.name ? `You in ${body.name}` : 'You in your new town',
-      confirmLabel: 'Create town',
-      busyLabel: 'Building your town…',
-      options: { taken: [], mine: null, suggested_color: Colors.freeColor([]) },
-      save: async (you) => { created = await api('/towns/generate', { method: 'POST', body: { ...body, me: you } }); },
-    });
-    if (!picked) return dialog.showModal(); // cancelled: back to the description, nothing lost
-    await reloadMe();
-    refreshAll();
-    const invited = created.invited ? ` Invited ${created.invited} friend${created.invited === 1 ? '' : 's'}.` : '';
-    const built = Object.entries(created.map?.places || {}).filter(([id]) => id !== 'park' && id !== 'outerpark').map(([, p]) => p.name);
-    toast(`${created.name} is ready!${built.length ? ` Built with: ${built.join(', ')}.` : ''}${invited}`);
+    review.open(body);
   };
+
+  // Review the design before anything is created: the whole map (drawn from its tiles), its places, and a box for
+  // changes. "Redo with changes" sends the design back with the notes; "Create" builds exactly this design
+  // (`design`: the preview's plan, no model call), after you pick your name and color there.
+  const review = (() => {
+    const dlg = $('#review-dialog'), feedback = $('#review-feedback'), msg = $('#review-msg');
+    let body = null, shown = null, run = 0;
+    const sync = (working) => {
+      $('#review-revise').disabled = working || !shown || !feedback.value.trim();
+      $('#review-fresh').disabled = $('#review-ok').disabled = working || !shown;
+    };
+    feedback.oninput = () => sync(false);
+
+    function show(made) {
+      shown = made;
+      $('#review-title').textContent = made.name;
+      $('#review-theme').textContent = made.map.theme || body.prompt;
+      // Home plots as houses: yours (the first plot) in purple, the ones friends will get in gray
+      const tiles = made.tiles.map((row) => [...row]);
+      const homes = (made.map.home_slots || []).map((sl, i) => {
+        tiles[sl.house[1]][sl.house[0]] = 'home';
+        tiles[sl.driveway[1]][sl.driveway[0]] = 'driveway';
+        return { x: sl.house[0], y: sl.house[1], color: i ? '#cfd4dc' : '#7a5cff' };
+      });
+      const img = Object.assign(new Image(), { alt: `Map of ${made.name}` });
+      img.src = drawTown({ tiles, homes, background_color: made.map.background_homes?.color, landscape: made.map.landscape }, { whole: true });
+      $('#review-art').replaceChildren(img);
+      $('#review-key').hidden = !homes.length;
+      const label = (list, id) => (options?.[list] || []).find((o) => o.id === id)?.label || id;
+      const lookChips = [['landscapes', made.plan?.landscape], ['styles', made.plan?.style], ['greenery', made.plan?.greenery]]
+        .filter(([, id]) => id).map(([list, id]) => el('span', 'chip look', label(list, id)));
+      $('#review-places').replaceChildren(...lookChips, ...Object.values(made.map.places || {}).map((p) => el('span', 'chip', p.name)));
+    }
+
+    async function design(extra = {}, note = '') {
+      const mine = ++run;
+      sync(true);
+      message(msg, '');
+      $('#review-art').innerHTML = `<div class="busy-note"><div class="spinner"></div>${shown ? 'Redrawing your town…' : 'Designing your town…'}<br>This takes about half a minute.</div>`;
+      try {
+        const made = await api('/towns/generate', { method: 'POST', body: { ...body, preview: true, ...extra } });
+        if (mine !== run) return; // they went back or asked again meanwhile
+        show(made);
+        $('#review-changed').hidden = !note;
+        $('#review-changed').textContent = note ? `Changed: ${note}` : '';
+        if (note) feedback.value = '';
+      } catch (err) {
+        if (mine !== run) return;
+        message(msg, `Couldn't design it: ${err.message}`);
+        if (shown) show(shown); // keep the design they had
+        else $('#review-art').replaceChildren();
+      }
+      sync(false);
+    }
+
+    $('#review-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const action = e.submitter?.value;
+      if (action === 'back') { run++; dlg.close(); return dialog.showModal(); } // the description, as they left it
+      if (action === 'fresh') return design();
+      if (action === 'revise') {
+        const text = feedback.value.trim();
+        return design({ revise: { tiles: shown.tiles, map: shown.map, feedback: text } }, text);
+      }
+      if (action !== 'ok' || !shown) return;
+      dlg.close();
+      const approved = shown;
+      let created = null;
+      const picked = await identityDialog.open({
+        title: `You in ${approved.name}`,
+        confirmLabel: 'Create town',
+        busyLabel: 'Building your town…',
+        options: { taken: [], mine: null, suggested_color: Colors.freeColor([]) },
+        save: async (you) => {
+          created = await api('/towns/generate', { method: 'POST', body: { ...body, design: approved.plan, me: you } });
+        },
+      });
+      if (!picked) return dlg.showModal(); // cancelled: back to the design, nothing lost
+      await reloadMe();
+      refreshAll();
+      const invited = created.invited ? ` Invited ${created.invited} friend${created.invited === 1 ? '' : 's'}.` : '';
+      toast(`${created.name} is ready!${invited}`);
+    };
+
+    return {
+      open(b) {
+        body = b;
+        shown = null;
+        feedback.value = '';
+        $('#review-changed').hidden = true;
+        $('#review-places').replaceChildren();
+        $('#review-title').textContent = b.name || 'Your new town';
+        $('#review-theme').textContent = b.prompt;
+        dlg.showModal();
+        design();
+      },
+    };
+  })();
 
   $('#create-town').onclick = open;
 })();
@@ -1967,10 +2279,25 @@ const inviteFriends = (() => {
     const members = new Set(detail.members.map((m) => m.user_id));
     const pending = new Set(invites.filter((i) => i.status === 'pending').map((i) => i.to_user));
     $('#invite-title').textContent = `Invite friends to ${t.name}`;
+    $('#invite-code').value = t.invite_code || detail.town?.invite_code || '';
+    $('#invite-copy').textContent = 'Copy';
     message($('#invite-msg'), '');
     picker.load(friends, (f) => (members.has(f.id) ? 'already in this town' : pending.has(f.id) ? 'invite sent' : null));
     dialog.showModal();
   }
+
+  $('#invite-copy').onclick = async () => {
+    const code = $('#invite-code');
+    try {
+      await navigator.clipboard.writeText(code.value);
+    } catch { // no clipboard access (http on another host, old browser): select it so they can copy by hand
+      code.select();
+      return toast('Press Ctrl/⌘+C to copy the code.');
+    }
+    $('#invite-copy').textContent = 'Copied!';
+    toast(`Copied ${town.name}'s invite code.`);
+  };
+  $('#invite-code').onfocus = (e) => e.target.select();
 
   $('#invite-form').onsubmit = async (e) => {
     if (e.submitter?.value !== 'ok') return;

@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
@@ -18,6 +19,20 @@ class ProfileUpdate(BaseModel):
     avatar: dict | None = None  # asset manifest keys
     interests: list[str] | None = Field(default=None, max_length=30)
     bio: str | None = Field(default=None, max_length=160)
+    # IANA name from the browser (Intl), e.g. "America/Los_Angeles": the person's own "today" and plan hours.
+    # Times themselves are always stored in UTC.
+    timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def _real_zone(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError("unknown time zone")
+        return v
 
 
 Tile = Annotated[list[int], Field(min_length=2, max_length=2)]  # [x, y]
@@ -87,17 +102,29 @@ class TownUpdate(BaseModel):
     map: TownMap | None = None
 
 
+class TownRevision(BaseModel):
+    """A previewed town (the tiles and map POST /towns/generate returned) and what the user wants changed."""
+
+    tiles: list[list[str]] = Field(min_length=1, max_length=31)
+    map: dict
+    feedback: str = Field(min_length=1, max_length=600)
+
+
 class TownGenerate(BaseModel):
-    """Describe a town and Gemini designs it (backend/towngen). The town rules always apply."""
+    """Describe a town and the model draws it (backend/towngen): any setting, from a city to a cabin retreat."""
 
     prompt: str = Field(min_length=1, max_length=1000)  # e.g. "a cozy seaside village with a climbing gym"
     name: str | None = Field(default=None, min_length=1, max_length=60)  # None = the planner names it
-    me: MemberIdentity
+    me: MemberIdentity | None = None  # required to create; a preview doesn't need it (you pick it after approving)
     invite_user_ids: list[UUID] = Field(default_factory=list, max_length=23)  # friends to invite as soon as it exists
     places: list[str] = Field(default_factory=list, max_length=20)  # ids from GET /towns/place-options; [] = planner picks
     custom_places: list[Annotated[str, BeforeValidator(lambda v: v.strip() if isinstance(v, str) else v), Field(min_length=1, max_length=40)]] = Field(
         default_factory=list, max_length=8)  # anything else, by name ("Bowling alley"): placed on a random building
     landmarks: list[Literal["farm", "stadium"]] = Field(default_factory=list)
+    # How it looks, if picked in the form (GET /towns/place-options); None = the planner decides from the prompt
+    landscape: Literal["green", "autumn", "snowy", "desert"] | None = None
+    style: Literal["city", "town", "suburbs", "village"] | None = None
+    greenery: Literal["less", "normal", "lots"] | None = None
 
     @model_validator(mode="after")
     def _known_places(self):
@@ -111,10 +138,49 @@ class TownGenerate(BaseModel):
             raise ValueError(f"pick at most {MAX_PLACES} places")
         return self
     preview: bool = False  # true = return the design without creating the town
+    revise: TownRevision | None = None  # redraw a previewed town with the user's changes (use with preview)
+    design: dict | None = None  # the `plan` of a preview the user approved: built exactly as shown, no model call
 
 
 class HouseName(BaseModel):
     name: str | None = Field(default=None, max_length=40)  # null or "" = back to "<you>'s house"
+
+
+class BubbleIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def one_line(self):
+        from backend.house import BUBBLE_MAX, clean_text
+        self.text = clean_text(self.text)
+        if not self.text:
+            raise ValueError("say something")
+        if len(self.text) > BUBBLE_MAX:
+            raise ValueError(f"keep it to {BUBBLE_MAX} characters")
+        return self
+
+
+class MoodIn(BaseModel):
+    mood: str
+
+    @model_validator(mode="after")
+    def known(self):
+        from backend.house import MOODS
+        if self.mood not in MOODS:
+            raise ValueError(f"mood must be one of {', '.join(MOODS)}")
+        return self
+
+
+class MailIn(BaseModel):
+    to_user_id: UUID
+    text: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def not_blank(self):
+        self.text = self.text.strip()
+        if not self.text:
+            raise ValueError("write something")
+        return self
 
 
 class JoinTown(BaseModel):
@@ -132,7 +198,8 @@ class MoveIn(BaseModel):
     building_id: str = Field(min_length=1, max_length=80)  # a place id ("cafe") or "house:<user_id>"
     from_x: float = Field(ge=0)  # where your character is right now (fractional mid-walk is fine)
     from_y: float = Field(ge=0)
-    travel_minutes: int | None = Field(default=None, ge=1, le=180)  # how long the walk takes; omitted keeps the place estimate
+    # how long the walk takes; omitted keeps the place estimate. Float so the page can send seconds (s / 60).
+    travel_minutes: float | None = Field(default=None, gt=0, le=180)
 
 
 class SignalIn(BaseModel):

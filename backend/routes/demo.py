@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
-from postgrest.exceptions import APIError
-
 from backend.identity import member_name
 from backend.config import settings
 from backend.db import get_client
@@ -119,10 +117,11 @@ def _nudge_agents(db, town_id: str) -> None:
 
 @router.get("/config")
 def demo_config():
-    # Login only needs the Supabase keys. A clock or town-id problem must not hide them.
+    """What the web app needs to sign in. Never fails over the demo clock: without these keys no page loads."""
     try:
         clock = _clock_view()
-    except APIError:
+    except Exception as exc:
+        print(f"[demo] clock unavailable for /demo/config: {exc}", flush=True)
         now = datetime.now(TOWN_TZ)
         clock = {
             "town_time": now.isoformat(),

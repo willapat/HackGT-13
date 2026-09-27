@@ -152,3 +152,51 @@ def test_a_full_town_regrows_from_its_saved_plan():
     tiles, town_map = towngen.lay_out(TownPlan(places=picks, landmarks=["stadium"]), 1, "p")
     grown, grown_map = towngen.grow({"tiles": tiles, "map": town_map}, 3)  # saved plan with 12 places must reload
     assert len(grown) == 13 and {p.id for p in picks} <= set(grown_map["places"]) and any("stadium" in r for r in grown)
+
+
+def test_styles_pick_the_buildings_at_every_size():
+    from backend.towngen.catalog import HOUSES
+    for size in (11, 13, 17, 21, 25, 31):
+        for style in ("suburbs", "village"):
+            plan = TownPlan(size=size, style=style)
+            tiles, town_map = build(plan)
+            kinds = {k for row in tiles for k in row}
+            assert not kinds & (set(TALL) | set(MID)), (size, style)  # never a tower or an apartment block
+            assert kinds & set(HOUSES) and problems(tiles, town_map, dense_core=False) == [], (size, style)
+            assert town_map["style"] == style
+        tiles, _ = build(TownPlan(size=size, style="city"))
+        assert {k for row in tiles for k in row} & set(TALL), size  # a city has towers even when small
+
+
+def test_a_village_is_greener_than_a_town():
+    count = lambda plan: sum("/" in k for row in build(plan)[0] for k in row)
+    assert count(TownPlan(size=21, style="village", greenery="lots")) < count(TownPlan(size=21, style="town", greenery="less"))
+
+
+def test_the_users_look_picks_win_and_reach_the_map(monkeypatch):
+    fake_model(monkeypatch, {"name": "Frost Hollow", "landscape": "green", "style": "city", "greenery": "less"})
+    made = towngen.generate_town("a winter village", look={"landscape": "snowy", "style": "village", "greenery": None})
+    assert (made["plan"]["landscape"], made["plan"]["style"], made["plan"]["greenery"]) == ("snowy", "village", "less")
+    assert made["map"]["landscape"] == "snowy" and not {k for row in made["tiles"] for k in row} & set(TALL)
+
+
+def test_a_classic_revision_hands_the_model_its_plan(monkeypatch):
+    fake_model(monkeypatch, {"name": "Dune Town", "landscape": "desert", "style": "town"})
+    made = towngen.generate_town("a desert town")
+    seen = {}
+
+    def model(model, system, message, **k):
+        seen.update(json.loads(message))
+        return json.dumps({"name": "Dune Town", "landscape": "desert", "style": "suburbs"})
+    monkeypatch.setattr(towngen, "complete", model)
+    revised = towngen.generate_town("a desert town", revision={"tiles": made["tiles"], "map": made["map"], "feedback": "no tall buildings"})
+    shown = seen["your_previous_town"]
+    assert shown["landscape"] == "desert" and shown["style"] == "town" and "rows" not in shown
+    assert seen["requested_changes"] == "no tall buildings" and revised["plan"]["style"] == "suburbs"
+
+
+def test_growth_keeps_the_look(monkeypatch):
+    fake_model(monkeypatch, {"name": "Quiet Oaks", "landscape": "autumn", "style": "suburbs"})
+    made = towngen.generate_town("leafy suburb")
+    tiles, town_map = towngen.grow({"tiles": made["tiles"], "map": made["map"]}, 9)
+    assert len(tiles) == 21 and town_map["landscape"] == "autumn" and not {k for row in tiles for k in row} & set(TALL)

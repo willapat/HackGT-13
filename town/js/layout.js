@@ -10,6 +10,8 @@ export const TOWN = TOWN_ID ? await api(`/towns/${TOWN_ID}`).catch((e) => {
   throw e;
 }) : null;
 export const TILES = TOWN?.town.tiles;
+export const LANDSCAPE = TOWN?.town.map?.landscape || 'green'; // green | autumn | snowy | desert (models.js, sky.js)
+export const DRAWN = Boolean(TOWN?.town.map?.drawn); // the model drew this town freely (backend/towngen/freeform.py), not the classic city
 export const tileAt = (c, r) => TILES?.[r]?.[c];
 export const tilesOf = (kind) => TILES ? TILES.flatMap((row, r) => row.flatMap((k, c) => (k === kind ? [[c, r]] : []))) : [];
 
@@ -21,12 +23,13 @@ export const ROADS = TILES
   : [2, 6, 10, 14];
 // ponytail: one CENTER is used for both axes, so the pond should sit on the diagonal (x === y); split into CX/CY if not
 export const CENTER = TILES ? (tilesOf('pond')[0]?.[0] ?? Math.floor(N / 2)) : 8; // the park sits at the middle; the skyline rings it
-const PARKISH = new Set(['park', 'pond', 'tree', 'path']); // walkable green (path = grass with a dirt track)
+const PARKISH = new Set(['park', 'pond', 'tree', 'path', 'sand']); // walkable ground (path = grass with a dirt track)
 export const inPark = TILES ? (c, r) => PARKISH.has(tileAt(c, r)) : (c, r) => c >= 7 && c <= 9 && r >= 7 && r <= 9;
-export const isRoad = TILES ? (c, r) => tileAt(c, r) === 'road' : (c, r) => ROADS.includes(c) || ROADS.includes(r);
+export const isRoad = TILES ? (c, r) => tileAt(c, r) === 'road' || tileAt(c, r) === 'bridge' : (c, r) => ROADS.includes(c) || ROADS.includes(r);
 // Tile words from backend/town_map.py; any other word is an explicit model (asset path without assets/ and .glb)
 const TILE_KINDS = new Set(['road', 'park', 'pond', 'tree', 'path', 'stadium', 'farm', 'home', 'driveway', 'yard', 'lot',
-  'garden', 'picnic', 'plaza', 'patio', 'oak', 'fountain', 'water', 'bench-n', 'bench-s', 'bench-e', 'bench-w']); // all after 'lot' are decorative scenes (DECOR in buildCity)
+  'garden', 'picnic', 'plaza', 'patio', 'oak', 'fountain', 'water', 'bench-n', 'bench-s', 'bench-e', 'bench-w',
+  'forest', 'lake', 'rocks', 'campfire', 'sand', 'bridge']); // all after 'lot' are scenery (DECOR in buildCity); sand is walkable
 const asset = (k) => `assets/${k}.glb`;
 
 // Grid blocks between the roads: cols/rows 0-1, 3-5, 7-9, 11-13, 15-16

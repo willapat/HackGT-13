@@ -9,7 +9,7 @@ from backend.db import get_client
 from backend import photos
 from backend.feed import SOCIAL_VERBS, TODAY_WINDOW, build_feed, town_layout
 from backend.post_ideas import build_context, post_ideas
-from backend.posts import post_items
+from backend.posts import is_post, post_items, with_responses
 from backend.profile_stats import WEEK_DAYS, build_stats
 from backend.status import MAX_LENGTH, active_status, calendar_busy
 from backend.models.api import ProfileUpdate, StatusIn
@@ -123,8 +123,11 @@ def my_feed(uid: str = Depends(current_user_id)):
     ids = list(towns)
     members = (db.table("town_members").select("town_id, user_id, name, color, house_x, house_y, home, profiles(*)")
                .in_("town_id", ids).execute().data or [])
-    runs = (db.table("brain_runs").select("id, town_id, output, created_at").in_("town_id", ids)
+    runs = (db.table("brain_runs").select("id, town_id, input, output, created_at").in_("town_id", ids)
             .not_.is_("output", "null").order("created_at", desc=True).limit(15).execute().data or [])
+    read = list({sid for r in runs for sid in ((r.get("input") or {}).get("signal_ids") or [])})
+    post_ids = {s["id"] for s in (db.table("signals").select("id, value").in_("id", read).execute().data or [])
+                if is_post(s)} if read else set()
     actions = (db.table("agent_actions").select("id, town_id, user_id, action, details, created_at").in_("town_id", ids)
                .in_("action", list(SOCIAL_VERBS)).order("id", desc=True).limit(40).execute().data or [])
     now = datetime.now(timezone.utc)
@@ -134,7 +137,7 @@ def my_feed(uid: str = Depends(current_user_id)):
               .or_(f"status.in.(suggested,scheduled,confirmed),and(start_at.gte.{stamp(now)},start_at.lte.{soon})")
               .order("created_at", desc=True).limit(200).execute().data or [])
     busy = calendar_busy(db, list({m["user_id"] for m in members}), now)
-    feed = build_feed(uid, towns, members, runs, actions, events, now, busy=busy)
+    feed = build_feed(uid, towns, members, runs, actions, events, now, busy=busy, post_ids=post_ids)
     feed["my_calendar_busy"] = busy.get(uid)  # your own ring when you haven't set a status
     # Posts people wrote themselves, from you, your friends and your townmates, merged in by time
     friend_ids = [r["to_user"] if r["from_user"] == uid else r["from_user"] for r in
@@ -146,12 +149,39 @@ def my_feed(uid: str = Depends(current_user_id)):
             .order("created_at", desc=True).limit(60).execute().data or [])
     people = {(t["id"], r["user_id"]): r for t in feed["towns"] for r in t["residents"]}
     posts = post_items(uid, sigs, towns, people, friends, now)
+    add_responses(db, uid, posts, people, friends)
     feed["items"] = sorted(feed["items"] + posts, key=lambda it: it["at"] or "", reverse=True)[:50]
     # The real layout, so town cards can draw each town as it is (roads, parks, friends' houses in their colors)
     layouts = {m["town_id"]: town_layout((m.get("towns") or {}), [x for x in members if x["town_id"] == m["town_id"]]) for m in mine}
     for t in feed["towns"]:
         t["layout"] = layouts.get(t["id"])
     return feed
+
+
+def add_responses(db, uid: str, posts: list[dict], people: dict[tuple[str, str], dict], friends: dict[str, dict]):
+    """Reactions and comments on the posts in your feed (backend/routes/posts.py writes them)."""
+    sids = [p["id"].removeprefix("post:") for p in posts if p["audience"] != "private"]
+    if not sids:
+        return
+    try:
+        reactions = db.table("post_reactions").select("signal_id, user_id, emoji").in_("signal_id", sids).execute().data or []
+        comments = (db.table("post_comments").select("*").in_("signal_id", sids).order("created_at")
+                    .limit(500).execute().data or [])
+    except APIError:  # migration 20260926000018 not applied yet: posts still show, just without responses
+        return
+    known = {u: p for (t, u), p in people.items()}
+    missing = [u for u in {c["user_id"] for c in comments} if u not in known and u not in friends]
+    profiles = {p["id"]: p for p in (db.table("profiles").select("id, display_name, avatar").in_("id", missing)
+                                     .execute().data or [])} if missing else {}
+
+    def author(user_id: str, town_id: str | None) -> dict:
+        p = people.get((town_id, user_id)) or known.get(user_id)
+        if p:
+            return {"name": p.get("name"), "photo": p.get("photo"), "color": p.get("color")}
+        prof = friends.get(user_id) or profiles.get(user_id) or {}
+        return {"name": prof.get("display_name"), "photo": (prof.get("avatar") or {}).get("photo"), "color": None}
+
+    with_responses(posts, reactions, comments, uid, author)
 
 
 @router.get("/stats")

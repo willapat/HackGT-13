@@ -77,6 +77,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   // Otherwise a named building (a place or a friend's house) opens its card (buildings.js)
   for (let o = raycaster.intersectObjects(clickable, true)[0]?.object; o; o = o.parent) {
     if (o.userData.buildingId) return dispatchEvent(new CustomEvent('town:building', { detail: o.userData.buildingId }));
+    if (o.userData.mailboxOf) return dispatchEvent(new CustomEvent('town:mailbox', { detail: o.userData.mailboxOf }));
   }
   dispatchEvent(new CustomEvent('town:close-building'));
 });

@@ -121,7 +121,7 @@ class PlaceChoice(BaseModel):
 `data = parse_raw_json(raw)`; `PlaceChoice.model_validate(data)`; if `place_id` is not `MISC` and not
 in `{p["id"] for p in places}`, return `MISC`. Wrap the whole call in `try/except Exception` → `MISC`.
 
-## Cache: migration `supabase/migrations/20260926000019_calendar_place_guesses.sql`
+## Cache: migration `supabase/migrations/20260926000021_calendar_place_guesses.sql`
 
 The calendar loop re-syncs every 5 minutes (`CALENDAR_SYNC_INTERVAL_SECONDS`), so the same event must
 not cost a model call every time. Idempotent migration:

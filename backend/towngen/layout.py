@@ -24,9 +24,19 @@ def grid_size(n: int) -> int:
     return n if n % 2 else n + 1
 
 
-def default_palettes(size: int) -> tuple[list[str], list[str]]:
-    """Big grids get a tall downtown; small ones stay town-scale."""
+def default_palettes(size: int, style: str | None = None) -> tuple[list[str], list[str]]:
+    """(buildings around the park, buildings further out). A style fixes them: a city has towers, a town mid-rises,
+    suburbs and villages only small shops and houses. Without one, big grids get a tall downtown."""
+    by_style = {"city": (TALL, MID), "town": (MID, SMALL), "suburbs": (SMALL, HOUSES), "village": (SMALL, HOUSES)}
+    if style in by_style:
+        return by_style[style]
     return (TALL, MID) if size >= LARGE else (MID, SMALL)
+
+
+def building_share(plan: TownPlan) -> float:
+    """How many street-facing city lots get a building; the rest become gardens, picnic spots and trees."""
+    share = {"village": 0.6, "suburbs": 0.8}.get(plan.style, 1.0)
+    return max(0.35, min(1.0, share + {"less": 0.15, "lots": -0.2}.get(plan.greenery, 0)))
 
 
 def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
@@ -154,6 +164,8 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
     inner_front = sorted([(x, y) for y in range(N) for x in range(N) if free(x, y) and not outer(x, y) and frontage(x, y)],
                          key=lambda t: angle(*t))
     wanted = [p for p in plan.places if p.id not in places and p.model in BUILDINGS]
+    if plan.style in ("suburbs", "village"):  # no skyscrapers, even for a named place
+        wanted = [p.model_copy(update={"model": SMALL[i % len(SMALL)]}) if p.model in TALL else p for i, p in enumerate(wanted)]
     # More places than city lots: the rest go on street-facing suburb lots, so every requested place is built
     extra = sorted([(x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y) and frontage(x, y)], key=lambda t: angle(*t))
     spots = spread(inner_front, min(len(wanted), len(inner_front))) + spread(extra, max(0, len(wanted) - len(inner_front)))
@@ -162,31 +174,43 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
         places[p.id] = {"name": p.name, "model": p.model, "tile": [x, y], "door": road_next_to(x, y)}
 
     # ---- The rest of the city: every street-facing lot gets a building; tallest palette around the park
-    core_pal, mid_pal = default_palettes(N)
-    core_pal = [m for m in plan.core_models if m in BUILDINGS] or core_pal
-    mid_pal = [m for m in plan.middle_models if m in BUILDINGS] or mid_pal
+    core_pal, mid_pal = default_palettes(N, plan.style)
+    if plan.style is None or plan.custom_style:  # a style's palettes are the point of picking it
+        core_pal = [m for m in plan.core_models if m in BUILDINGS] or core_pal
+        mid_pal = [m for m in plan.middle_models if m in BUILDINGS] or mid_pal
+    share = building_share(plan)
+    decor = list(dict.fromkeys(plan.decor or ["garden"])) + ["tree", "oak"]
     for x, y in [(x, y) for y in range(N) for x in range(N) if free(x, y) and not outer(x, y) and frontage(x, y)]:
-        T[y][x] = varied(core_pal if max(abs(x - c), abs(y - c)) <= dists[0] + 1 else mid_pal, x, y)
+        if rng.random() < share:
+            T[y][x] = varied(core_pal if max(abs(x - c), abs(y - c)) <= dists[0] + 1 else mid_pal, x, y)
+        else:
+            T[y][x] = varied(decor, x, y)
     # (inner lots with no street stay "lot": the frontend makes them courtyards)
 
     # ---- Suburbs: a few background houses spread along the streets, decor everywhere else
     street = sorted([(x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y) and frontage(x, y)],
                     key=lambda t: angle(*t))
-    k = round(min(0.35, max(0.0, plan.background_density)) * len(street))
+    density = {"suburbs": 0.35, "village": 0.25}.get(plan.style, plan.background_density)
+    density += {"less": 0.1, "lots": -0.1}.get(plan.greenery, 0)
+    k = round(min(0.35, max(0.1, density)) * len(street))
     pick = set(spread(street, k))
     homes = []
     for x, y in sorted(pick):
         T[y][x] = varied(HOUSES, x, y)
         homes.append({"model": T[y][x], "house": [x, y]})
     # Street-side scenes: the plan's decor, plus trees, scattered at random (no two alike side by side)
-    decor = list(dict.fromkeys(plan.decor or ["garden"])) + ["tree", "oak"]
     for x, y in sorted(t for t in street if t not in pick):
         T[y][x] = varied(decor, x, y)
     # Behind the street: mostly trees and gardens, with the odd bushy lot, picnic spot or big oak
     for x, y in [(x, y) for y in range(N) for x in range(N) if free(x, y) and outer(x, y)]:
-        T[y][x] = varied(["tree", "garden", "lot", "picnic", "oak"], x, y, weights=[4, 4, 2, 1, 1])
+        leafy = {"lots": [6, 4, 1, 1, 3], "less": [2, 3, 4, 1, 1]}.get(plan.greenery, [4, 4, 2, 1, 1])
+        T[y][x] = varied(["tree", "garden", "lot", "picnic", "oak"], x, y, weights=leafy)
 
-    town_map = {"places": places, "home_slots": slots, "background_homes": {"color": plan.background_color, "homes": homes}}
+    # Houses in the middle rings (suburbs, villages) share the background houses' roof colour
+    homes += [{"model": T[y][x], "house": [x, y]} for y in range(N) for x in range(N)
+              if T[y][x] in HOUSES and not outer(x, y) and [x, y] not in [h["house"] for h in homes]]
+    town_map = {"places": places, "home_slots": slots, "background_homes": {"color": plan.background_color, "homes": homes},
+                "landscape": plan.landscape, "style": plan.style or ("city" if core_pal is TALL else "town")}
     if landmarks:
         town_map["landmarks"] = landmarks
     if plan.theme:
@@ -194,7 +218,7 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
     return T, town_map
 
 
-def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1) -> list[str]:
+def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1, dense_core: bool = True) -> list[str]:
     """Checks the town rules on a built town. Empty list = OK. Used by tests and after every build."""
     out = []
     N = len(tiles)
@@ -225,11 +249,11 @@ def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1) -> l
     building = lambda k: "/" in k
     inner = [tiles[y][x] for y in range(N) for x in range(N) if not outer(x, y) and tiles[y][x] != "road"]
     suburb = [tiles[y][x] for y in range(N) for x in range(N) if outer(x, y) and tiles[y][x] != "road"]
-    if suburb and sum(map(building, inner)) / len(inner) <= sum(map(building, suburb)) / len(suburb):
+    if dense_core and suburb and sum(map(building, inner)) / len(inner) <= sum(map(building, suburb)) / len(suburb):
         out.append("the city centre isn't denser than the suburbs")
     street = [(x, y) for y in range(N) for x in range(N) if outer(x, y) and tiles[y][x] != "road"
               and any((x + a, y + b) in walk and tiles[y + b][x + a] == "road" for a, b in NEIGHBORS if 0 <= x + a < N and 0 <= y + b < N)]
-    bg = town_map.get("background_homes", {}).get("homes", [])
+    bg = [h for h in town_map.get("background_homes", {}).get("homes", []) if outer(*h["house"])]  # the suburb ring's
     if street and len(bg) > 0.35 * len(street):
         out.append("too many background houses")
     # Everyone can reach every place and home from the roads

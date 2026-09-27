@@ -8,6 +8,7 @@ so only fully shareable facts are kept at all.
 
 from backend.models.brain import BrainOutput, MemberState
 from backend.models.enums import Mood, Visibility
+from backend.posts import is_post
 
 LEVELS = [Visibility.full.value, Visibility.mood.value, Visibility.vague.value, Visibility.hidden.value]  # least → most private
 NEUTRAL_MOOD = Mood.cloudy.value
@@ -61,7 +62,13 @@ def apply_visibility(output: BrainOutput, signals: list[dict], members: list[dic
 
     # News is free text the whole town sees: drop it if anyone in this run shared less than fully.
     private_run = any(lv != Visibility.full.value for lv in levels.values())
-    news = [] if private_run else list(output.news)
+    # Posts already show word for word, so no news about them. News that cites nothing is only kept in a
+    # run without posts, where it can't be a restated post.
+    posts = {s.get("id") for s in signals if is_post(s)}
+    news = [] if private_run else [
+        n for n in output.news
+        if not posts & set(n.source_signal_ids) and (n.source_signal_ids or not posts)
+    ]
 
     quests = [
         q for q in output.quest_candidates

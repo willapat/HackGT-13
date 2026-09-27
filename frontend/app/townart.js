@@ -4,13 +4,20 @@
 // the middle, houses at the edge). Drawn once per layout and cached as an image.
 
 const cache = new Map();
-const W = 780, H = 240; // about 2x the card banner (same shape), so it stays crisp
+const BANNER_W = 780, BANNER_H = 240; // about 2x the card banner (same shape), so it stays crisp
 
 const GROUND = {
   road: '#8b909c', driveway: '#cfc8bc', plaza: '#e4ddcf', patio: '#e4ddcf', farm: '#d6b25f',
-  pond: '#4fb0e6', water: '#4fb0e6', fountain: '#e4ddcf', stadium: '#c9ced6',
+  pond: '#4fb0e6', water: '#4fb0e6', fountain: '#e4ddcf', stadium: '#c9ced6', lake: '#4fb0e6', sand: '#ecd9a6', bridge: '#8b909c',
 };
-const GRASS = '#8fd07a';
+// Ground and leaf colours per landscape (towns.map.landscape), like the 3D town's
+const LANDS = {
+  green: { grass: '#8fd07a', leaves: ['#3f9a4a', '#2f8a3e'] },
+  autumn: { grass: '#c9c070', leaves: ['#e0782c', '#c9462e', '#e3a92a'] },
+  snowy: { grass: '#eef2f6', leaves: ['#4f8a5a', '#3f7a4c'] },
+  desert: { grass: '#e6cd96', leaves: ['#a3a064', '#9a9a5c'] },
+};
+let GRASS = LANDS.green.grass, LEAVES = LANDS.green.leaves;
 const FACADES = ['#f1ece4', '#dfe5ee', '#f4e7cf', '#d5dde8', '#ecd9cc', '#e2e8dc'];
 
 const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
@@ -25,6 +32,8 @@ function classify(kind, x, y, n, m, homesAt, bgColor, roadNear) {
   if (kind in GROUND) return { ground: GROUND[kind], kind };
   if (kind === 'home') return { ground: GRASS, obj: 'house', roof: homesAt.get(`${x},${y}`) || '#d9534f', owned: true };
   if (['tree', 'oak'].includes(kind)) return { ground: GRASS, obj: kind };
+  if (kind === 'forest') return { ground: '#6fb35e', obj: 'tree' };
+  if (kind === 'campfire') return { ground: GRASS, obj: 'picnic' };
   if (kind === 'garden') return { ground: GRASS, obj: 'flowers' };
   if (kind === 'picnic') return { ground: GRASS, obj: 'picnic' };
   if (kind === 'path') return { ground: GRASS, obj: 'path' };
@@ -46,20 +55,24 @@ function classify(kind, x, y, n, m, homesAt, bgColor, roadNear) {
   return { ground: GRASS }; // park, yard, bench-*, and anything unknown
 }
 
-export function drawTown(layout) {
-  const key = JSON.stringify(layout);
+// `whole: true` draws the entire map (the create-town preview) instead of the card banner's close-up
+export function drawTown(layout, { whole = false } = {}) {
+  const key = JSON.stringify(layout) + whole;
   if (cache.has(key)) return cache.get(key);
   const tiles = layout.tiles;
   const m = tiles.length, n = tiles[0].length;
+  ({ grass: GRASS, leaves: LEAVES } = LANDS[layout.landscape] || LANDS.green);
+  const [W, H] = whole ? [760, 470] : [BANNER_W, BANNER_H];
   const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const g = canvas.getContext('2d');
 
-  // Zoomed in on the middle of town: the grid spans most of the width and the far and near corners crop off,
-  // like looking down a street at the center with the edge of town trailing away
-  const tw = (W * 0.8) / ((n + m) / 2);
+  // Banner: zoomed in on the middle of town: the grid spans most of the width and the far and near corners crop
+  // off, like looking down a street at the center with the edge of town trailing away. Whole: all of it, sitting
+  // at the bottom so buildings have room to rise.
+  const tw = (W * (whole ? 0.94 : 0.8)) / ((n + m) / 2);
   const th = tw / 2;
   const ox = W / 2 - ((n - m) * tw) / 4;
-  const oy = H * 0.62 - (n + m) * th / 4;
+  const oy = whole ? H - 18 - (n + m) * th / 2 : H * 0.62 - (n + m) * th / 4;
   const P = (x, y, z = 0) => [ox + (x - y) * tw / 2, oy + (x + y) * th / 2 - z * tw];
 
   const homesAt = new Map();
@@ -123,7 +136,7 @@ export function drawTown(layout) {
         const r = tw * (t.obj === 'oak' ? 0.3 : 0.22);
         g.fillStyle = 'rgba(0,0,0,0.15)'; g.beginPath(); g.ellipse(a, b, r, r / 2, 0, 0, 7); g.fill();
         g.fillStyle = '#6b4a2b'; g.fillRect(a - tw / 40, b - r * 1.2, tw / 20, r * 1.2);
-        g.fillStyle = t.obj === 'oak' ? '#2f8a3e' : '#3f9a4a'; g.beginPath(); g.arc(a, b - r * 1.5, r, 0, 7); g.fill();
+        g.fillStyle = LEAVES[Math.floor(hash(x * 3, y) * LEAVES.length)]; g.beginPath(); g.arc(a, b - r * 1.5, r, 0, 7); g.fill();
         g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.arc(a - r * 0.3, b - r * 1.8, r * 0.45, 0, 7); g.fill();
       }
       if (t.obj === 'house') {

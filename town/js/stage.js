@@ -31,7 +31,7 @@ function fitCamera() {
 }
 fitCamera();
 addEventListener('resize', fitCamera);
-export const OPEN_ZOOM = 1.35; // the view the town opens at
+export const OPEN_ZOOM = 0.95; // the view the town opens at (the whole town and its name)
 camera.zoom = OPEN_ZOOM; // scroll out to see the whole town
 camera.updateProjectionMatrix();
 
@@ -48,7 +48,10 @@ controls.minZoom = 0.6;
 controls.maxZoom = 5;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = 1.15;
-controls.target.set(0, 0, 0);
+// Aim a little past the centre so the town's name (sign.js, behind the far corner) is in the opening view too
+const LIFT = N * 0.07;
+controls.target.set(-LIFT, 0, -LIFT);
+camera.position.set(14 - LIFT, 13, 14 - LIFT);
 
 export const hemi = new THREE.HemisphereLight('#ffffff', '#8a9a7a', 1.6);
 scene.add(hemi);

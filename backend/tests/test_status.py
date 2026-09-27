@@ -24,4 +24,9 @@ def test_calendar_makes_you_busy_unless_you_set_a_status_yourself():
     assert cal == {"status": "busy", "until": block["until"], "since": block["since"], "source": "calendar"}
     free = {"status": "free", "status_until": (NOW + timedelta(hours=1)).isoformat()}
     assert effective_status(free, NOW, block)["status"] == "free"  # "free anyway" beats the calendar
+    busy = {"status": "busy", "status_until": (NOW + timedelta(hours=3)).isoformat()}
+    mine = effective_status(busy, NOW, block)  # a busy you set is yours: your time, not the calendar's
+    assert mine == {"status": "busy", "until": busy["status_until"]} and "source" not in mine
+    lapsed = {"status": "free", "status_until": (NOW - timedelta(minutes=1)).isoformat()}
+    assert effective_status(lapsed, NOW, block)["source"] == "calendar"  # once yours runs out, the calendar is back
     assert effective_status({}, NOW, None) is None

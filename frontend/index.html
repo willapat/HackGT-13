@@ -212,6 +212,11 @@
             <h3>Sent requests</h3>
             <ul class="people" id="outgoing"></ul>
           </div>
+          <div class="card" id="suggest-section" hidden>
+            <h3>People you may know</h3>
+            <p class="sub">Friends of your friends, and people in your towns.</p>
+            <ul class="people scroll" id="suggestions"></ul>
+          </div>
         </div>
       </section>
 
@@ -600,14 +605,19 @@
   <dialog id="create-dialog" class="wide-dialog">
     <form method="dialog" id="create-form" novalidate>
       <h2>Create a town</h2>
-      <p>Describe the town you'd like and the town planner will build it for you. It starts small and grows as friends move in.</p>
+      <p>Describe the town you'd like and pick how it looks. You'll see the design before it's built, and can ask for changes. It grows as friends move in.</p>
       <label>What should it be like?
-        <textarea id="create-prompt" rows="4" maxlength="1000" placeholder="A cozy seaside village with a climbing gym, a park and lots of trees"></textarea>
+        <textarea id="create-prompt" rows="4" maxlength="1000" placeholder="A cozy snowy village with a hot cocoa café and a bookshop"></textarea>
         <span class="hint" id="create-prompt-hint"></span>
       </label>
       <label>Town name <span class="hint">(optional: leave blank and the planner names it)</span>
         <input id="create-name" maxlength="60" autocomplete="off" placeholder="e.g. Tidepool" />
       </label>
+      <div class="field-label">How it looks</div>
+      <p class="hint" style="margin:-4px 0 8px">Optional: leave any row unpicked and the planner decides from your description.</p>
+      <div class="chips look-row" id="create-landscape" role="radiogroup" aria-label="Landscape"></div>
+      <div class="chips look-row" id="create-style" role="radiogroup" aria-label="Style"></div>
+      <div class="chips look-row" id="create-greenery" role="radiogroup" aria-label="Greenery" style="margin-bottom:14px"></div>
       <div class="field-label">Places in your town <span class="count" id="create-places-count"></span></div>
       <p class="hint" style="margin:-4px 0 8px">Pick the places you want friends to hang out at. Pick none and the planner chooses for you.</p>
       <div class="chips" id="create-places" role="group" aria-label="Places in your town"></div>
@@ -629,10 +639,40 @@
     </form>
   </dialog>
 
+  <!-- Review a designed town before it's created: approve it, ask for changes, or try another design -->
+  <dialog id="review-dialog" class="wide-dialog">
+    <form method="dialog" id="review-form" novalidate>
+      <h2 id="review-title"></h2>
+      <p id="review-theme"></p>
+      <div class="review-art" id="review-art"></div>
+      <p class="hint" id="review-key">Your home is the purple roof; the gray ones are for the friends you invite.</p>
+      <div class="chips" id="review-places" aria-label="Places in this town"></div>
+      <p class="hint" id="review-changed" hidden></p>
+      <label>Want changes?
+        <textarea id="review-feedback" rows="2" maxlength="600" placeholder="Make the lake bigger, put the café by the beach, add a campfire…"></textarea>
+      </label>
+      <p class="msg" id="review-msg" hidden></p>
+      <div class="actions-row">
+        <button value="back" formnovalidate>Back</button>
+        <span style="flex:1"></span>
+        <button value="fresh" id="review-fresh">Try another design</button>
+        <button value="revise" id="review-revise" disabled>Redo with changes</button>
+        <button value="ok" class="primary" id="review-ok">Create this town</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Invite friends to a town you created -->
   <dialog id="invite-dialog" class="wide-dialog">
     <form method="dialog" id="invite-form" novalidate>
       <h2 id="invite-title"></h2>
+      <div class="field-label">Invite code</div>
+      <div class="row invite-code">
+        <input class="pill" id="invite-code" readonly aria-label="Invite code" />
+        <button type="button" id="invite-copy">Copy</button>
+      </div>
+      <p class="hint">Anyone with the code can join from Your towns → Join with a code.</p>
+      <div class="field-label">Or invite friends</div>
       <p>They'll get it in their Inbox and pick their name and color when they join.</p>
       <input class="filter" id="invite-filter" type="search" placeholder="Search your friends" autocomplete="off" autocapitalize="off" spellcheck="false" hidden />
       <ul class="people scroll" id="invite-friends"></ul>

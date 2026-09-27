@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
 import { activeCam, focusOn, stopFollow } from './camera.js';
+import { refreshHouseLabel } from './effects.js';
 import { renderer } from './stage.js';
 import { topOf } from './city.js';
 import { $, logFeed } from './hud.js';
@@ -18,7 +19,7 @@ getSupabase().then((sb) => sb.auth.getSession()).then(({ data }) => { meId = dat
 const isHouse = (id) => id.startsWith('house:');
 const houseOwner = (id) => friends[id.slice(6)];
 const nameOf = (id) => (isHouse(id) ? houseOwner(id)?.home?.name || 'A house' : PLACES[id]?.name || id);
-const townTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+const townTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); // viewer's own time
 
 // Known place ids (towngen catalog, plus the parks and landmarks a town can name). Anything else stays "Place".
 const KIND = {
@@ -174,6 +175,7 @@ function close() {
 
 addEventListener('town:building', (e) => open(e.detail));
 addEventListener('town:close-building', () => close());
+addEventListener('town:mail-open', close); // one floating card at a time (mine.js)
 $('#bld-close').onclick = close;
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && openId) close(); });
 
@@ -203,7 +205,7 @@ $('#bld-rename').onsubmit = async (e) => {
   try {
     const row = await api(`/towns/${TOWN_ID}/members/me/home`, { method: 'PATCH', body: { name: name || null } });
     me.home.name = row.home?.name || `${me.name}'s house`;
-    me.homeLabel.el.textContent = me.home.name;
+    refreshHouseLabel(me);
     logFeed(`You renamed your house to “${me.home.name}”.`);
     render();
   } catch (err) {
@@ -213,13 +215,30 @@ $('#bld-rename').onsubmit = async (e) => {
   }
 };
 
+// Travel time in seconds (quick demo walks) or minutes (real-life pace), remembered on this device
+const UNIT_KEY = 'luma-travel-unit';
+const unitName = (unit, n) => (unit === 'min' ? (n === 1 ? 'minute' : 'minutes') : (n === 1 ? 'second' : 'seconds'));
+function syncTravelUnit() {
+  $('#bld-minutes').setAttribute('aria-label', $('#bld-unit').value === 'min' ? 'Minutes to get there' : 'Seconds to get there');
+}
+try {
+  const saved = localStorage.getItem(UNIT_KEY);
+  if (saved === 'sec' || saved === 'min') $('#bld-unit').value = saved;
+} catch { /* private mode: keep the default */ }
+syncTravelUnit();
+$('#bld-unit').onchange = () => {
+  try { localStorage.setItem(UNIT_KEY, $('#bld-unit').value); } catch { /* not saved; still used this time */ }
+  syncTravelUnit();
+};
+
 $('#bld-go').onsubmit = async (e) => {
   e.preventDefault();
   const me = friends[meId];
   if (!me || !openId) return;
-  const minutes = Math.round(Number($('#bld-minutes').value));
-  if (!(minutes >= 1 && minutes <= 180)) {
-    logFeed('Pick a travel time between 1 and 180 minutes.');
+  const unit = $('#bld-unit').value;
+  const amount = Math.round(Number($('#bld-minutes').value));
+  if (!(amount >= 1 && amount <= 180)) {
+    logFeed(`Pick a travel time between 1 and 180 ${unitName(unit, 2)}.`);
     return;
   }
   const here = tileOf(me);
@@ -228,9 +247,10 @@ $('#bld-go').onsubmit = async (e) => {
   try {
     await api(`/towns/${TOWN_ID}/members/me/move`, {
       method: 'POST',
-      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: minutes },
+      body: { building_id: openId, from_x: here.x, from_y: here.y, travel_minutes: unit === 'min' ? amount : amount / 60 },
     });
-    logFeed(`You head to ${nameOf(openId)} (${minutes} min).`);
+    logFeed(`You head to ${nameOf(openId)} (${amount} ${unitName(unit, amount)}).`);
+    close();
   } catch (err) {
     logFeed(`Couldn't head there: ${err.message}`);
   } finally {

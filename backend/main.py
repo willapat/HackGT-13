@@ -9,7 +9,7 @@ from postgrest.exceptions import APIError
 from backend.loops.agent_loop import agent_loop
 from backend.loops.brain_loop import brain_loop
 from backend.loops.calendar_loop import calendar_loop
-from backend.routes import calendar, demo, events, friends, invites, me, signals, towns
+from backend.routes import calendar, demo, events, friends, invites, mailbox, me, posts, signals, towns
 
 
 @asynccontextmanager
@@ -37,15 +37,15 @@ app.add_middleware(
 
 
 # Database errors come back as JSON (with CORS headers) instead of a bare 500 the browser reports as
-# "can't reach the backend". A missing column means a migration hasn't been applied yet.
+# "can't reach the backend". A missing column or table means a migration hasn't been applied yet.
 @app.exception_handler(APIError)
 def database_error(request: Request, exc: APIError):
-    if exc.code in ("PGRST204", "42703"):
-        return JSONResponse(status_code=503, content={"detail": "The database is missing a column this needs. Apply the latest migration (it lands when the branch merges to main)."})
+    if exc.code in ("PGRST204", "42703", "PGRST205", "42P01"):
+        return JSONResponse(status_code=503, content={"detail": "The database is missing a column or table this needs. Apply the latest migration (it lands when the branch merges to main)."})
     return JSONResponse(status_code=502, content={"detail": f"Database error: {exc.message}"})
 
 
-for module in (me, calendar, friends, invites, signals, towns, events, demo):
+for module in (me, calendar, friends, invites, signals, posts, towns, mailbox, events, demo):
     app.include_router(module.router)
 
 

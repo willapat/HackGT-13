@@ -6,6 +6,7 @@ start/end are ISO timestamps with an offset. `kind` is one of KINDS.
 
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from backend.config import settings
 from backend.db import parse_ts
@@ -22,8 +23,25 @@ _clock_cached_at = 0.0
 CALENDAR_SOURCE = "calendar"
 CALENDAR_TYPE = "calendar_event"
 KINDS = {"class", "work", "social", "activity", "appointment"}
-# The demo runs in Atlanta. September is EDT; switch to zoneinfo if the demo ever crosses a DST change.
-TOWN_TZ = timezone(timedelta(hours=-4), "ET")
+# Times are stored and compared in UTC. TOWN_TZ is the town clock's zone and the fallback for text when we don't
+# know whose time it is; a real zone, so daylight saving is handled. Each person's own zone is profiles.timezone,
+# and the 3D town shows times and the sky in the viewer's zone.
+TOWN_TZ = ZoneInfo("America/New_York")
+
+
+def tz_for(name: str | None) -> ZoneInfo:
+    """A person's time zone from profiles.timezone, or the fallback when it's missing or unknown."""
+    try:
+        return ZoneInfo(name) if name else TOWN_TZ
+    except (ZoneInfoNotFoundError, ValueError):
+        return TOWN_TZ
+
+
+def user_tz(db, user_id: str | None) -> ZoneInfo:
+    if not user_id:
+        return TOWN_TZ
+    rows = db.table("profiles").select("*").eq("id", user_id).limit(1).execute().data or []  # * : works before the column exists
+    return tz_for((rows[0] if rows else {}).get("timezone"))
 
 
 def project_town_time(
@@ -108,7 +126,10 @@ def _load_clock_row() -> dict | None:
         "rate": 1,
         "updated_at": now_iso(),
     }
-    db.table("town_clock").upsert(row, on_conflict="town_id").execute()
+    try:
+        db.table("town_clock").upsert(row, on_conflict="town_id").execute()
+    except Exception as exc:  # DEMO_TOWN_ID names a town that no longer exists: run on this clock, unsaved
+        print(f"[clock] can't save town_clock for DEMO_TOWN_ID {town_id}: {exc}", flush=True)
     return _remember(row)
 
 
@@ -189,10 +210,12 @@ def free_slots(
     day_start_hour: int = 9,
     day_end_hour: int = 22,
     count: int = 3,
+    tz: ZoneInfo = TOWN_TZ,
 ) -> list[dict]:
-    """First free window per day that nobody's calendar overlaps, then more from any day, up to `count`."""
+    """First free window per day that nobody's calendar overlaps, then more from any day, up to `count`.
+    Days and hours (9am-10pm) are in `tz`, the time zone of the person the plan is for."""
     blocks = [b for bs in busy.values() for b in bs]
-    first_day = now.astimezone(TOWN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    first_day = now.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
     per_day: list[list[datetime]] = []
     for d in range(days):
         day = first_day + timedelta(days=d)
@@ -209,17 +232,17 @@ def free_slots(
             if len(picked) >= count:
                 break
             picked.append(t)
-    return [{"start": t.isoformat(), "end": (t + duration).isoformat(), "label": label(t)} for t in sorted(picked)]
+    return [{"start": t.isoformat(), "end": (t + duration).isoformat(), "label": label(t, tz)} for t in sorted(picked)]
 
 
-def label(t: datetime) -> str:
-    t = t.astimezone(TOWN_TZ)
+def label(t: datetime, tz: ZoneInfo = TOWN_TZ) -> str:
+    t = t.astimezone(tz)
     hour = t.strftime("%I").lstrip("0")
     return f"{t.strftime('%a %b')} {t.day}, {hour}:{t.strftime('%M%p').lower()}"
 
 
-def window_label(start: datetime, end: datetime) -> str:
-    start, end = start.astimezone(TOWN_TZ), end.astimezone(TOWN_TZ)
+def window_label(start: datetime, end: datetime, tz: ZoneInfo = TOWN_TZ) -> str:
+    start, end = start.astimezone(tz), end.astimezone(tz)
     start_h = start.strftime("%I").lstrip("0")
     end_h = end.strftime("%I").lstrip("0")
     return (

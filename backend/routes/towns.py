@@ -2,20 +2,22 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from postgrest.exceptions import APIError
 
 from backend.auth import current_user_id, require_member
 from backend.config import settings
 from backend.db import get_client, iso_in, now_iso, writer
+from backend.house import BUBBLE_HOURS, MOOD_HOURS, entry
 from backend.identity import check_identity, suggest_color, town_identities
-from backend.models.api import EventCreate, HouseName, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownGenerate, TownUpdate
+from backend.models.api import BubbleIn, EventCreate, HouseName, MoodIn, HouseUpdate, IdentityUpdate, JoinTown, MoveIn, TownCreate, TownGenerate, TownUpdate
 from backend.models.enums import AgentAction, EventStatus, EventType, ParticipantStatus
 from backend.routes.me import plan_town_handoff
 from backend.calendar_drive import destination_for, estimate_travel_minutes, snap_member_to_clock
-from backend.schedules import TOWN_TZ, clock_mode, events_for_users, local_now
+from backend.schedules import clock_mode, events_for_users, local_now, user_tz
 from backend.writer import stamp
 from backend.town_map import buildings, house_building_id, in_bounds
 from backend.towngen import generate_town, grow, needs_to_grow
-from backend.towngen.catalog import LANDMARKS, MAX_PLACES, PLACE_TYPES
+from backend.towngen.catalog import GREENERY, LANDMARKS, LANDSCAPES, MAX_PLACES, PLACE_TYPES, STYLES
 from backend.routes.friends import are_friends
 
 router = APIRouter(prefix="/towns", tags=["towns"])
@@ -54,14 +56,18 @@ def create_town(body: TownCreate, uid: str = Depends(current_user_id)):
 def generate(body: TownGenerate, uid: str = Depends(current_user_id)):
     """Create a town from a description. Gemini designs it (name, buildings, places); backend/towngen lays it out so
     the town rules always hold. It starts sized for 1 member and grows as friends join (see admit). You get the
-    first home plot, and every friend in `invite_user_ids` gets an invite. `preview: true` returns the design unsaved."""
+    first home plot, and every friend in `invite_user_ids` gets an invite. `preview: true` returns the design unsaved;
+    `revise` redraws a preview with the user's notes; `design` (a preview's `plan`) builds that exact town."""
     db = get_client()
     invitees = list(dict.fromkeys(str(i) for i in body.invite_user_ids if str(i) != uid))
     strangers = [i for i in invitees if not are_friends(db, uid, i)]
     if strangers:  # checked before the (slow) generation so nothing is half-made
         raise HTTPException(status_code=422, detail="you can only invite your friends")
+    if not body.preview and body.me is None:
+        raise HTTPException(status_code=422, detail="pick your name and color in the town first")
     made = generate_town(body.prompt, members=1, name=body.name, places=body.places, custom=body.custom_places,
-                         landmarks=body.landmarks)
+                         landmarks=body.landmarks, revision=body.revise.model_dump() if body.revise else None,
+                         design=body.design, look={"landscape": body.landscape, "style": body.style, "greenery": body.greenery})
     if body.preview:
         return made
     town = db.table("towns").insert(
@@ -81,6 +87,9 @@ def place_options(uid: str = Depends(current_user_id)):
     return {
         "places": [{"id": pid, "label": label} for pid, (label, _) in PLACE_TYPES.items()],
         "landmarks": [{"id": lid, "label": label} for lid, label in LANDMARKS.items()],
+        "landscapes": [{"id": k, "label": v} for k, v in LANDSCAPES.items()],
+        "styles": [{"id": k, "label": v} for k, v in STYLES.items()],
+        "greenery": [{"id": k, "label": v} for k, v in GREENERY.items()],
         "max_places": MAX_PLACES,
     }
 
@@ -217,18 +226,52 @@ def town_identity_options(town_id: UUID, uid: str = Depends(current_user_id)):
 @router.patch("/{town_id}/members/me/home")
 def name_my_house(town_id: UUID, body: HouseName, uid: str = Depends(current_user_id)):
     """Name your house in this town (shown on its label). null or "" goes back to "<your name>'s house"."""
-    db, tid = get_client(), str(town_id)
+    name = (body.name or "").strip()
+    return update_my_home(get_client(), str(town_id), uid,
+                          lambda home: home.update(name=name) if name else home.pop("name", None))
+
+
+def update_my_home(db, tid: str, uid: str, change) -> dict:
     mine = require_member(db, tid, uid)
     if mine.get("house_x") is None:
         raise HTTPException(status_code=409, detail="you don't have a house in this town yet")
     home = dict(mine.get("home") or {})
-    name = (body.name or "").strip()
-    if name:
-        home["name"] = name
-    else:
-        home.pop("name", None)
+    change(home)
     return (
         db.table("town_members").update({"home": home, "updated_at": now_iso()})
+        .eq("town_id", tid).eq("user_id", uid).execute().data[0]
+    )
+
+
+@router.put("/{town_id}/members/me/mood")
+def set_house_mood(town_id: UUID, body: MoodIn, uid: str = Depends(current_user_id)):
+    """Put a mood on your house (drawn over it for everyone in the town) for MOOD_HOURS."""
+    return update_my_home(get_client(), str(town_id), uid,
+                          lambda home: home.update(mood=entry("kind", body.mood, MOOD_HOURS)))
+
+
+@router.delete("/{town_id}/members/me/mood")
+def clear_house_mood(town_id: UUID, uid: str = Depends(current_user_id)):
+    return update_my_home(get_client(), str(town_id), uid, lambda home: home.pop("mood", None))
+
+
+@router.put("/{town_id}/members/me/bubble")
+def set_bubble(town_id: UUID, body: BubbleIn, uid: str = Depends(current_user_id)):
+    """Show a short message or emoji above your character for BUBBLE_HOURS."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    return (
+        db.table("town_members").update({"bubble": entry("text", body.text, BUBBLE_HOURS), "updated_at": now_iso()})
+        .eq("town_id", tid).eq("user_id", uid).execute().data[0]
+    )
+
+
+@router.delete("/{town_id}/members/me/bubble")
+def clear_bubble(town_id: UUID, uid: str = Depends(current_user_id)):
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    return (
+        db.table("town_members").update({"bubble": None, "updated_at": now_iso()})
         .eq("town_id", tid).eq("user_id", uid).execute().data[0]
     )
 
@@ -249,8 +292,10 @@ def update_my_identity(town_id: UUID, body: IdentityUpdate, uid: str = Depends(c
 
 
 @router.get("/{town_id}")
-def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
-    """Everything needed to render the town: map, members (with profile and AI-set mood/activity/state), agents."""
+def get_town(town_id: UUID, live: bool = Query(False, description="true: skip the town row (tiles + map); for polling"),
+             uid: str = Depends(current_user_id)):
+    """Everything needed to render the town: map, members (with profile and AI-set mood/activity/state), agents.
+    The 3D town loads the map once (plain call) and then polls with ?live=1: people move, the map doesn't."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
     members = (
@@ -264,16 +309,14 @@ def get_town(town_id: UUID, uid: str = Depends(current_user_id)):
         for m in members
     }
     schedules = events_for_users(
-        db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3),
+        # From yesterday: "today" starts at a different moment for viewers in different time zones
+        db, list(names), now - timedelta(days=1), now + timedelta(days=3),
     )
     for ev in schedules:
         ev["display_name"] = names.get(ev["user_id"]) or "Friend"
-    # town_time is the hour these agent rows were placed for. A slow poll must not draw them
-    # under a different hour on the slider.
-    return {
-        "town": load_town(db, tid), "members": members, "agents": agents, "schedules": schedules,
-        "town_time": now.isoformat(), "mode": clock_mode(),
-    }
+    # town_time re-anchors the client's town clock, which places people and walks (the slider is lighting only).
+    view = {"members": members, "agents": agents, "schedules": schedules, "town_time": now.isoformat(), "mode": clock_mode()}
+    return view if live else {"town": load_town(db, tid), **view}
 
 
 @router.patch("/{town_id}")
@@ -388,6 +431,10 @@ def leave_town(town_id: UUID, uid: str = Depends(current_user_id)):
             return
         db.table("towns").update({"created_by": transfers[tid]}).eq("id", tid).execute()
     db.table("town_members").delete().eq("town_id", tid).eq("user_id", uid).execute()
+    try:  # your mailbox goes with your house (before migration 000019 there is no table)
+        db.table("mailbox_messages").delete().eq("town_id", tid).eq("to_user", uid).execute()
+    except APIError:
+        pass
     if me.get("house_x") is not None:
         free_home_slot(db, load_town(db, tid), (me["house_x"], me["house_y"]))
 
@@ -450,7 +497,7 @@ def building_visits(town_id: UUID, building_id: str, uid: str = Depends(current_
     The 3D town adds who's there now and who's on the way from what it's drawing."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    midnight = datetime.now(TOWN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = datetime.now(user_tz(db, uid)).replace(hour=0, minute=0, second=0, microsecond=0)  # the viewer's own today
     rows = (
         db.table("agent_actions").select("user_id, action, created_at").eq("town_id", tid)
         .filter("details->>target_building_id", "eq", building_id).gte("created_at", midnight.isoformat())

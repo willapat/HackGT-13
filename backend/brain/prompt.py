@@ -34,7 +34,10 @@ What to output:
   mood is the weather over their house (sunny = good news, rainy/stormy = hard
   week, rainbow = something to celebrate, cloudy = neutral). activity is a short
   town-visible caption. props may include {"party_lights": true} for good news.
-- news: at most a couple of short, warm headlines for the town feed.
+- news: at most a couple of short, warm headlines for the town feed. Cite
+  source_signal_ids. Never write news about a post (a signal whose value has
+  "audience"): it already appears on the feed in the person's own words. A post
+  may still change that person's mood, activity and facts.
 - quest_candidates: choose from connection_candidates (pairs a deterministic
   system found sharing an interest, with no active quest). Only propose one if
   the data supports it. title is short; text is a concrete real-world suggestion

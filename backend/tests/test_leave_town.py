@@ -70,7 +70,8 @@ TID = "00000000-0000-0000-0000-000000000001"
 
 def test_member_leaving_just_removes_their_row(monkeypatch):
     writes = leave(monkeypatch, {"towns": [{"id": TID, "created_by": "owner"}]}, "sam")
-    assert writes == [("town_members", "delete", None, {"town_id": TID, "user_id": "sam"})]
+    assert writes == [("town_members", "delete", None, {"town_id": TID, "user_id": "sam"}),
+                      ("mailbox_messages", "delete", None, {"town_id": TID, "to_user": "sam"})]
 
 
 def test_creator_leaving_hands_the_town_to_the_longest_member(monkeypatch):

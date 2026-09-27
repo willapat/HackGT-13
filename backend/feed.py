@@ -26,9 +26,11 @@ def _parse(ts: str | None) -> datetime | None:
 
 
 def build_feed(uid: str, towns: dict[str, str], members: list[dict], runs: list[dict], actions: list[dict],
-               events: list[dict], now: datetime, limit: int = 40, busy: dict[str, dict] | None = None) -> dict:
+               events: list[dict], now: datetime, limit: int = 40, busy: dict[str, dict] | None = None,
+               post_ids: set[str] = frozenset()) -> dict:
     """towns: {town_id: name}. members: town_members rows (with profiles) of those towns. runs: brain_runs.
-    actions: agent_actions. events: events with event_participants. Returns {towns, items, today, inbox}."""
+    actions: agent_actions. events: events with event_participants. post_ids: ids of signals that are posts
+    (posts.is_post). Returns {towns, items, today, inbox}."""
     people = {(m["town_id"], m["user_id"]): {"user_id": m["user_id"], "name": member_name(m) or "Someone", "color": m.get("color"),
                                               "status": effective_status(m.get("profiles"), now, (busy or {}).get(m["user_id"])),
                                               "photo": ((m.get("profiles") or {}).get("avatar") or {}).get("photo")} for m in members}
@@ -42,7 +44,13 @@ def build_feed(uid: str, towns: dict[str, str], members: list[dict], runs: list[
     items = []
     for run in runs:
         tid = run["town_id"]
+        read = set(((run.get("input") or {}).get("signal_ids")) or [])
         for i, n in enumerate(((run.get("output") or {}).get("news")) or []):
+            # A post shows word for word, so skip news about one (runs from before news cited its signals
+            # can't say which headline came from the post, so a run that read one shows no news)
+            cited = set(n.get("source_signal_ids") or [])
+            if post_ids & (cited or read):
+                continue
             items.append({"id": f"news:{run['id']}:{i}", "kind": "news", "town": town(tid), "at": run["created_at"],
                           "actor": None, "title": n.get("title"), "text": n.get("text")})
 
@@ -123,4 +131,6 @@ def town_layout(town: dict, members: list[dict]) -> dict | None:
         return None
     homes = [{"x": m["house_x"], "y": m["house_y"], "block": (m.get("home") or {}).get("block"), "color": m.get("color")}
              for m in members if m.get("house_x") is not None and m.get("house_y") is not None]
-    return {"tiles": tiles, "homes": homes, "background_color": ((town.get("map") or {}).get("background_homes") or {}).get("color")}
+    town_map = town.get("map") or {}
+    return {"tiles": tiles, "homes": homes, "background_color": (town_map.get("background_homes") or {}).get("color"),
+            "landscape": town_map.get("landscape") or "green"}

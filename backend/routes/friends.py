@@ -13,6 +13,7 @@ from backend.db import get_client, now_iso
 from backend.models.api import FriendRequestIn, Respond, Username
 from backend.person import build_person
 from backend.status import calendar_busy, effective_status
+from backend.suggestions import suggest
 
 router = APIRouter(tags=["friends"])
 
@@ -66,6 +67,37 @@ def list_friends(uid: str = Depends(current_user_id)):
     other = {r["id"]: r["to_user"] if r["from_user"] == uid else r["from_user"] for r in rows}
     profiles = _profiles(db, list(other.values()))
     return [{**profiles.get(other[r["id"]], {"id": other[r["id"]]}), "friends_since": r["responded_at"]} for r in rows]
+
+
+@router.get("/friends/suggestions")
+def friend_suggestions(uid: str = Depends(current_user_id)):
+    """People you may know: friends of your friends (with which of your friends you share) and people in a town
+    with you who aren't your friends yet. Name, @username and photo only, like any profile you're not close to."""
+    db = get_client()
+    pairs = db.table("friend_requests").select("from_user, to_user, status").or_(f"from_user.eq.{uid},to_user.eq.{uid}").execute().data or []
+    friends = [r["to_user"] if r["from_user"] == uid else r["from_user"] for r in pairs if r["status"] == "accepted"]
+    friend_pairs = []
+    if friends:
+        ids = ",".join(friends)
+        friend_pairs = (db.table("friend_requests").select("from_user, to_user").eq("status", "accepted")
+                        .or_(f"from_user.in.({ids}),to_user.in.({ids})").execute().data or [])
+    mine = {m["town_id"]: (m.get("towns") or {}).get("name") or "Town"
+            for m in db.table("town_members").select("town_id, towns(name)").eq("user_id", uid).execute().data or []}
+    townmates: dict[str, list[str]] = {}
+    if mine:
+        for m in db.table("town_members").select("town_id, user_id").in_("town_id", list(mine)).neq("user_id", uid).execute().data or []:
+            townmates.setdefault(m["user_id"], []).append(mine[m["town_id"]])
+    picks = suggest(uid, pairs, friend_pairs, townmates, limit=30)
+    ids = list({p["id"] for p in picks} | {f for p in picks for f in p["mutual_ids"]})
+    profiles = {p["id"]: p for p in db.table("profiles").select(PUBLIC_PROFILE).in_("id", ids).execute().data or []} if ids else {}
+    out = []
+    for p in picks:
+        prof = profiles.get(p["id"])
+        if not prof or not prof.get("username"):  # requests go by username; no username yet = can't be added
+            continue
+        mutual = [{"id": f, "display_name": (profiles.get(f) or {}).get("display_name")} for f in p["mutual_ids"]]
+        out.append({**prof, "mutual_friends": mutual[:3], "mutual_count": len(mutual), "shared_towns": p["towns"]})
+    return out[:12]
 
 
 @router.delete("/friends/{user_id}", status_code=204)
