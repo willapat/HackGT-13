@@ -1,15 +1,38 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  },
   "framework": null,
   "installCommand": "",
   "buildCommand": "rm -rf public && mkdir public && cp -R frontend town public/",
   "outputDirectory": "public",
   "redirects": [
-    { "source": "/", "destination": "/frontend/", "permanent": false },
-    { "source": "/frontend", "destination": "/frontend/", "permanent": false },
-    { "source": "/town", "destination": "/town/", "permanent": false }
+    {
+      "source": "/",
+      "destination": "/frontend/",
+      "permanent": false
+    },
+    {
+      "source": "/frontend",
+      "destination": "/frontend/",
+      "permanent": false
+    },
+    {
+      "source": "/town",
+      "destination": "/town/",
+      "permanent": false
+    }
   ],
   "headers": [
-    { "source": "/(.*)\\.(js|css|html)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    {
+      "source": "/(.*)\\.(js|css|html)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
   ]
 }
