@@ -152,6 +152,15 @@
             <div class="at-field"><span>@</span><input id="username-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="maya_chen" /></div>
             <span class="hint" id="username-hint">3–20 characters: lowercase letters, numbers, underscores</span>
           </label>
+          <div class="field-grid socials-fields">
+            <label>Instagram <span class="hint">(optional)</span>
+              <div class="at-field"><span>@</span><input id="signup-instagram" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" placeholder="username or profile link" /></div>
+            </label>
+            <label>Facebook <span class="hint">(optional)</span>
+              <div class="at-field"><span>@</span><input id="signup-facebook" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" placeholder="username or profile link" /></div>
+            </label>
+          </div>
+          <p class="hint" style="margin:-4px 0 12px">Friends and people in your towns see these as links on your profile.</p>
           <button class="primary full" id="username-submit" type="submit" disabled>Continue</button>
           <p class="msg" id="username-msg" hidden></p>
         </form>
@@ -360,6 +369,7 @@
             <div class="profile-body">
               <div class="status-control"></div>
               <p class="bio" id="me-bio"></p>
+              <div class="socials" id="me-socials" hidden></div>
               <a class="bio-add" href="#/settings/profile" id="me-bio-add">+ Add a bio</a>
               <div class="stats"><span><b id="stat-towns">0</b> towns</span><span><b id="stat-friends">0</b> friends</span><span><b id="stat-hangouts">0</b> hangouts</span></div>
             </div>
@@ -405,6 +415,7 @@
             <div class="profile-body">
               <div id="p-status"></div>
               <p class="bio" id="p-bio"></p>
+              <div class="socials" id="p-socials" hidden></div>
               <div class="stats" id="p-stats"></div>
             </div>
           </div>
@@ -477,6 +488,14 @@
                 <label>Bio <span class="hint" id="set-bio-count"></span>
                   <textarea id="set-bio" rows="2" maxlength="160" placeholder="A line about you: what you're into, what you're up to this semester…"></textarea>
                 </label>
+                <div class="field-grid socials-fields">
+                  <label>Instagram <span class="hint">(optional)</span>
+                    <div class="at-field"><span>@</span><input id="set-instagram" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" placeholder="username or profile link" /></div>
+                  </label>
+                  <label>Facebook <span class="hint">(optional)</span>
+                    <div class="at-field"><span>@</span><input id="set-facebook" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" placeholder="username or profile link" /></div>
+                  </label>
+                </div>
                 <label>Interests <span class="hint">(helps the town notice what you have in common; press Enter to add)</span>
                   <div class="chip-input" id="interests-box">
                     <input id="interest-input" maxlength="40" placeholder="climbing, jazz, board games…" autocomplete="off" />

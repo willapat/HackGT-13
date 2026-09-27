@@ -1125,3 +1125,13 @@ button, a, [role="button"], li[data-person], ul.latest li, ul.today li { -webkit
   .card { padding: 16px; }
   .hello h1 { font-size: 24px; }
 }
+
+/* Instagram / Facebook links on profiles */
+.socials { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.socials a {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--line); color: inherit; text-decoration: none; font-size: 13px; font-weight: 600;
+}
+.socials a:hover { border-color: var(--accent); color: var(--accent); }
+.socials a .i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.socials a.fb .i { fill: currentColor; stroke: none; }

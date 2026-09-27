@@ -343,7 +343,9 @@ $('#username-form').onsubmit = async (e) => {
   const btn = $('#username-submit');
   busy(btn, true, 'Saving…');
   try {
-    me = await api('/me', { method: 'PATCH', body: { username, display_name } });
+    const body = { username, display_name };
+    for (const k of ['instagram', 'facebook']) if (socialInput(`#signup-${k}`)) body[k] = socialInput(`#signup-${k}`);
+    me = await api('/me', { method: 'PATCH', body });
     renderIdentity();
     route();
   } catch (err) {
@@ -364,6 +366,28 @@ let allFriends = [];
 let suggestions = []; // GET /friends/suggestions: friends of friends and townmates you haven't added
 let stats = null; // GET /me/stats: highlights, closest people, who to catch up with
 let notices = []; // GET /me/notifications: things that happened to you (a town you were in was deleted)
+
+// Instagram / Facebook links on a profile (the backend builds the URLs from the stored usernames)
+const SOCIAL_ICON = {
+  instagram: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r="0.6"/></svg>',
+  facebook: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 8.5h2.5V5H14a3.5 3.5 0 0 0-3.5 3.5V11H8v3.5h2.5V21H14v-6.5h2.5L17 11h-3V8.5z"/></svg>',
+};
+const socialUrl = { instagram: (u) => `https://www.instagram.com/${u}/`, facebook: (u) => (/^\d+$/.test(u) ? `https://www.facebook.com/profile.php?id=${u}` : `https://www.facebook.com/${u}`) };
+function renderSocials(box, links) {
+  const items = ['instagram', 'facebook'].filter((k) => links?.[k]).map((k) => {
+    const a = el('a', k === 'facebook' ? 'fb' : 'ig');
+    a.href = links[k];
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.innerHTML = SOCIAL_ICON[k];
+    a.append(k === 'instagram' ? 'Instagram' : 'Facebook');
+    return a;
+  });
+  box.replaceChildren(...items);
+  box.hidden = !items.length;
+}
+// What people typed ("@maya", a pasted link) as the API expects; the backend does the real cleanup
+const socialInput = (id) => $(id).value.trim();
 
 function renderChips(el, items) {
   el.innerHTML = '';
@@ -1518,6 +1542,7 @@ function renderPerson(p) {
   if (p.status) $('#p-status').replaceChildren(el('span', `status-on ${p.status.status}`, `${p.status.source === 'calendar' ? '📅 ' : ''}${STATUS_LABEL[p.status.status]} · ${timeLeft(p.status.until)}`));
   $('#p-bio').textContent = p.bio;
   $('#p-bio').hidden = !p.bio;
+  renderSocials($('#p-socials'), p.socials);
   const stats = [];
   if (f.state === 'friends') stats.push('Friends');
   if (p.shared_towns.length) stats.push(`${p.shared_towns.length} ${p.shared_towns.length === 1 ? 'town' : 'towns'} together`);
@@ -1607,6 +1632,7 @@ function renderProfile() {
   $('#me-bio').textContent = me.bio || '';
   $('#me-bio').hidden = !me.bio;
   $('#me-bio-add').hidden = Boolean(me.bio);
+  renderSocials($('#me-socials'), Object.fromEntries(['instagram', 'facebook'].filter((k) => me[k]).map((k) => [k, socialUrl[k](me[k])])));
   $('#stat-towns').textContent = townsIn().length;
   $('#stat-friends').textContent = allFriends.length;
   $('#stat-hangouts').textContent = stats?.hangouts ?? 0;
@@ -1696,6 +1722,8 @@ const profile = (() => {
     $('#set-name').value = me.display_name || '';
     $('#set-username').value = me.username || '';
     $('#set-bio').value = me.bio || '';
+    $('#set-instagram').value = me.instagram || '';
+    $('#set-facebook').value = me.facebook || '';
     paintMyAvatars();
     interests = [...(me.interests || [])];
     message($('#profile-msg'), '');
@@ -1728,6 +1756,10 @@ const profile = (() => {
     const bio = $('#set-bio').value.split(/\s+/).join(' ').trim();
     if (bio !== (me.bio || '')) out.bio = bio;
     if (!same(interests, me.interests || [])) out.interests = interests;
+    for (const k of ['instagram', 'facebook']) {
+      const typed = socialInput(`#set-${k}`).replace(/^@/, '');
+      if (typed !== (me[k] || '')) out[k] = typed; // "" removes it
+    }
     return out;
   }
 
@@ -1763,6 +1795,8 @@ const profile = (() => {
   $('#set-name').oninput = update;
   $('#set-username').oninput = update;
   $('#set-bio').oninput = update;
+  $('#set-instagram').oninput = update;
+  $('#set-facebook').oninput = update;
   $('#interest-input').onkeydown = (e) => {
     const input = e.target;
     if ((e.key === 'Enter' || e.key === ',') && input.value.trim()) { e.preventDefault(); addInterest(input.value); }

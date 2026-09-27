@@ -40,6 +40,9 @@ def update_me(body: ProfileUpdate, uid: str = Depends(current_user_id)):
         changes["bio"] = " ".join(changes["bio"].split())  # one line, no stray whitespace
     if "interests" in changes:
         changes["interests"] = list(dict.fromkeys(i.strip().lower() for i in changes["interests"] if i.strip()))
+    for social in ("instagram", "facebook"):  # "" (after cleanup) means remove it
+        if changes.get(social) == "":
+            changes[social] = None
     if not changes:
         raise HTTPException(status_code=422, detail="nothing to update")
     db = get_client()

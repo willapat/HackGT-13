@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from backend.socials import clean_facebook, clean_instagram
+
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
     str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v), Field(pattern=r"^[a-z0-9_]{3,20}$")
@@ -22,6 +24,20 @@ class ProfileUpdate(BaseModel):
     # IANA name from the browser (Intl), e.g. "America/Los_Angeles": the person's own "today" and plan hours.
     # Times themselves are always stored in UTC.
     timezone: str | None = Field(default=None, max_length=64)
+    # Optional usernames shown as links to friends and townmates. "@name", "name" or a pasted profile link all
+    # work; "" removes it. Cleaned to just the username (backend/socials.py).
+    instagram: str | None = Field(default=None, max_length=200)
+    facebook: str | None = Field(default=None, max_length=200)
+
+    @field_validator("instagram")
+    @classmethod
+    def _instagram(cls, v: str | None) -> str | None:
+        return v if v is None else (clean_instagram(v) or "")
+
+    @field_validator("facebook")
+    @classmethod
+    def _facebook(cls, v: str | None) -> str | None:
+        return v if v is None else (clean_facebook(v) or "")
 
     @field_validator("timezone")
     @classmethod
