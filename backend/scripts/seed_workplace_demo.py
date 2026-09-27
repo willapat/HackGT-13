@@ -136,10 +136,11 @@ OUTER = {
     (15, 5): KS + "building-type-s", (16, 5): "tree",
     (15, 7): SP + "building-house-03-color02", (16, 7): "garden", (15, 8): "tree", (16, 8): "oak",
     (15, 9): KS + "building-type-t", (16, 9): "picnic",
-    # The harbor (bottom right): water, with the pier running out from the road
+    # The harbor (right edge): water, with the pier running out from the road
     (15, 11): "lake", (16, 11): "lake", (15, 12): "path", (16, 12): "lake", (15, 13): "lake", (16, 13): "lake",
-    (11, 15): "lake", (12, 15): "lake", (13, 15): "lake", (11, 16): "lake", (12, 16): "lake", (13, 16): "lake",
-    (15, 15): "lake", (16, 15): "lake", (15, 16): "lake", (16, 16): "lake",
+    # Waterfront green (bottom right, next to the harbor)
+    (11, 15): "garden", (12, 15): "oak", (13, 15): "picnic", (11, 16): "tree", (12, 16): "garden", (13, 16): "oak",
+    (15, 15): "tree", (16, 15): "garden", (15, 16): "oak", (16, 16): "tree",
     # Bottom band (y 15-16): Sofia's home and her street
     (0, 15): "tree", (1, 15): "garden", (0, 16): "oak", (1, 16): "picnic",
     (3, 15): SP + "building-house-01-color03", (4, 15): "garden", (5, 15): KS + "building-type-u",
