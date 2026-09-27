@@ -457,7 +457,9 @@ button { font-family: var(--font-display) !important; }
   #moods { top: calc(124px + env(safe-area-inset-top)); }
   #say-text { font-size: 16px; } /* iOS zooms into smaller text fields */
   #mail-text, #building #bld-rename input { font-size: 16px; }
-  #follow { top: auto; bottom: calc(16px + env(safe-area-inset-bottom)); left: 12px; transform: none; max-width: calc(100vw - 150px); }
+  /* Above the time and day pills, which share this corner. camera.js lifts it by the stack's height. */
+  #follow { top: auto; left: auto; right: 12px; transform: none; width: max-content; max-width: calc(100vw - 24px);
+    bottom: calc(16px + env(safe-area-inset-bottom)); }
   #triggers { bottom: calc(16px + env(safe-area-inset-bottom)); }
 
   /* building.js / mine.js place these over the thing you tapped; on a phone that can land off-screen */

@@ -56,6 +56,20 @@ export function stopFollow() {
 }
 $('#follow-exit').onclick = stopFollow;
 
+// On a phone the time and day pills sit in the bottom corner. The follow bar goes just above that
+// stack, and moves up with it when a menu opens, so neither covers the other.
+const phoneCorner = matchMedia('(max-width: 600px)');
+function liftFollow() {
+  const bar = $('#follow');
+  if (!phoneCorner.matches) { bar.style.bottom = ''; return; }
+  const stack = $('#triggers');
+  const h = stack && getComputedStyle(stack).display !== 'none' ? stack.offsetHeight : 0;
+  bar.style.bottom = `calc(${h + 8}px + 16px + env(safe-area-inset-bottom))`;
+}
+new ResizeObserver(liftFollow).observe($('#triggers'));
+phoneCorner.addEventListener('change', liftFollow);
+liftFollow();
+
 export function recenter() {
   stopFollow();
   focusGoal = null;
