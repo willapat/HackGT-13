@@ -145,9 +145,10 @@ svg.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor;
   border-radius: 16px; color: var(--muted); font-family: var(--font-display); font-weight: 600; font-size: 15px;
   text-decoration: none; transition: background 0.15s, color 0.15s;
 }
-.navtabs a:nth-child(2) { --tile: var(--coral); }
-.navtabs a:nth-child(3) { --tile: var(--sky); }
-.navtabs a:nth-child(4) { --tile: var(--leaf); }
+.navtabs a:nth-child(2) { --tile: var(--plum); }
+.navtabs a:nth-child(3) { --tile: var(--coral); }
+.navtabs a:nth-child(4) { --tile: var(--sky); }
+.navtabs a:nth-child(5) { --tile: var(--leaf); }
 .navtabs a:hover { background: var(--hover); color: var(--ink); text-decoration: none; }
 .navtabs a:hover .tab-icon { transform: rotate(-6deg) scale(1.05); }
 .tab-icon {
@@ -372,6 +373,26 @@ ul.people li.town .name { font-size: 16px; }
     radial-gradient(72% 26% at 78% 106%, var(--hill-1) 98%, transparent 100%),
     linear-gradient(180deg, var(--sky-top), var(--sky-bot));
 }
+.hello-actions { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.hello .status-control { margin: 0; padding: 4px 6px 7px 12px; background: rgba(255, 252, 244, 0.82); border-radius: 999px; }
+:root[data-theme="dark"] .hello .status-control { background: rgba(35, 40, 70, 0.72); }
+.hello .status-control:empty { display: none; }
+.hello-post { white-space: nowrap; }
+
+/* Home's peek at the feed */
+ul.latest { list-style: none; margin: 0 -8px; padding: 0; display: grid; gap: 2px; }
+ul.latest li { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 16px; cursor: pointer; min-width: 0; }
+ul.latest li:hover { background: var(--hover); }
+.latest-icon { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; font-size: 19px; flex: none; }
+.latest-body { min-width: 0; flex: 1; }
+.latest-text { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Feed tab: filter chips over the stream */
+.feed-filters { gap: 8px; flex-wrap: nowrap; overflow-x: auto; margin: 0 -6px; padding: 2px 6px 6px; scrollbar-width: none; }
+.feed-filters::-webkit-scrollbar { display: none; }
+.feed-filters .chip { flex: none; }
+.feed-none { text-align: center; padding: 12px 0; }
+
 .hello .houses { position: absolute; left: 0; right: 0; bottom: 0; height: 60px; pointer-events: none; }
 
 .tab-icon .dot-badge, .dot-badge {
@@ -786,7 +807,7 @@ dialog {
   border: 2px solid var(--line); border-radius: 26px; padding: 0; width: min(440px, calc(100vw - 32px));
   background: var(--panel); color: var(--ink); box-shadow: var(--shadow-pop);
 }
-dialog:focus, dialog:focus-visible { outline: none; }
+dialog:focus, dialog:focus-visible, dialog form:focus, dialog form:focus-visible { outline: none; }
 dialog[open] { animation: pop-in 0.2s cubic-bezier(0.3, 1.4, 0.5, 1); }
 dialog::backdrop { background: rgba(74, 57, 40, 0.35); backdrop-filter: blur(3px); }
 :root[data-theme="dark"] dialog::backdrop { background: rgba(10, 12, 28, 0.6); }
@@ -1037,3 +1058,70 @@ button.sticky { cursor: pointer; }
 @container (max-width: 190px) { .decor-side::after { display: none; } }
 .decor-side.right::after { left: 8%; right: -25%; }
 @media (max-height: 720px) { .decor-side::after { display: none; } }
+
+/* ---- Phones and touch screens ---- */
+button, a, [role="button"], li[data-person], ul.latest li, ul.today li { -webkit-tap-highlight-color: transparent; }
+/* Touch has no hover: a tap would leave cards tilted and buttons lifted until the next tap elsewhere */
+@media (hover: none) {
+  button:hover:not(:disabled) { transform: none; }
+  .town-card:hover:not(:disabled):not(:has(.card-tool:hover)),
+  .town-card:nth-child(even):hover:not(:disabled):not(:has(.card-tool:hover)) { transform: none; box-shadow: 0 4px 0 var(--edge); }
+  .town-card:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--edge); }
+  .navtabs a:hover .tab-icon, .settings nav a:hover .well { transform: none; }
+  .navtabs a[aria-current="page"] .tab-icon { transform: translateY(-2px); }
+}
+/* Bigger tap targets for fingers */
+@media (pointer: coarse) {
+  .status-tap, .status-on { height: 36px; padding: 0 15px; font-size: 14px; }
+  .status-control { min-height: 38px; }
+  button.small { padding: 9px 14px; }
+  .post-actions button { padding: 11px 8px; }
+  ul.people li, ul.latest li, ul.today li { padding: 10px 8px; }
+  .comment-form input { padding: 11px 15px; }
+}
+@media (max-width: 640px) {
+  /* iOS zooms into any text field under 16px; 16px keeps the page still */
+  input, select, textarea, .composer-open { font-size: 16px !important; }
+  /* The dock clears the iPhone home indicator, and gets out of the way while the keyboard is up */
+  .navtabs { bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .page { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+  body:has(input:focus, textarea:focus, select:focus) .navtabs { display: none; }
+  .appbar { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+  .toasts { bottom: calc(100px + env(safe-area-inset-bottom)); }
+
+  /* Dialogs become bottom sheets: full width, sliding up, scrolling inside */
+  dialog, dialog.wide-dialog {
+    width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 26px 26px 0 0; border-bottom: none;
+    max-height: 92dvh; animation: sheet-up 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  dialog form, dialog.wide-dialog form { max-height: 92dvh; overflow-y: auto; padding: 22px 18px calc(18px + env(safe-area-inset-bottom)); }
+  dialog h2 { margin: -22px -18px 16px; position: sticky; top: -22px; z-index: 2; }
+  dialog .actions-row { position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom)); margin: 12px -18px calc(-18px - env(safe-area-inset-bottom));
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 2px dashed var(--line); }
+  dialog .actions-row > button { flex: 1; }
+  dialog .actions-row > span[style*="flex:1"] { display: none; }
+  #review-dialog .actions-row { display: grid; grid-template-columns: 1fr 1fr; }
+  #review-dialog .actions-row #review-ok { grid-column: 1 / -1; order: -1; }
+
+  /* Profile header: photo on top, name under it, button full width */
+  .me { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .me .who { padding-top: 0; }
+  .me > button, .p-actions { width: 100%; margin-top: 0; }
+  .p-actions button { flex: 1; }
+  .profile-body .status-control:empty { display: none; }
+
+  /* Rows with two buttons: let the buttons drop under the name instead of squeezing it */
+  ul.people li:has(.actions > :nth-child(2)) { flex-wrap: wrap; }
+  ul.people li:has(.actions > :nth-child(2)) .actions { width: 100%; padding-left: 54px; }
+  ul.people li:has(.actions > :nth-child(2)) .actions > * { flex: 1; }
+  .card-head { gap: 8px; }
+  .head-actions { gap: 10px; }
+  .hello-actions { gap: 8px; }
+}
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } }
+@media (max-width: 360px) {
+  .navtabs { gap: 5px; padding: 6px; }
+  .tab-icon { width: 46px; height: 46px; }
+  .card { padding: 16px; }
+  .hello h1 { font-size: 24px; }
+}

@@ -11,8 +11,8 @@ import { drawTown } from './townart.js';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
-const VIEWS = ['loading', 'error', 'auth', 'username', 'home', 'friends', 'inbox', 'profile', 'person', 'settings', 'help'];
-const SIGNED_IN_VIEWS = new Set(['home', 'friends', 'inbox', 'profile', 'person', 'settings', 'help']);
+const VIEWS = ['loading', 'error', 'auth', 'username', 'home', 'feed', 'friends', 'inbox', 'profile', 'person', 'settings', 'help'];
+const SIGNED_IN_VIEWS = new Set(['home', 'feed', 'friends', 'inbox', 'profile', 'person', 'settings', 'help']);
 const PANES = ['profile', 'character', 'towns', 'calendar', 'account', 'appearance', 'privacy'];
 
 let sb = null;
@@ -27,7 +27,7 @@ function show(view) {
   $('#brand').hidden = signedIn;
   $('#shell').classList.toggle('wide', view === 'settings');
   $('#shell').classList.toggle('home', view === 'home');
-  $('#shell').classList.toggle('feed', ['friends', 'inbox', 'profile', 'person', 'help'].includes(view));
+  $('#shell').classList.toggle('feed', ['feed', 'friends', 'inbox', 'profile', 'person', 'help'].includes(view));
   for (const a of $$('.navtabs a')) {
     if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
@@ -174,7 +174,7 @@ function parseHash() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'settings') return { view: 'settings', pane: PANES.includes(parts[1]) ? parts[1] : 'profile' };
   if (parts[0] === 'u' && parts[1]) return { view: 'person', id: parts[1] };
-  if (['help', 'friends', 'inbox', 'profile'].includes(parts[0])) return { view: parts[0] };
+  if (['help', 'feed', 'friends', 'inbox', 'profile'].includes(parts[0])) return { view: parts[0] };
   return { view: 'home' };
 }
 
@@ -208,7 +208,8 @@ function route() {
   if (view === 'inbox') return showInbox();
   if (view === 'profile') return showProfile();
   if (view === 'person') return showPerson(id);
-  showFeed();
+  if (view === 'feed') return showFeed();
+  showHome();
 }
 
 // ---- Account menu ------------------------------------------------------------------------------
@@ -554,14 +555,43 @@ function renderHello() {
   $('#hello-sub').textContent = bits.length ? `${bits.join(' · ')}.` : "It's a quiet day in town. Share something and see who bites.";
 }
 
-function showFeed() {
+// Home: the greeting, your towns, the latest few things, and today's rail
+function showHome() {
+  renderMyStatus();
+  renderFeed();
+  show('home');
+  refreshAll();
+}
+
+// Feed: the composer, then everything from your towns and friends, filterable by kind
+function showFeed({ write = false } = {}) {
   paintAvatar($('#composer-avatar'), me);
   renderMyStatus();
   $('#composer-open').textContent = `What's new, ${(me.display_name || '').split(' ')[0] || 'friend'}?`;
   renderFeed();
-  show('home');
+  show('feed');
   refreshAll();
-  if (!$('#composer-ideas').children.length) loadIdeas(); // fetch ideas early so the composer opens with them
+  if (write) $('#composer-open').click();
+  else if (!$('#composer-ideas').children.length) loadIdeas(); // fetch ideas early so the composer opens with them
+}
+
+$('#hello-post').onclick = () => {
+  if (location.hash === '#/feed') return showFeed({ write: true });
+  skipNextRoute = true; // show it here instead of letting the hash route, so the composer opens
+  location.hash = '#/feed';
+  lastHash = location.hash;
+  showFeed({ write: true });
+};
+
+// Which kinds of feed items the Feed tab shows (chips over the list)
+const FEED_FILTERS = { all: null, post: ['post'], news: ['news'], around: ['chat', 'social'], plan: ['plan'] };
+let feedFilter = 'all';
+for (const b of $$('#feed-filters [data-filter]')) {
+  b.onclick = () => {
+    feedFilter = b.dataset.filter;
+    for (const x of $$('#feed-filters [data-filter]')) x.setAttribute('aria-checked', String(x === b));
+    renderFeed();
+  };
 }
 
 // Pinned towns come first everywhere. Saved on your account (Supabase user metadata), so pins follow you to
@@ -624,9 +654,13 @@ function renderFeed() {
 
   // Keep your place in a comment you're typing when the feed refreshes under you
   const typing = document.activeElement?.dataset?.commentFor;
-  $('#feed').replaceChildren(...feed.items.map(post));
+  const kinds = FEED_FILTERS[feedFilter];
+  const shownItems = kinds ? feed.items.filter((it) => kinds.includes(it.kind)) : feed.items;
+  $('#feed').replaceChildren(...shownItems.map(post));
   if (typing) document.querySelector(`[data-comment-for="${typing}"]`)?.focus();
   $('#feed-empty').hidden = feed.items.length > 0;
+  $('#feed-none').hidden = !(feed.items.length && !shownItems.length);
+  renderLatest();
 
   $('#today').replaceChildren(...feed.today.map((t) => {
     const li = el('li');
@@ -674,6 +708,23 @@ function renderFeed() {
   $('#reconnect-section').hidden = !catchUp.length;
   renderBadges();
   renderHello();
+}
+
+// Home's peek at the feed: the newest few items as one-line rows; tapping one opens the Feed tab
+const KIND_ICON = { post: '✏️', news: '📣', chat: '💬', social: '👋', plan: '📅' };
+function renderLatest() {
+  const items = feed.items.slice(0, 4);
+  $('#latest').replaceChildren(...items.map((it) => {
+    const li = el('li');
+    li.append(it.kind === 'post' && it.actor ? personAvatar(it.actor) : el('span', `latest-icon ${hueOf(it.town?.id)}`, KIND_ICON[it.kind] || '✨'));
+    const body = el('div', 'latest-body');
+    const line = it.kind === 'post' ? `${it.mine ? 'You' : it.actor?.name || 'Someone'}: ${it.text}` : it.title || it.text || '';
+    body.append(el('div', 'latest-text', line), el('div', 'handle', [it.town?.name, it.at && timeAgo(it.at)].filter(Boolean).join(' · ')));
+    li.append(body);
+    li.onclick = () => { location.hash = '#/feed'; };
+    return li;
+  }));
+  $('#latest-card').hidden = !items.length;
 }
 
 const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M5 17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2Z"/></svg>';

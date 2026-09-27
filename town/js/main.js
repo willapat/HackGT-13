@@ -94,7 +94,7 @@ if (TOWN) {
   // A real town: no scripted wandering or demo snapshot; residents move only as the database says
   document.title = `${TOWN.town.name} · Luma`;
   const code = $('#invite-code');
-  code.textContent = `Invite code ${TOWN.town.invite_code}`;
+  code.replaceChildren(Object.assign(document.createElement('span'), { className: 'lbl-t', textContent: 'Invite code ' }), TOWN.town.invite_code); // phones show just the code
   code.hidden = false;
   code.onclick = () => navigator.clipboard?.writeText(TOWN.town.invite_code).then(() => logFeed('Invite code copied.'), () => {});
   document.querySelectorAll('#triggers [data-trigger], #triggers .demo-title, #triggers .note').forEach((e) => { e.hidden = true; });
