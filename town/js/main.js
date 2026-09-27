@@ -10,9 +10,11 @@ import { buildCity, finishCity } from './city.js';
 import { applyTownNames, renameFriend, setStatus, trigger } from './demo.js';
 import { effects, partyLights, rainCloud, refreshHouseLabel, setHouseMood } from './effects.js';
 import { $, labels, logFeed, showCard } from './hud.js';
+import { heatSoon, startHeat } from './heat.js';
 import { EXTRA_MODELS, FRIENDS, PLACES, STADIUM, TOWN, TOWN_ID, townApi } from './layout.js';
 import { loadAll } from './models.js';
 import { updateOcclusion } from './occlusion.js';
+import { startPaper } from './paper.js';
 import './buildings.js'; // the building card (click a place's or house's name)
 import { startMine } from './mine.js'; // your bubble, house mood and mailbox
 import { friends, placeAgent, say, setCalendars, setPinned, spawnFriends, stepFriend, syncTrail, think, walkTo } from './people.js';
@@ -95,9 +97,11 @@ if (TOWN) {
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
   startTownSync(TOWN_ID, TOWN, {
-    friends, placeAgent, setCalendars, setStatus, say, setPinned, setHouseMood, refreshHouseLabel, logFeed, PLACES, applyTownTime,
+    friends, placeAgent, setCalendars, setStatus, say, setPinned, setHouseMood, refreshHouseLabel, logFeed, PLACES, applyTownTime, onTrip: heatSoon,
   });
   startMine();
+  startHeat(); // busy places glow
+  startPaper(); // the weekly paper on the park's notice board
 } else {
   logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
   const { triggerViaBackend } = startTownBackend(townApi);

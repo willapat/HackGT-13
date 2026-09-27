@@ -24,6 +24,7 @@
   <nav id="top">
     <a class="back panel" href="../frontend/">← Home</a>
     <button id="recenter" class="back panel" type="button" title="Back to the starting view">⌖ Recenter</button>
+    <button id="paper-open" class="back panel paper-open" type="button" hidden title="This week's town paper">📰 Paper</button>
     <button id="invite-code" class="panel" type="button" hidden title="Copy the invite code"></button>
   </nav>
 
@@ -112,6 +113,39 @@
   <div id="moods" class="panel" hidden role="menu" aria-label="House moods"></div>
 
   <ul id="feed" aria-live="polite"></ul>
+
+  <dialog id="paper" aria-labelledby="paper-title">
+    <article class="paper">
+      <header class="paper-head">
+        <button id="paper-prev" class="paper-nav" type="button" aria-label="Previous week">‹</button>
+        <div class="paper-mast">
+          <h1 id="paper-title">The Town Weekly</h1>
+          <div class="paper-dates" id="paper-dates"></div>
+        </div>
+        <button id="paper-next" class="paper-nav" type="button" aria-label="Next week">›</button>
+        <button id="paper-close" class="close" type="button" aria-label="Close">×</button>
+      </header>
+      <p id="paper-status" class="paper-status" aria-live="polite"></p>
+      <div id="paper-content" class="paper-cols" hidden>
+        <section class="paper-lead">
+          <h2>This week</h2>
+          <p id="paper-summary" class="paper-summary"></p>
+          <ul id="paper-headlines" class="paper-headlines"></ul>
+        </section>
+        <section>
+          <h2>Hottest spots</h2>
+          <ol id="paper-hot" class="paper-hot"></ol>
+          <p id="paper-hot-empty" class="paper-empty" hidden>No trips yet this week.</p>
+        </section>
+        <section class="paper-wide">
+          <h2>Get together</h2>
+          <ul id="paper-insights" class="paper-insights"></ul>
+          <p id="paper-insights-empty" class="paper-empty" hidden>Nothing in common spotted yet. Add interests to your profile so the paper can match you up.</p>
+        </section>
+      </div>
+    </article>
+  </dialog>
+
   <div id="cards"></div>
   <div id="hint" class="panel">Drag to pan · right-drag or two fingers to rotate · scroll or pinch to zoom · click a person to follow · click a building's name for who's there · click a mailbox to leave a note</div>
 

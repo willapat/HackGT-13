@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CURBSIDE, GROUND, HELIPAD, HOUSES, METER, NATURE, PARASOLS, PARK_TREES, PROPS, ROAD, ROOF_PROPS, SP, STREET, VEHICLES, ZONES } from './assets.js';
 import { addLabel } from './hud.js';
-import { BG_COLOR, BG_ROOFS, CENTER, DRAWN, EXTRA_MODELS, FARM, FRIENDS, inkOn, inPark, isRoad, key, N, PLACES, pos, ROADS, STADIUM, tileAt, TILES, tilesOf, TOWN, TREES } from './layout.js';
+import { BG_COLOR, BG_ROOFS, CENTER, DRAWN, EXTRA_MODELS, FARM, FRIENDS, inkOn, inPark, isRoad, key, N, PLACES, pos, ROADS, STADIUM, tileAt, TILES, tilesOf, TOWN, TOWN_ID, TREES } from './layout.js';
 import { place } from './models.js';
 import { LAMPS, sky } from './sky.js';
 import { animated, scene, water } from './stage.js';
@@ -607,7 +607,8 @@ export function buildCity() {
     });
     place(PROPS['bench-1'], CENTER, CENTER - 1.1, { scale: 2, rotY: Math.PI });
     place(PROPS['bench-2'], CENTER, CENTER + 1.1, { scale: 2 });
-    place(STREET.public_bench_01, CENTER - 1.1, CENTER, { scale: METER, rotY: Math.PI / 2 });
+    if (TOWN_ID) noticeBoard(CENTER - 1.12, CENTER); // real towns: the weekly paper hangs where the west bench was
+    else place(STREET.public_bench_01, CENTER - 1.1, CENTER, { scale: METER, rotY: Math.PI / 2 });
     place(STREET.drinking_fountain_01, CENTER + 1.15, CENTER + 0.35, { scale: METER, rotY: -Math.PI / 2 });
     for (const [c, r, m] of [[CENTER + 1.1, CENTER - 0.3, 'bush-01'], [CENTER - 0.4, CENTER - 1.2, 'pot-bush-big'],
       [CENTER + 0.4, CENTER - 1.2, 'pot-bush-small'], [CENTER - 0.4, CENTER + 1.2, 'bush-02']]) place(NATURE[m], c, r, { scale: 2.2 });
@@ -676,6 +677,52 @@ export function buildCity() {
     p.label = addLabel('lbl place', p.name, () => at);
     p.label.el.onclick = () => openBuilding(id);
   }
+}
+
+// The park's notice board, which holds the weekly town paper (paper.js opens it on click). Cork on both
+// sides so it reads from any camera angle. BOARD.at is where its label sits.
+export const BOARD = { at: null };
+function noticeBoard(c, r) {
+  const cv = Object.assign(document.createElement('canvas'), { width: 256, height: 160 });
+  const x = cv.getContext('2d');
+  x.fillStyle = '#c99a62';
+  x.fillRect(0, 0, 256, 160);
+  x.fillStyle = '#2b2118';
+  x.font = 'bold 24px Georgia, serif';
+  x.textAlign = 'center';
+  x.fillText('TOWN PAPER', 128, 30);
+  for (const [color, nx, ny, w, h] of [['#fffdf4', 14, 42, 104, 108], ['#ffe27a', 130, 44, 54, 48], ['#bfe3ff', 192, 48, 50, 44], ['#ffc7d1', 132, 102, 110, 48]]) {
+    x.fillStyle = color;
+    x.fillRect(nx, ny, w, h);
+    x.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    for (let l = ny + 16; l < ny + h - 6; l += 10) x.fillRect(nx + 8, l, w - 16, 3);
+    x.fillStyle = '#e0453a';
+    x.beginPath();
+    x.arc(nx + w / 2, ny + 6, 4, 0, Math.PI * 2);
+    x.fill();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const wood = new THREE.MeshLambertMaterial({ color: '#7a4e2c' });
+  const cork = new THREE.MeshLambertMaterial({ map: tex });
+  const g = new THREE.Group();
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.38, 0.03), [wood, wood, wood, wood, cork, cork]);
+  panel.position.y = 0.42;
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.035, 0.12), wood);
+  cap.position.y = 0.63;
+  g.add(panel, cap);
+  for (const dx of [-0.28, 0.28]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.64, 0.04), wood);
+    post.position.set(dx, 0.32, 0);
+    g.add(post);
+  }
+  g.position.copy(pos(c, r));
+  g.rotation.y = Math.PI / 2; // one face to the pond, the other to the road
+  g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+  g.userData.paper = true;
+  scene.add(g);
+  clickable.push(g);
+  BOARD.at = pos(c, r).setY(0.8);
 }
 
 export const walkable = (c, r) => c >= 0 && r >= 0 && c < N && r < N && !blocked.has(key(c, r));
