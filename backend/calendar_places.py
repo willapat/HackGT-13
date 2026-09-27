@@ -21,6 +21,9 @@ from backend.llm import available, complete
 
 MISC = "misc"
 MISC_PLACE = "downtown"
+# "CS 3600", "CS3600", "MATH 1554": a class, whatever room or building the location names
+COURSE_CODE = re.compile(r"\b[A-Za-z]{2,4}\s?\d{4}[A-Za-z]?\b")
+CLASS_PLACES = ("university", "library")
 MODEL_TTL = timedelta(days=30)
 FALLBACK_TTL = timedelta(hours=1)
 
@@ -29,8 +32,9 @@ SYSTEM = """You sort one calendar event into one building in a small town. Answe
 
 Rules:
 - Use only ids listed in PLACES. Never make up an id.
-- Pick a building only when the event clearly happens there. Examples: a course code or lecture
-  ("CS 1332", "MATH 1554 lecture") -> university if listed, else library if listed;
+- Pick a building only when the event clearly happens there. Examples: a class, course code or lecture
+  ("CS 1332", "MATH 1554 lecture", "Intro lecture") -> university if listed, else library if listed,
+  even when the location names a campus building or room that is also a place here;
   studying -> library; workout, lifting, climbing -> gym; a game, match or practice -> sportsfield if listed, else gym;
   coffee -> cafe; groceries -> market; shopping -> mall if listed, else market;
   doctor or clinic -> hospital if listed; a flight -> airport if listed; church -> church;
@@ -62,6 +66,14 @@ def travel_minutes_for(user_id: str, start_iso: str, building_id: str) -> int:
 
 def place_label(place: dict) -> str:
     return place.get("name") or place["id"].replace("_", " ").title()
+
+
+def class_place(places: list[dict], title: str, location: str) -> dict | None:
+    """The town's university (else library) when the event has a course code, else None."""
+    if not COURSE_CODE.search(f"{title} {location}"):
+        return None
+    by_id = {p["id"]: p for p in places}
+    return next((by_id[pid] for pid in CLASS_PLACES if pid in by_id), None)
 
 
 def _ask(places: list[dict], title: str, location: str) -> str | None:

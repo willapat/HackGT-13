@@ -251,21 +251,24 @@ def window_label(start: datetime, end: datetime, tz: ZoneInfo = TOWN_TZ) -> str:
     )
 
 
-def events_for_users(db, user_ids: list[str], start: datetime, end: datetime) -> list[dict]:
-    """Personal events overlapping [start, end). One row per participant, sorted by start."""
+def events_for_users(
+    db, user_ids: list[str], start: datetime, end: datetime, town_id: str | None = None,
+) -> list[dict]:
+    """Personal events overlapping [start, end). One row per participant, sorted by start.
+    `town_id` keeps only that town's rows: a synced calendar event has one copy per town the person is in."""
     from backend.calendar_drive import destination_for
 
     if not user_ids:
         return []
     wanted = set(user_ids)
-    rows = (
+    query = (
         db.table("events")
-        .select("id, title, kind, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")
+        .select("id, town_id, title, kind, start_at, end_at, building_id, text, travel_minutes, event_participants(user_id)")
         .eq("type", "personal")
-        .execute()
-        .data
-        or []
     )
+    if town_id:
+        query = query.eq("town_id", str(town_id))
+    rows = query.execute().data or []
     out = []
     for r in rows:
         try:

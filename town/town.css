@@ -79,15 +79,57 @@ h2 { margin: 0 0 8px; font-family: var(--font-display); font-size: 16px; font-we
 
 #triggers { top: 16px; right: 16px; padding: 12px; width: 250px; max-width: calc(100vw - 32px); display: grid; gap: 6px; }
 #triggers > * { min-width: 0; }
-#triggers button, .card button { font: inherit; font-weight: 600; border: none; background: var(--soft); color: var(--ink);
+#triggers button:not(#sky-toggle):not(#day-toggle), .card button { font: inherit; font-weight: 600; border: none; background: var(--soft); color: var(--ink);
   border-radius: 8px; padding: 8px 12px; text-align: left; cursor: pointer; transition: background 0.12s, transform 0.08s; }
-#triggers button:hover, .card button:hover { background: var(--soft-hover); }
-#triggers button:active, .card button:active { transform: scale(0.97); }
+#triggers button:not(#sky-toggle):not(#day-toggle):hover, .card button:hover { background: var(--soft-hover); }
+#triggers button:not(#sky-toggle):not(#day-toggle):active, .card button:active { transform: scale(0.97); }
 #triggers .note { color: var(--muted); font-size: 11.5px; }
-#triggers h2 + .sky-row { margin-top: -2px; }
+#triggers .demo-title[hidden], #triggers .note[hidden], #triggers [data-trigger][hidden] { display: none; }
+/* Real towns hide the demo buttons, so the corner is the clock and schedule pills until a menu opens */
+#triggers:not(:has([data-trigger]:not([hidden]))) { width: auto; padding: 0; background: transparent; box-shadow: none; border-color: transparent; }
+#triggers:not(:has([data-trigger]:not([hidden]))):has(.drop-menu:not([hidden])) {
+  width: min(300px, calc(100vw - 32px)); padding: 10px; background: var(--panel); box-shadow: var(--shadow-pop); border-color: var(--line);
+}
+#triggers:has(#day-menu:not([hidden])) { width: min(300px, calc(100vw - 32px)); }
+#drops { display: grid; gap: 8px; }
+#sky, #day { display: grid; gap: 8px; min-width: 0; max-width: 100%; }
+.drop-menu { display: grid; gap: 6px; }
+.drop-menu[hidden] { display: none; }
+#sky-toggle, #day-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer;
+  border: none; border-radius: 999px; background: var(--panel); box-shadow: var(--shadow-pop); padding: 8px 12px 8px 14px;
+}
+#sky-toggle:hover, #day-toggle:hover { background: var(--accent-soft); }
+#sky-toggle .chev, #day-toggle .chev { color: var(--muted); font-size: 12px; transition: transform 0.15s; }
+#sky-toggle[aria-expanded="true"] .chev, #day-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+#triggers:has([data-trigger]:not([hidden])) #sky-toggle,
+#triggers:has([data-trigger]:not([hidden])) #day-toggle,
+#triggers:has(.drop-menu:not([hidden])) #sky-toggle,
+#triggers:has(.drop-menu:not([hidden])) #day-toggle { box-shadow: none; border-radius: 8px; background: var(--soft); }
+#triggers:has(.drop-menu:not([hidden])) #sky-toggle:hover,
+#triggers:has(.drop-menu:not([hidden])) #day-toggle:hover { background: var(--soft-hover); }
+.day-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.day-dot[hidden] { display: none; }
+#day-label { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-sub { margin: 0; font-size: 12px; color: var(--muted); }
+#day-list { display: grid; gap: 12px; max-height: min(42vh, 320px); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+#day-list::-webkit-scrollbar { width: 8px; }
+#day-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+.day-group { display: grid; gap: 4px; }
+.day-group h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.day-item { display: grid; gap: 1px; padding: 7px 8px 7px 10px; border-radius: 8px; background: var(--input); border-left: 3px solid transparent; }
+.day-item.now { background: var(--accent-soft); border-left-color: var(--accent); }
+.day-item.past { opacity: 0.55; }
+.day-time { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; }
+.day-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.day-what { font-size: 13px; font-weight: 600; }
+.day-meta { font-size: 12px; color: var(--muted); }
+.day-empty { margin: 0; font-size: 13px; color: var(--muted); }
 .sky-row { display: flex; gap: 6px; align-items: center; }
 .sky-row input { flex: 1; min-width: 0; accent-color: var(--accent); }
 #clock { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 0; flex: 0 1 auto; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+#sky-toggle #clock { font-size: inherit; font-weight: inherit; color: inherit; text-align: left; flex: 1; }
 #town-date { font-size: 12px; font-weight: 600; color: var(--ink); }
 .sky-row button { flex: 1; min-width: 0; }
 #triggers #time-play { flex: 0 0 auto; width: 32px; padding: 4px 0; text-align: center; }
@@ -142,6 +184,13 @@ h2 { margin: 0 0 8px; font-family: var(--font-display); font-size: 16px; font-we
   .quick { display: none; }
   #feed { bottom: 200px; }
   #triggers { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
+  #triggers:not(:has([data-trigger]:not([hidden]))) { left: auto; width: auto; }
+  #triggers:not(:has([data-trigger]:not([hidden]))):has(.drop-menu:not([hidden])) { left: 16px; }
+  #drops, #sky, #day { display: flex; flex-direction: column-reverse; gap: 8px; align-items: flex-end; }
+  #triggers:has(.drop-menu:not([hidden])) #drops,
+  #triggers:has(.drop-menu:not([hidden])) #sky,
+  #triggers:has(.drop-menu:not([hidden])) #day,
+  #triggers:has([data-trigger]:not([hidden])) #drops { align-items: stretch; }
   #cards { width: calc(100% - 32px); bottom: 190px; }
 }
 

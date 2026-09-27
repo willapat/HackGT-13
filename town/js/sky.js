@@ -398,9 +398,37 @@ export function townMinutesNow() {
   if (townClock.ms == null) return null;
   return (townClock.ms + (performance.now() - townClock.at) * townClock.rate) / 60000;
 }
+// The same moment as a timestamp, so the schedule panel can mark "now" in the viewer's time zone.
+export function townNowMs() {
+  if (townClock.ms == null) return Date.now();
+  return townClock.ms + (performance.now() - townClock.at) * townClock.rate;
+}
 export const townClockRunning = () => townClock.rate > 0;
 
 export function wireSkyControls() {
+  const menu = document.querySelector('#sky-menu');
+  const toggle = document.querySelector('#sky-toggle');
+  const setSkyOpen = (open) => {
+    if (!menu || !toggle) return;
+    menu.hidden = !open;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  if (toggle && menu) {
+    toggle.onclick = () => {
+      const open = menu.hidden;
+      if (open) {
+        const day = document.querySelector('#day-menu');
+        if (day) day.hidden = true;
+        document.querySelector('#day-toggle')?.setAttribute('aria-expanded', 'false');
+      }
+      setSkyOpen(open);
+    };
+    addEventListener('pointerdown', (e) => {
+      if (menu.hidden || toggle.contains(e.target) || menu.contains(e.target)) return;
+      setSkyOpen(false);
+    });
+    addEventListener('keydown', (e) => { if (e.key === 'Escape') setSkyOpen(false); });
+  }
   const slider = document.querySelector('#time');
   const local = (mode) => { sky.live = mode === 'live'; sky.fast = mode === 'fast'; sky.play = mode === 'play'; };
   slider.oninput = () => { local(null); sky.hour = +slider.value; };

@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 import httpx
 
-from backend.calendar_places import Guesser, place_label, resolve_building, travel_minutes_for
+from backend.calendar_places import Guesser, class_place, place_label, resolve_building, travel_minutes_for
 from backend.config import settings
 from backend.db import now_iso, parse_ts
 from backend.models.enums import EventStatus, EventType, ParticipantStatus
@@ -129,7 +129,7 @@ def replace_imported(db, user_id: str, events: list[dict]) -> int:
     for t in towns:
         places = _town_places(t.get("towns"))
         for ev in events:
-            place = match_place(places, ev["title"], ev["location"])
+            place = class_place(places, ev["title"], ev["location"]) or match_place(places, ev["title"], ev["location"])
             if place:
                 where, name = place["id"], place_label(place)
             else:

@@ -23,6 +23,7 @@ export function spawnFriends() {
     const gltf = models[`${CH}${def.model}.glb`];
     const obj = SkeletonUtils.clone(gltf.scene);
     obj.scale.setScalar(0.55);
+    obj.userData.friendId = def.id;
     obj.traverse((m) => { if (m.isMesh) m.castShadow = true; });
     obj.position.copy(toWorld(sidewalkPoint(def.home)));
     scene.add(obj);

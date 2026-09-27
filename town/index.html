@@ -32,19 +32,39 @@
   </nav>
 
   <section id="triggers" class="panel">
-    <h2>Demo signals</h2>
+    <div id="drops">
+    <div id="sky">
+      <button id="sky-toggle" type="button" aria-expanded="false" aria-controls="sky-menu" title="Time and weather">
+        <span id="clock">Time</span>
+        <span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div id="sky-menu" class="drop-menu" hidden>
+        <div class="sky-row"><button id="time-play" title="Play: one minute per second" aria-label="Play or pause the clock">▶</button><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /></div>
+        <div class="sky-row" id="town-date" aria-live="polite"></div>
+        <div class="sky-row modes"><button id="time-live" title="Live clock">🕒 Live</button><button id="time-fast" title="Fast day">⏩ Fast</button></div>
+        <div class="sky-row weather">
+          <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
+          <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
+        </div>
+      </div>
+    </div>
+    <div id="day">
+      <button id="day-toggle" type="button" aria-expanded="false" aria-controls="day-menu" title="Schedule">
+        <span id="day-dot" class="day-dot" hidden></span>
+        <span id="day-label">Your day</span>
+        <span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div id="day-menu" class="drop-menu" hidden>
+        <p id="day-sub" class="day-sub"></p>
+        <div id="day-list"></div>
+      </div>
+    </div>
+    </div>
+    <h2 class="demo-title">Demo signals</h2>
     <button data-trigger="goodNews">🎉 Maya shares good news</button>
     <button data-trigger="climbing">🧗 Sam &amp; Priya both mention climbing</button>
     <button data-trigger="roughWeek">🌧️ Jordan is having a rough week</button>
     <button data-trigger="reset">↺ Reset town</button>
-    <h2>Time &amp; weather</h2>
-    <div class="sky-row"><button id="time-play" title="Play: one minute per second" aria-label="Play or pause the clock">▶</button><input id="time" type="range" min="0" max="23.99" step="0.05" aria-label="Time of day" /><span id="clock"></span></div>
-    <div class="sky-row" id="town-date" aria-live="polite"></div>
-    <div class="sky-row modes"><button id="time-live" title="Live clock">🕒 Live</button><button id="time-fast" title="Fast day">⏩ Fast</button></div>
-    <div class="sky-row weather">
-      <button data-weather="auto" class="on" title="Changes on its own">🔀</button><button data-weather="clear" title="Clear">☀️</button>
-      <button data-weather="rain" title="Rain">🌧️</button><button data-weather="storm" title="Storm">⛈️</button><button data-weather="snow" title="Snow">❄️</button>
-    </div>
     <div class="note">Buttons call the town backend (3s timeout), then fall back to the scripted demo if it is down.</div>
   </section>
 

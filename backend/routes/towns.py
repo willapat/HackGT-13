@@ -311,7 +311,7 @@ def get_town(town_id: UUID, live: bool = Query(False, description="true: skip th
     }
     schedules = events_for_users(
         # From yesterday: "today" starts at a different moment for viewers in different time zones
-        db, list(names), now - timedelta(days=1), now + timedelta(days=3),
+        db, list(names), now - timedelta(days=1), now + timedelta(days=3), town_id=tid,
     )
     for ev in schedules:
         ev["display_name"] = names.get(ev["user_id"]) or "Friend"
