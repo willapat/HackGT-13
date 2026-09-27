@@ -55,3 +55,77 @@ def test_build_paper_without_model(monkeypatch):
     assert got["hot_places"][0] == {"building_id": "cafe", "name": "Café", "visits": 2, "people": 2}
     assert "Café was the busiest spot" in got["summary"] and got["source"] == "fallback"
     assert got["insights"][0]["kind"] == "interest" and [p["name"] for p in got["insights"][0]["people"]] == ["Maya", "Sam"]
+
+
+class _Q:
+    def __init__(self, db, name):
+        self.db, self.name, self.filters = db, name, {}
+
+    def select(self, *a, **k):
+        return self
+
+    def eq(self, k, v):
+        self.filters[k] = v
+        return self
+
+    def gte(self, *a):
+        return self
+
+    lt = order = limit = lambda self, *a, **k: self
+
+    def upsert(self, row):
+        if self.db.missing:
+            raise RuntimeError("relation town_papers does not exist")
+        self.db.saved.append(row)
+        return self
+
+    def execute(self):
+        if self.name == "town_papers" and self.db.missing:
+            raise RuntimeError("relation town_papers does not exist")
+        rows = list(self.db.saved) if self.name == "town_papers" else []
+        rows = [r for r in rows if all(r.get(k) == v for k, v in self.filters.items())]
+        return type("R", (), {"data": rows})()
+
+
+class _DB:
+    def __init__(self, missing=False):
+        self.saved, self.missing = [], missing
+
+    def table(self, name):
+        return _Q(self, name)
+
+
+def _paper_route(monkeypatch, db, source="ai"):
+    from uuid import UUID
+    from backend.routes import towns
+    calls = []
+
+    def fake_build(tid, start, end, *a):
+        calls.append(start.date().isoformat())
+        return {"week_start": start.date().isoformat(), "summary": "s", "source": source}
+
+    monkeypatch.setattr(towns, "get_client", lambda: db)
+    monkeypatch.setattr(towns, "require_member", lambda *a: None)
+    monkeypatch.setattr(towns, "user_tz", lambda *a: timezone.utc)
+    monkeypatch.setattr(towns, "_place_names", lambda *a: {})
+    monkeypatch.setattr(towns, "build_paper", fake_build)
+    tid = UUID("00000000-0000-0000-0000-000000000001")
+    return (lambda offset: towns.town_paper(tid, offset=offset, uid="u")), calls
+
+
+def test_finished_week_is_written_once_then_read_from_the_db(monkeypatch):
+    db = _DB()
+    paper_for, calls = _paper_route(monkeypatch, db)
+    first, again = paper_for(-1), paper_for(-1)
+    assert first == again and len(calls) == 1 and len(db.saved) == 1
+    paper_for(0), paper_for(0)  # this week is never saved: it's still happening
+    assert len(db.saved) == 1 and len(calls) == 3
+
+
+def test_fallback_paper_is_not_saved_and_missing_table_still_works(monkeypatch):
+    db = _DB()
+    paper_for, calls = _paper_route(monkeypatch, db, source="fallback")
+    paper_for(-1), paper_for(-1)
+    assert db.saved == [] and len(calls) == 2  # the model gets another try next time
+    paper_for, _ = _paper_route(monkeypatch, _DB(missing=True))
+    assert paper_for(-1)["summary"] == "s"  # before the migration: built as usual
