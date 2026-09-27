@@ -1,5 +1,6 @@
 """What a person puts on their own spot in a town: a bubble over their character and a mood on their house.
-Both are written by the person, expire on their own (like free/busy status), and are never read by the town brain."""
+Both are written by the person, expire on their own, and are never read by the town brain. A bubble is a quick
+chat line (one minute); a mood lasts like a free/busy status."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -8,7 +9,7 @@ from backend.db import parse_ts
 # House moods: the 3D town draws each one over the house (town/js/effects.js HOUSE_MOODS). Keep the two lists in step.
 MOODS = ("party", "sunny", "rainy", "stormy", "love", "sleepy", "music", "cozy", "proud", "busy", "chill", "studying")
 MOOD_HOURS = 3  # like a free/busy status (frontend/app/app.js STATUS_HOURS)
-BUBBLE_HOURS = 3
+BUBBLE_HOURS = 1 / 60  # one minute
 BUBBLE_MAX = 60
 
 

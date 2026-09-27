@@ -10,10 +10,12 @@ NOW = datetime(2026, 9, 26, 12, tzinfo=timezone.utc)
 
 
 def test_bubbles_and_moods_run_out():
-    assert BUBBLE_HOURS == MOOD_HOURS == 3  # the same 3 hours as a free/busy status
-    b = entry("text", "👋", BUBBLE_HOURS, NOW)
-    assert b["text"] == "👋" and active(b, NOW + timedelta(hours=2)) == b
-    assert active(b, NOW + timedelta(hours=3, seconds=1)) is None
+    assert MOOD_HOURS == 3  # the same 3 hours as a free/busy status
+    b = entry("text", "👋", BUBBLE_HOURS, NOW)  # a bubble lasts one minute
+    assert b["text"] == "👋" and active(b, NOW + timedelta(seconds=59)) == b
+    assert active(b, NOW + timedelta(seconds=61)) is None
+    m = entry("kind", "cozy", MOOD_HOURS, NOW)
+    assert active(m, NOW + timedelta(hours=2)) == m and active(m, NOW + timedelta(hours=3, seconds=1)) is None
     assert active(None, NOW) is None and active({"text": "x"}, NOW) is None and active({"until": "junk"}, NOW) is None
 
 

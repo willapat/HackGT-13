@@ -54,7 +54,8 @@ export function startTownSync(townId, initial, t) {
     const status = m.activity || m.mood;
     if (status && f.status !== status) t.setStatus(f.id, status);
     t.setHouseMood(f, active(m.home?.mood)?.kind || BRAIN_MOOD[m.mood] || null);
-    t.setPinned(f, active(m.bubble)?.text || null);
+    const bubble = active(m.bubble);
+    t.setPinned(f, bubble?.text || null, bubble?.until || null);
   }
 
   function applyTown(data) {
