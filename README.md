@@ -4,6 +4,8 @@
 
 Live at **https://luma-hackgt.vercel.app** · Built at HackGT 13.
 
+![Maple Harbor, a Luma town: five friends' houses, their workplaces downtown, a central park and a harbor](docs/screenshots/maple-harbor.png)
+
 ## What you can do
 
 - **Walk around your town.** An isometric 3D town where every house belongs to a friend, roofs in their color. Characters walk to wherever their calendar says they are. Tap a person to follow them, tap a place to see who's there, tap a mailbox to leave a note.
