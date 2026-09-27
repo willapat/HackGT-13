@@ -12,6 +12,9 @@
       document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
     } catch { document.documentElement.dataset.theme = 'light'; }
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Fredoka:wght@500;600;700&family=Nunito:wght@500;600;700;800&display=swap" />
   <link rel="stylesheet" href="app/app.css" />
   <script type="importmap">
     { "imports": { "three": "../town/lib/three.module.js", "three/addons/": "../town/lib/addons/" } }
@@ -25,10 +28,10 @@
       <span class="wordmark">Luma</span>
     </a>
     <nav class="navtabs" aria-label="Main">
-      <a href="#/" data-view="home" title="Feed"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg><span>Feed</span></a>
-      <a href="#/friends" data-view="friends" title="Friends"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14a6.5 6.5 0 0 1 3.5 6"/></svg><span>Friends</span></a>
+      <a href="#/" data-view="home" title="Feed"><span class="tab-icon"><svg class="i" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/></svg></span><span>Feed</span></a>
+      <a href="#/friends" data-view="friends" title="Friends"><span class="tab-icon"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14a6.5 6.5 0 0 1 3.5 6"/></svg></span><span>Friends</span></a>
       <a href="#/inbox" data-view="inbox" title="Inbox"><span class="tab-icon"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span class="badge dot-badge" id="nav-inbox-badge" hidden></span></span><span>Inbox</span></a>
-      <a href="#/profile" data-view="profile" title="Profile"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Profile</span></a>
+      <a href="#/profile" data-view="profile" title="Profile"><span class="tab-icon"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span>Profile</span></a>
     </nav>
     <div class="end menu-wrap">
       <button class="avatar-btn" id="account-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu" aria-label="Account menu">
@@ -48,9 +51,56 @@
     </div>
   </header>
 
+  <!-- Desk decor in the empty space beside the page (wide screens only; app/decor.js fills it) -->
+  <div class="decor">
+    <div class="decor-side left">
+      <div class="decor-sky" aria-hidden="true"><i class="cloud c1"></i><i class="cloud c2"></i><i class="fly f1"></i><i class="fly f2"></i><i class="fly f3"></i></div>
+      <div class="decor-notes">
+        <button type="button" class="sticky yellow" id="nudge-note" title="Tap for another one">
+          <span class="tape"></span>
+          <span class="sticky-kicker">Today's nudge</span>
+          <span class="sticky-text" id="nudge-text"></span>
+          <span class="sticky-foot">tap for another →</span>
+        </button>
+        <div class="sticky pink list" role="group" aria-label="This week">
+          <span class="pin"></span>
+          <span class="sticky-kicker">This week</span>
+          <div id="week-list"></div>
+        </div>
+      </div>
+      <svg class="decor-ground" viewBox="0 0 300 150" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+        <rect x="58" y="62" width="8" height="42" rx="3" fill="#9a6b43"/><circle cx="62" cy="52" r="26" fill="var(--leaf)"/><circle cx="48" cy="62" r="16" fill="var(--hill-2)"/><circle cx="76" cy="60" r="17" fill="var(--leaf)"/>
+        <rect x="200" y="74" width="6" height="30" rx="2" fill="#9a6b43"/><circle cx="203" cy="66" r="19" fill="var(--hill-2)"/><circle cx="214" cy="72" r="12" fill="var(--leaf)"/>
+        <circle cx="130" cy="112" r="10" fill="var(--leaf)"/><circle cx="142" cy="114" r="8" fill="var(--hill-2)"/>
+        <g fill="var(--coral)"><circle cx="100" cy="118" r="3"/><circle cx="252" cy="116" r="3"/></g><g fill="var(--sun)"><circle cx="112" cy="124" r="3"/><circle cx="240" cy="122" r="3"/><circle cx="30" cy="124" r="3"/></g>
+      </svg>
+    </div>
+    <div class="decor-side right">
+      <div class="decor-sky" aria-hidden="true"><i class="cloud c3"></i><i class="fly f4"></i><i class="fly f5"></i></div>
+      <div class="decor-notes">
+        <button type="button" class="sticky blue" id="tip-note" title="Tap for another tip">
+          <span class="tape"></span>
+          <span class="sticky-kicker">Luma tip</span>
+          <span class="sticky-text" id="tip-text"></span>
+          <span class="sticky-foot">tap for another →</span>
+        </button>
+      </div>
+      <svg class="decor-ground lamp-scene" viewBox="0 0 300 330" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+        <path class="lamp-light" d="M168 108h28l52 196H116z"/>
+        <circle class="lamp-halo" cx="182" cy="104" r="34"/>
+        <path d="M150 300V98a14 14 0 0 1 14-14h14" fill="none" stroke="#4a3f52" stroke-width="7" stroke-linecap="round"/>
+        <rect x="140" y="292" width="20" height="10" rx="3" fill="#4a3f52"/>
+        <path d="M170 90h24l-4 14h-16z" fill="#4a3f52"/><circle class="lamp-bulb" cx="182" cy="108" r="5"/>
+        <rect x="62" y="252" width="5" height="40" rx="2" fill="#9a6b43"/><rect x="48" y="236" width="34" height="20" rx="8" fill="var(--sky)"/><rect x="48" y="244" width="34" height="3" fill="rgba(0,0,0,.12)"/><rect x="80" y="228" width="3" height="16" fill="var(--coral)"/><rect x="80" y="228" width="10" height="7" rx="1" fill="var(--coral)"/>
+        <rect x="244" y="246" width="7" height="42" rx="3" fill="#9a6b43"/><circle cx="248" cy="236" r="24" fill="var(--leaf)"/><circle cx="262" cy="246" r="15" fill="var(--hill-2)"/>
+        <g fill="var(--sun)"><circle cx="110" cy="304" r="3"/><circle cx="206" cy="306" r="3"/></g><g fill="var(--coral)"><circle cx="30" cy="304" r="3"/><circle cx="280" cy="306" r="3"/></g>
+      </svg>
+    </div>
+  </div>
+
   <div class="page">
     <main class="shell" id="shell">
-      <header class="brand" id="brand">
+      <header class="brand scene" id="brand">
         <img class="mark lg" src="app/logo.svg" alt="" />
         <h1 class="wordmark">Luma</h1>
         <p>A little city full of your real friends</p>
@@ -108,6 +158,22 @@
       <section id="view-home" hidden>
         <div class="feed-layout">
           <div class="feed-main">
+            <!-- Greeting: time of day, and what's waiting for you (filled by renderHello in app.js) -->
+            <div class="hello scene" id="hello">
+              <span class="hello-date" id="hello-date"></span>
+              <h1 id="hello-title">Hi there</h1>
+              <p id="hello-sub"></p>
+              <svg class="houses" viewBox="0 0 600 60" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+                <g fill="var(--panel)" opacity=".92">
+                  <path d="M40 60V34l18-14 18 14v26z"/><path d="M92 60V40l13-10 13 10v20z"/>
+                  <path d="M440 60V30l22-16 22 16v30z"/><path d="M500 60V42l12-9 12 9v18z"/><path d="M536 60V36l16-12 16 12v24z"/>
+                </g>
+                <g fill="var(--coral)"><path d="M36 35l22-18 22 18-3 2-19-15-19 15z"/><path d="M436 31l26-19 26 19-3 2-23-17-23 17z"/></g>
+                <g fill="var(--sun)"><rect x="52" y="42" width="7" height="7" rx="1.5"/><rect x="455" y="38" width="8" height="8" rx="1.5"/><rect x="545" y="44" width="6" height="6" rx="1.5"/></g>
+                <g fill="var(--hill-2)"><circle cx="150" cy="50" r="10"/><circle cx="163" cy="54" r="7"/><circle cx="400" cy="52" r="9"/><circle cx="585" cy="54" r="7"/></g>
+              </svg>
+            </div>
+
             <div class="card composer" id="composer">
               <div class="composer-top">
                 <div class="avatar sm" id="composer-avatar"></div>
@@ -714,5 +780,6 @@
   <script src="lib/supabase.js"></script>
   <script src="shared/config.js"></script>
   <script type="module" src="app/app.js"></script>
+  <script type="module" src="app/decor.js"></script>
 </body>
 </html>

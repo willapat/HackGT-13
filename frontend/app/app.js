@@ -540,6 +540,20 @@ function renderBadges() {
 
 // ---- Feed ----
 
+// The greeting over the feed: time of day, then what's worth doing (plans waiting, friends free, today's calendar)
+function renderHello() {
+  const now = new Date(), h = now.getHours();
+  const part = h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Up late';
+  $('#hello-date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  $('#hello-title').textContent = `${part}, ${(me.display_name || '').split(' ')[0] || 'friend'}`;
+  const free = (feed.free_now || []).length, today = feed.today.length, waiting = inboxCount();
+  const bits = [];
+  if (waiting) bits.push(waiting === 1 ? '1 thing is waiting on you' : `${waiting} things are waiting on you`);
+  if (free) bits.push(free === 1 ? '1 friend is free right now' : `${free} friends are free right now`);
+  if (today) bits.push(today === 1 ? '1 thing on the calendar today' : `${today} things on the calendar today`);
+  $('#hello-sub').textContent = bits.length ? `${bits.join(' · ')}.` : "It's a quiet day in town. Share something and see who bites.";
+}
+
 function showFeed() {
   paintAvatar($('#composer-avatar'), me);
   renderMyStatus();
@@ -659,6 +673,7 @@ function renderFeed() {
   }));
   $('#reconnect-section').hidden = !catchUp.length;
   renderBadges();
+  renderHello();
 }
 
 const PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M5 17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2Z"/></svg>';

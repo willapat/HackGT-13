@@ -1,27 +1,35 @@
 /* The 3D town page (town.html): panels, labels and cards over the canvas. */
 :root {
-  /* Same tokens as the account app (frontend/app/app.css) */
-  --panel: #ffffff;
-  --ink: #14171c;
-  --muted: #62676f;
-  --line: #e2e5e9;
-  --accent: #1a6dff;
-  --accent-hover: #0f5ee8;
-  --accent-soft: #e7f0ff;
-  --soft: #e8ebef;
-  --soft-hover: #dcdfe4;
-  --hover: rgba(20, 23, 28, 0.05);
-  --input: #f0f2f5;
-  --brand: linear-gradient(135deg, #1a6dff 0%, #7a5cff 52%, #ff6b7a 100%);
-  --shadow-pop: 0 12px 28px rgba(0, 0, 0, 0.16), 0 2px 4px rgba(0, 0, 0, 0.08);
+  /* Same tokens as the account app (frontend/app/app.css): the cozy-town look */
+  --font-display: "Fredoka", "Nunito", ui-rounded, system-ui, sans-serif;
+  --font-body: "Nunito", ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --panel: #fffcf4;
+  --panel-2: #f8f1e1;
+  --ink: #4a3928;
+  --muted: #8a7560;
+  --line: #ecdfc6;
+  --edge: #e2d2b1;
+  --accent: #11897c;
+  --accent-deep: #0b6459;
+  --accent-hover: #0f7d71;
+  --accent-soft: #dcf2ec;
+  --soft: #f1e6cd;
+  --soft-edge: #dccaa4;
+  --soft-hover: #ebdcbd;
+  --hover: rgba(122, 88, 48, 0.07);
+  --input: #fbf6ea;
+  --sun: #f4c14f;
+  --coral: #ee8466;
+  --brand: linear-gradient(90deg, #f4c14f, #ee8466, #a988d6, #6fbfe0, #7bbd5b);
+  --shadow-pop: 0 5px 0 var(--edge), 0 16px 30px rgba(60, 44, 24, 0.22);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; touch-action: pan-x pan-y; background: #9fd3ec; color: var(--ink);
-  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  font: 600 14px/1.4 var(--font-body); -webkit-font-smoothing: antialiased; }
 #game { position: fixed; inset: 0; }
 
-.panel { position: fixed; background: var(--panel); border-radius: 12px; box-shadow: var(--shadow-pop); }
-h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
+.panel { position: fixed; background: var(--panel); border-radius: 18px; border: 2px solid var(--line); box-shadow: var(--shadow-pop); }
+h2 { margin: 0 0 8px; font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); }
 
 /* Top left: back home and the town's invite code (the town's name stands behind the town in 3D) */
 #top { position: fixed; top: 16px; left: 16px; display: flex; gap: 8px; z-index: 10; }
@@ -37,7 +45,7 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 /* Town happenings: a few short toasts in the bottom-left corner */
 #feed { position: fixed; left: 16px; bottom: 16px; z-index: 5; list-style: none; margin: 0; padding: 0; display: grid;
   gap: 6px; max-width: min(360px, calc(100vw - 32px)); pointer-events: none; }
-#feed li { background: rgba(20, 23, 28, 0.78); color: #fff; font-size: 12.5px; padding: 6px 12px; border-radius: 12px;
+#feed li { background: rgba(74, 57, 40, 0.86); color: #fff8ea; font-size: 13px; font-weight: 700; padding: 7px 13px; border-radius: 14px 14px 14px 4px;
   width: fit-content; animation: pop 0.25s ease-out; transition: opacity 0.5s; }
 #feed li.gone { opacity: 0; }
 
@@ -48,7 +56,7 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #say { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; }
 #say-text { font: inherit; border: none; background: var(--input); border-radius: 999px; padding: 8px 14px; width: 250px;
   min-width: 0; flex: 1; color: var(--ink); }
-#say-text:focus { outline: 2px solid var(--accent); background: #fff; }
+#say-text:focus { outline: 2px solid var(--accent); background: var(--panel); }
 .quick { display: flex; }
 .quick-emoji { font-size: 17px; border: none; background: none; cursor: pointer; padding: 4px; border-radius: 50%; line-height: 1; }
 .quick-emoji:hover { background: var(--hover); transform: scale(1.15); }
@@ -99,11 +107,11 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 
 #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
 .panel, #cards { z-index: 10; }
-.lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-weight: 700; font-size: 12px;
-  padding: 2px 8px; border-radius: 999px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
-.lbl.place { background: rgba(255, 255, 255, 0.92); color: var(--ink); font-size: 13px; }
+.lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-family: var(--font-display); font-weight: 600; font-size: 12px;
+  padding: 2px 9px; border-radius: 999px; box-shadow: 0 2px 0 rgba(58, 42, 24, 0.22); }
+.lbl.place { background: rgba(255, 252, 244, 0.95); color: var(--ink); font-size: 13px; }
 .lbl.friend { color: #fff; pointer-events: auto; cursor: pointer; }
-.bubble { position: absolute; transform: translate(-50%, calc(-100% - 16px)); /* clears the name tag below */ background: #fff; color: var(--ink); padding: 6px 12px;
+.bubble { position: absolute; transform: translate(-50%, calc(-100% - 16px)); /* clears the name tag below */ background: var(--panel); color: var(--ink); padding: 6px 12px; font-weight: 700;
   border-radius: 18px; font-size: 13px; max-width: 170px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   animation: pop 0.2s ease-out; }
 .bubble.pinned { border: 2px solid var(--accent); font-weight: 600; animation: none; }
@@ -124,9 +132,7 @@ h2 { margin: 0 0 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 #follow button:hover { background: var(--soft-hover); }
 .back { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; display: inline-block; padding: 4px 10px; margin: -4px 0 4px -10px; border-radius: 999px; }
 .back:hover { background: var(--accent-soft); }
-#hint { left: 50%; bottom: 16px; transform: translateX(-50%); padding: 6px 14px; font-size: 12px; color: var(--muted); border-radius: 999px; }
 
-body:has(#me:not([hidden])) #hint { bottom: 72px; }
 #moods { z-index: 11; }
 
 @media (max-width: 800px) {
@@ -137,7 +143,6 @@ body:has(#me:not([hidden])) #hint { bottom: 72px; }
   #feed { bottom: 200px; }
   #triggers { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
   #cards { width: calc(100% - 32px); bottom: 190px; }
-  #hint { display: none; }
 }
 
 /* ---- Place card: floats above the building you clicked ---- */
@@ -145,7 +150,7 @@ body:has(#me:not([hidden])) #hint { bottom: 72px; }
 .lbl.place:hover { outline: 2px solid var(--accent); }
 #building {
   width: min(300px, calc(100vw - 24px)); padding: 0; overflow: visible; border-radius: 12px;
-  background: #fff;
+  background: var(--panel);
   transform-origin: center bottom;
   transform: translate(-50%, calc(-100% - 14px));
   box-shadow: var(--shadow-pop);
@@ -156,8 +161,8 @@ body:has(#me:not([hidden])) #hint { bottom: 72px; }
   to { opacity: 1; }
 }
 #building::after {
-  content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
-  border: 7px solid transparent; border-top-color: #fff; border-bottom: 0;
+  content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+  border: 8px solid transparent; border-top-color: var(--panel); border-bottom: 0;
 }
 #building[hidden], #building #bld-go[hidden], #building #bld-rename[hidden], #building .earlier[hidden], #building .meta[hidden] { display: none; }
 #building .bld-head { padding: 14px 14px 0; }
@@ -184,7 +189,7 @@ body:has(#me:not([hidden])) #hint { bottom: 72px; }
   flex: 1; min-width: 0; font: inherit; font-weight: 500; padding: 8px 12px;
   border: 1px solid transparent; border-radius: 10px; background: var(--input); color: var(--ink);
 }
-#building #bld-rename input:focus { outline: none; background: #fff; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+#building #bld-rename input:focus { outline: none; background: var(--panel); border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 #building #bld-rename button {
   font: inherit; font-weight: 600; border: none; background: var(--soft); color: var(--ink);
   border-radius: 8px; padding: 8px 12px; cursor: pointer;
@@ -247,7 +252,7 @@ ul.who .pip { width: 8px; height: 8px; border-radius: 50%; background: currentCo
   transform: translate(-50%, calc(-100% - 14px)); animation: bld-in 0.18s ease-out; }
 #mail[hidden], #mail-send[hidden] { display: none; }
 #mail::after { content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
-  border: 7px solid transparent; border-top-color: #fff; border-bottom: 0; }
+  border: 8px solid transparent; border-top-color: var(--panel); border-bottom: 0; }
 #mail .float-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 #mail .title { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
 #mail .meta { margin-top: 2px; color: var(--muted); font-size: 13px; }
@@ -257,7 +262,7 @@ ul.who .pip { width: 8px; height: 8px; border-radius: 50%; background: currentCo
 #mail-send { display: grid; gap: 8px; margin-top: 10px; }
 #mail-text { font: inherit; resize: vertical; min-height: 64px; border: 1px solid transparent; border-radius: 10px;
   background: var(--input); padding: 8px 12px; color: var(--ink); }
-#mail-text:focus { outline: none; background: #fff; border-color: var(--accent); }
+#mail-text:focus { outline: none; background: var(--panel); border-color: var(--accent); }
 #mail .mail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 #mail .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 #mail button.go { font: inherit; font-weight: 600; border: none; border-radius: 10px; background: var(--accent); color: #fff;
@@ -365,3 +370,27 @@ ul.who .pip { width: 8px; height: 8px; border-radius: 50%; background: currentCo
   .paper-lead { border-right: none; padding-right: 0 !important; }
   .paper-cols section + section { border-top: 1px solid #d8d0bf; }
 }
+
+/* ---- Cozy-town finish: rounded display type and buttons that press down onto a ledge, like the account app ---- */
+button { font-family: var(--font-display) !important; }
+#top .back, #invite-code { font-family: var(--font-display); font-weight: 600; font-size: 14px; }
+#top .back { color: var(--ink); transition: transform 0.08s, box-shadow 0.08s; }
+#top .back:hover { background: var(--panel-2); transform: translateY(-1px); }
+#top .back:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--edge); }
+#invite-code { border: 2px dashed var(--edge); letter-spacing: 0.08em; }
+#triggers button, .card button, #me > button, #say .ghost, #follow button, #building #bld-rename button, #mail-list .mail-acts button, .insight-actions button {
+  box-shadow: 0 3px 0 var(--soft-edge); transition: background 0.12s, transform 0.08s, box-shadow 0.08s;
+}
+#triggers button:active, .card button:active, #me > button:active, #say .ghost:active, #follow button:active,
+#building #bld-rename button:active, #mail-list .mail-acts button:active, .insight-actions button:active { transform: translateY(3px); box-shadow: 0 0 0 var(--soft-edge); }
+#triggers button.on { background: var(--accent); color: #fff; box-shadow: 0 3px 0 var(--accent-deep); }
+.card button.primary, #building #bld-go button.go, #mail button.go, .insight-actions button.primary { box-shadow: 0 4px 0 var(--accent-deep); border-radius: 14px; }
+#building #bld-go button.go:active, #mail button.go:active { transform: translateY(4px); box-shadow: 0 0 0 var(--accent-deep); }
+#building .title, #mail .title { font-family: var(--font-display); font-weight: 600; letter-spacing: 0; }
+#building #bld-go input { font-family: var(--font-display); font-weight: 600; }
+#building .close, #mail .close { box-shadow: 0 3px 0 var(--soft-edge); }
+#building .who-block { border-top: 2px dashed var(--line); }
+#say-text, #mail-text, #building #bld-rename input { border: 2px solid var(--line); font-weight: 600; }
+#moods .mood { font-weight: 700; border-radius: 12px; }
+#mail-count, #mail-list li.new { font-weight: 700; }
+#mail-count { background: var(--coral); }

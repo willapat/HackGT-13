@@ -2,9 +2,9 @@
   <!-- Luma mark: a street lamp whose post and lit sidewalk draw an L, with two friends meeting in its light -->
   <defs>
     <linearGradient id="luma-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1a6dff"/>
-      <stop offset=".52" stop-color="#7a5cff"/>
-      <stop offset="1" stop-color="#ff6b7a"/>
+      <stop offset="0" stop-color="#3fbccb"/>
+      <stop offset=".55" stop-color="#11897c"/>
+      <stop offset="1" stop-color="#0b6459"/>
     </linearGradient>
     <linearGradient id="luma-beam" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffe29a" stop-opacity=".85"/>
