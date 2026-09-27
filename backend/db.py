@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
 from supabase import Client, create_client
@@ -28,6 +29,11 @@ def parse_ts(ts: str) -> datetime:
 
 
 _local = threading.local()
+
+# Long-lived threads for running independent queries side by side. They live as long as the process, so each
+# keeps its own Supabase client (get_client is per thread) and its warm connection between requests.
+# Only submit from request threads: a task that submits to this pool and waits could run it out of workers.
+parallel = ThreadPoolExecutor(max_workers=16, thread_name_prefix="db")
 
 
 def get_client() -> Client:

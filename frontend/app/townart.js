@@ -4,7 +4,7 @@
 // the middle, houses at the edge). Drawn once per layout and cached as an image.
 
 const cache = new Map();
-const BANNER_W = 780, BANNER_H = 240; // about 2x the card banner (same shape), so it stays crisp
+const BANNER_W = 480, BANNER_H = 270; // about 2x a town card's banner and nearly its shape, so it stays crisp
 
 const GROUND = {
   road: '#8b909c', driveway: '#cfc8bc', plaza: '#e4ddcf', patio: '#e4ddcf', farm: '#d6b25f',
@@ -66,19 +66,33 @@ export function drawTown(layout, { whole = false } = {}) {
   const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const g = canvas.getContext('2d');
 
-  // Banner: zoomed in on the middle of town: the grid spans most of the width and the far and near corners crop
-  // off, like looking down a street at the center with the edge of town trailing away. Whole: all of it, sitting
-  // at the bottom so buildings have room to rise.
-  const tw = (W * (whole ? 0.94 : 0.8)) / ((n + m) / 2);
-  const th = tw / 2;
-  const ox = W / 2 - ((n - m) * tw) / 4;
-  const oy = whole ? H - 18 - (n + m) * th / 2 : H * 0.62 - (n + m) * th / 4;
-  const P = (x, y, z = 0) => [ox + (x - y) * tw / 2, oy + (x + y) * th / 2 - z * tw];
-
   const homesAt = new Map();
   for (const h of layout.homes || []) homesAt.set(`${h.x},${h.y}`, h.color);
   const at = (x, y) => (tiles[y] && tiles[y][x]) || null;
   const roadNear = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => at(x + dx, y + dy) === 'road');
+  const kinds = [], looks = []; // what's on each tile, worked out once for sizing and drawing
+  for (let y = 0; y < m; y++) {
+    kinds[y] = []; looks[y] = [];
+    for (let x = 0; x < n; x++) {
+      kinds[y][x] = String(at(x, y) || 'park');
+      looks[y][x] = classify(kinds[y][x], x, y, n, m, homesAt, layout.background_color, roadNear(x, y));
+    }
+  }
+
+  // Fit the whole town, tallest building included, inside the picture, resting near the bottom. In units of one
+  // tile width: the grid spans m/2 left and n/2 right of centre, its back corner is at 0 and its front at (n+m)/4,
+  // and anything standing on tile (x, y) reaches up to (x+y)/4 minus its height.
+  const tallness = (t, kind) => t.obj === 'tower' ? t.h + (t.h > 1.8 ? 0.12 : 0) : t.obj === 'shop' ? t.h
+    : t.obj === 'house' ? 0.62 : t.obj === 'oak' ? 0.75 : t.obj === 'tree' ? 0.55 : kind === 'stadium' ? 0.12 : 0;
+  let top = 0;
+  for (let y = 0; y < m; y++) for (let x = 0; x < n; x++) top = Math.min(top, (x + y) / 4 - tallness(looks[y][x], kinds[y][x]));
+  const edge = 0.18, bottom = (n + m) / 4 + edge;
+  const [padX, padTop, padBottom] = whole ? [20, 14, 18] : [10, 10, 8];
+  const tw = Math.min((W - 2 * padX) / ((n + m) / 2), (H - padTop - padBottom) / (bottom - top));
+  const th = tw / 2;
+  const ox = W / 2 - ((n - m) * tw) / 4;
+  const oy = H - padBottom - bottom * tw;
+  const P = (x, y, z = 0) => [ox + (x - y) * tw / 2, oy + (x + y) * th / 2 - z * tw];
 
   const poly = (pts, fill) => { g.beginPath(); pts.forEach(([a, b], i) => (i ? g.lineTo(a, b) : g.moveTo(a, b))); g.closePath(); g.fillStyle = fill; g.fill(); };
   // A box on tile (x, y), inset by `pad`, `h` tiles tall
@@ -104,7 +118,6 @@ export function drawTown(layout, { whole = false } = {}) {
   }
 
   // Ground slab under the whole town
-  const edge = 0.18;
   poly([P(0, m, 0), P(n, m, 0), P(n, m, -edge), P(0, m, -edge)], '#6f9a55');
   poly([P(n, 0, 0), P(n, m, 0), P(n, m, -edge), P(n, 0, -edge)], '#5c8446');
 
@@ -113,8 +126,7 @@ export function drawTown(layout, { whole = false } = {}) {
     for (let y = 0; y < m; y++) {
       const x = s - y;
       if (x < 0 || x >= n) continue;
-      const kind = String(at(x, y) || 'park');
-      const t = classify(kind, x, y, n, m, homesAt, layout.background_color, roadNear(x, y));
+      const kind = kinds[y][x], t = looks[y][x];
       poly([P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)], t.ground);
       if (kind === 'road') { // lane marking along the road's direction
         const horiz = at(x - 1, y) === 'road' || at(x + 1, y) === 'road';

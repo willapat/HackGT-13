@@ -1,6 +1,7 @@
 // Desk decor in the empty space beside the page on wide screens: a daily nudge toward a real-world hangout,
-// a weekly checklist, and a tip about something Luma can do. Nothing here is about real people, nothing is
-// sent anywhere; the checklist lives in this browser only (localStorage) and resets each week.
+// a weekly checklist, and a tip about something Luma can do. Every note can be dragged around its side of the
+// screen. Nothing here is about real people and nothing is sent anywhere: note positions and the checklist live
+// in this browser only (localStorage).
 
 const NUDGES = [
   "Text someone you haven't talked to in a month. \"Thought of you\" is enough.",
@@ -53,6 +54,7 @@ function cycler(note, textEl, lines, start) {
   let i = start % lines.length;
   textEl.textContent = lines[i];
   note.onclick = () => {
+    if (note.dataset.dragged) return; // the end of a drag isn't a tap
     note.classList.remove('flip');
     void note.offsetWidth; // restart the flip animation
     note.classList.add('flip');
@@ -83,3 +85,77 @@ if (list) {
     return b;
   }));
 }
+
+// ---- Dragging notes ----
+
+const DESK_KEY = 'luma-desk';
+const desk = load(DESK_KEY, {});
+desk.pos ||= {}; // note id -> [dx, dy] from where the note sits by default
+delete desk.mine; // notes you wrote yourself: a removed feature
+const saveDesk = () => save(DESK_KEY, desk);
+
+// Keep a note inside its side of the screen: sides change width with the page (Home is wider than Feed)
+function clampNote(note, [dx, dy]) {
+  const side = note.closest('.decor-side')?.getBoundingClientRect();
+  if (!side || !side.width) return [dx, dy];
+  const box = note.getBoundingClientRect();
+  const [cx, cy] = desk.pos[note.dataset.note] || [0, 0];
+  const left = box.left - cx, top = box.top - cy; // where it sits with no offset
+  const pad = 8;
+  dx = Math.min(Math.max(dx, side.left + pad - left), side.right - pad - box.width - left);
+  dy = Math.min(Math.max(dy, side.top + pad - top), side.bottom - pad - box.height - top);
+  return [Math.round(dx), Math.round(dy)];
+}
+function place(note) {
+  const p = desk.pos[note.dataset.note];
+  if (!p) { note.style.translate = ''; return; }
+  const fixed = clampNote(note, p);
+  desk.pos[note.dataset.note] = fixed;
+  note.style.translate = `${fixed[0]}px ${fixed[1]}px`;
+}
+const placeAll = () => document.querySelectorAll('.decor [data-note]').forEach(place);
+
+let front = 10;
+function draggable(note) {
+  let start = null;
+  note.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('.check-item')) return;
+    start = { x: e.clientX, y: e.clientY, p: desk.pos[note.dataset.note] || [0, 0], moved: false, id: e.pointerId };
+  });
+  note.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (!start.moved) {
+      if (Math.hypot(dx, dy) < 5) return; // a tap, so far
+      start.moved = true;
+      try { note.setPointerCapture(start.id); } catch { /* pointer already gone: the drag still follows moves over the note */ }
+      note.classList.add('dragging');
+      note.style.zIndex = String(++front);
+    }
+    const p = clampNote(note, [start.p[0] + dx, start.p[1] + dy]);
+    desk.pos[note.dataset.note] = p;
+    note.style.translate = `${p[0]}px ${p[1]}px`;
+  });
+  const end = () => {
+    if (!start) return;
+    if (start.moved) {
+      note.classList.remove('dragging');
+      note.dataset.dragged = '1';
+      setTimeout(() => delete note.dataset.dragged, 0); // swallow the click that ends a drag
+      saveDesk();
+    }
+    start = null;
+  };
+  note.addEventListener('pointerup', end);
+  note.addEventListener('pointercancel', end);
+}
+
+for (const [el, id] of [[$('#nudge-note'), 'nudge'], [$('#week-list')?.closest('.sticky'), 'week'], [$('#tip-note'), 'tip']]) {
+  if (!el) continue;
+  el.dataset.note = id;
+  draggable(el);
+}
+placeAll();
+// Sides resize with the window and with the page (Home's column is wider than Feed's), so re-fit the notes
+addEventListener('resize', placeAll);
+addEventListener('hashchange', () => setTimeout(placeAll, 50));

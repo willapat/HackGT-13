@@ -79,6 +79,9 @@ document.addEventListener('click', (e) => {
   if (control && control !== target && target.contains(control)) return;
   e.preventDefault();
   e.stopPropagation();
+  const avatar = target.classList.contains('avatar') ? target : target.querySelector('.avatar');
+  const name = target.querySelector('.name, .title, b')?.textContent || (target.classList.contains('title') ? target.textContent : '');
+  personHint = { id: target.dataset.person, name: name.replace(/ \(you\)$/, ''), avatar };
   openPerson(target.dataset.person);
 }, true);
 
@@ -197,10 +200,15 @@ addEventListener('hashchange', async () => {
 
 addEventListener('beforeunload', (e) => { if (dirty.size) { e.preventDefault(); e.returnValue = ''; } });
 
+let lastRouted = null;
 function route() {
   lastHash = location.hash;
   const { view, pane, id } = parseHash();
   closeMenu();
+  // A different tab (or another person's profile) opens at its top, not at the scroll spot of the last one
+  const where = `${view}/${id || ''}`;
+  if (lastRouted && where !== lastRouted) scrollTo(0, 0);
+  lastRouted = where;
   if (view === 'settings') return showSettings(pane);
   currentPane = null;
   if (view === 'help') { show('help'); return scrollTo(0, 0); }
@@ -580,6 +588,8 @@ $('#hello-post').onclick = () => {
   skipNextRoute = true; // show it here instead of letting the hash route, so the composer opens
   location.hash = '#/feed';
   lastHash = location.hash;
+  lastRouted = 'feed/';
+  scrollTo(0, 0);
   showFeed({ write: true });
 };
 
@@ -1452,23 +1462,64 @@ $('#search-form').onsubmit = async (e) => {
 
 let personId = null;
 
-async function showPerson(id) {
+// Profiles open instantly when they can: ones you opened recently are remembered (and refreshed behind the
+// scenes), and pointing at someone starts loading theirs before the click lands.
+const PROFILE_FRESH_MS = 60_000;
+const profileCache = new Map(); // id -> { data, at }
+const profileLoads = new Map(); // id -> in-flight request
+function loadProfile(id) {
+  if (profileLoads.has(id)) return profileLoads.get(id);
+  const req = api(`/users/${encodeURIComponent(id)}/profile`)
+    .then((data) => { profileCache.set(id, { data, at: Date.now() }); return data; })
+    .finally(() => profileLoads.delete(id));
+  profileLoads.set(id, req);
+  return req;
+}
+function prefetchProfile(id) {
+  const hit = profileCache.get(id);
+  if (!id || id === me?.id || (hit && Date.now() - hit.at < PROFILE_FRESH_MS)) return;
+  loadProfile(id).catch(() => {}); // a failed warm-up is fine; opening the profile tries again
+}
+document.addEventListener('pointerover', (e) => prefetchProfile(e.target.closest?.('[data-person]')?.dataset.person), { passive: true });
+
+// What the tapped row already shows (name and avatar), so the header appears before the profile arrives
+let personHint = null;
+
+async function showPerson(id, { refresh = false } = {}) {
   personId = id;
-  $('#p-name').textContent = '';
-  $('#p-handle').textContent = '';
-  for (const c of ['#p-you-card', '#p-interests-card', '#p-towns-card', '#p-mutual-card', '#p-stranger']) $(c).hidden = true;
-  $('#p-actions').replaceChildren();
-  $('#p-bio').textContent = '';
-  $('#p-stats').textContent = '';
-  $('#p-status').replaceChildren();
-  show('person');
-  scrollTo(0, 0);
+  const hit = refresh ? null : profileCache.get(id);
+  if (!refresh) {
+    show('person');
+    scrollTo(0, 0);
+    if (hit) renderPerson(hit.data);
+    else {
+      $('#p-name').textContent = personHint?.id === id ? personHint.name : '';
+      $('#p-handle').textContent = '';
+      const avatar = $('#p-avatar');
+      if (personHint?.id === id && personHint.avatar) {
+        avatar.style.cssText = personHint.avatar.style.cssText;
+        avatar.textContent = personHint.avatar.textContent;
+        avatar.className = 'avatar lg';
+        if (personHint.avatar.classList.contains('has-photo')) avatar.classList.add('has-photo');
+      } else { avatar.textContent = ''; avatar.style.cssText = ''; avatar.className = 'avatar lg'; }
+      for (const c of ['#p-you-card', '#p-interests-card', '#p-towns-card', '#p-mutual-card', '#p-stranger']) $(c).hidden = true;
+      $('#p-actions').replaceChildren();
+      $('#p-bio').textContent = '';
+      $('#p-stats').textContent = '';
+      $('#p-status').replaceChildren();
+      $('#view-person').classList.add('loading');
+    }
+    if (hit && Date.now() - hit.at < PROFILE_FRESH_MS) return; // fresh enough; no need to ask again
+  }
   let p;
-  try { p = await api(`/users/${encodeURIComponent(id)}/profile`); } catch (err) {
-    $('#p-name').textContent = err.status === 404 ? 'No one here' : "Couldn't load this profile";
+  try { p = await (refresh ? (profileLoads.get(id) || loadProfile(id)) : loadProfile(id)); } catch (err) {
+    if (personId !== id) return;
+    $('#view-person').classList.remove('loading');
+    if (!hit) $('#p-name').textContent = err.status === 404 ? 'No one here' : "Couldn't load this profile";
     return toast(err.message, 'error');
   }
   if (personId !== id) return; // navigated away while loading
+  $('#view-person').classList.remove('loading');
   renderPerson(p);
 }
 
@@ -1486,7 +1537,7 @@ function renderPerson(p) {
     b.type = 'button';
     if (fn) b.onclick = async () => {
       b.disabled = true;
-      try { await fn(); await refreshAll(); showPerson(p.id); } catch (err) { toast(err.message, 'error'); b.disabled = false; }
+      try { await fn(); profileCache.delete(p.id); await refreshAll(); showPerson(p.id, { refresh: true }); } catch (err) { toast(err.message, 'error'); b.disabled = false; }
     };
     return b;
   };

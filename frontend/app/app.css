@@ -94,6 +94,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
+html { scrollbar-gutter: stable; } /* a scrollbar appearing on a longer tab would otherwise shift everything sideways */
 body {
   background-color: var(--bg);
   background-image: radial-gradient(var(--dots) 1.3px, transparent 1.6px);
@@ -491,7 +492,7 @@ label.inline select { width: auto; padding: 7px 30px 7px 12px; border-radius: 99
 .town-card .banner svg, .town-icon svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .town-card .banner b { position: relative; z-index: 1; }
 /* Real town art: the isometric drawing over a soft sky in the town's hue */
-.town-card .banner.real { height: 128px; background-size: cover, cover; background-position: center bottom, center; }
+.town-card .banner.real { height: 128px; background-size: contain, cover; background-position: center bottom, center; background-repeat: no-repeat; } /* the whole town, never cropped; its sky fills around it */
 .town-card .banner.real.hue-1 { --sky: linear-gradient(180deg, #8fd3ef, #e4f5fb); }
 .town-card .banner.real.hue-2 { --sky: linear-gradient(180deg, #ffc9a3, #fff0d9); }
 .town-card .banner.real.hue-3 { --sky: linear-gradient(180deg, #b7e3a4, #eef9e6); }
@@ -956,7 +957,8 @@ button.pin-toggle.on svg { fill: currentColor; }
 
 /* ---- Desk decor: sticky notes, a lamp and a little garden in the empty space beside the page (app/decor.js) ----
    Each side is as wide as the gap next to the page for the current view; below 190px the side shows nothing. */
-.page { position: relative; z-index: 1; }
+.page { position: relative; z-index: 1; pointer-events: none; } /* full width, so let clicks through to the notes beside the column */
+.page > * { pointer-events: auto; }
 .decor { --shell: 440px; --font-hand: "Caveat", "Segoe Print", "Bradley Hand", cursive; }
 body:has(#shell.home) .decor { --shell: 1000px; }
 body:has(#shell.wide) .decor { --shell: 940px; }
@@ -967,14 +969,27 @@ body:has(#shell.feed) .decor { --shell: 640px; }
 }
 .decor-side.left { left: 0; }
 .decor-side.right { right: 0; }
+.decor-side.right .decor-notes { margin-left: auto; } /* anchored to the screen edge, not the page, so they stay put between tabs */
 .decor-side > * { transition: opacity 0.3s; }
-@container (max-width: 190px) { .decor-notes, .decor-ground, .decor-sky { display: none; } }
+@container (max-width: 150px) { .decor-notes { display: none; } }
+@container (max-width: 190px) { .decor-ground, .decor-sky { display: none; } }
+/* Narrow gaps (small laptops): smaller notes instead of none */
+@container (max-width: 240px) {
+  .decor-notes { padding: 36px 10px 0; gap: 22px; }
+  .sticky, .sticky:hover:not(:disabled), .sticky:active:not(:disabled) { font-size: 18px; padding: 22px 12px 12px; }
+  .sticky-foot { font-size: 14px; }
+  .sticky-kicker { font-size: 10.5px; }
+  .check-item, .check-item:hover:not(:disabled), .check-item:active:not(:disabled) { font-size: 18px; gap: 7px; }
+  .check-item .box { width: 15px; height: 15px; }
+  .sticky .tape { width: 60px; }
+}
 .decor-notes {
   position: relative; z-index: 2; display: grid; justify-items: center; gap: 30px; padding: 44px 22px 0;
-  max-width: 280px; margin: 0 auto;
+  width: min(100%, 264px);
 }
-.decor-ground { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: auto; max-height: 38vh; z-index: 1; }
+.decor-ground { position: absolute; left: 0; bottom: 0; width: 420px; height: auto; max-height: 38vh; z-index: 1; }
 .lamp-scene { max-height: 52vh; bottom: 30px; }
+.decor-side.right .decor-ground { left: auto; right: 0; }
 .lamp-light { fill: var(--orb); opacity: 0.12; }
 .lamp-halo { fill: var(--orb-glow); opacity: 0.5; }
 .lamp-bulb { fill: #ffd76a; }
@@ -1052,11 +1067,11 @@ button.sticky { cursor: pointer; }
 @keyframes float { 0%, 100% { transform: translate(0, 0); opacity: 0.3; } 30% { opacity: 1; } 50% { transform: translate(18px, -24px); } 80% { transform: translate(-10px, -8px); opacity: 0.9; } }
 /* One rounded hill across the whole side, under the props, so the ground never ends in a hard edge */
 .decor-side::after {
-  content: ""; position: absolute; left: -25%; right: 8%; bottom: -70px; height: 160px; z-index: 0; border-radius: 50% 50% 0 0;
+  content: ""; position: absolute; left: -110px; width: 560px; bottom: -70px; height: 160px; z-index: 0; border-radius: 50% 50% 0 0;
   background: var(--hill-2); box-shadow: inset 0 22px 0 -8px var(--hill-1);
 }
 @container (max-width: 190px) { .decor-side::after { display: none; } }
-.decor-side.right::after { left: 8%; right: -25%; }
+.decor-side.right::after { left: auto; right: -110px; }
 @media (max-height: 720px) { .decor-side::after { display: none; } }
 
 /* ---- Phones and touch screens ---- */
@@ -1125,3 +1140,21 @@ button, a, [role="button"], li[data-person], ul.latest li, ul.today li { -webkit
   .card { padding: 16px; }
   .hello h1 { font-size: 24px; }
 }
+
+/* ---- Interactive desk: drag the notes around (app/decor.js) ---- */
+.decor [data-note] { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.decor [data-note].dragging, .decor [data-note].dragging:hover {
+  cursor: grabbing; transition: none !important; transform: rotate(0deg) scale(1.06) !important;
+  box-shadow: 0 28px 34px -14px rgba(80, 58, 26, 0.55) !important;
+}
+
+/* A profile you haven't opened before: the header shows at once, placeholder lines stand in for the rest */
+#view-person.loading .profile-body::after {
+  content: ""; display: block; height: 58px; border-radius: 12px; margin-top: 4px;
+  background: linear-gradient(90deg, var(--soft) 25%, var(--panel-2) 50%, var(--soft) 75%) 0 0 / 200% 100%;
+  -webkit-mask: linear-gradient(#000 0 14px, transparent 14px 22px, #000 22px 36px, transparent 36px 44px, #000 44px) 0 0 / 70% 100% no-repeat;
+  mask: linear-gradient(#000 0 14px, transparent 14px 22px, #000 22px 36px, transparent 36px 44px, #000 44px) 0 0 / 70% 100% no-repeat;
+  animation: shimmer 1.2s linear infinite;
+}
+#view-person.loading #p-name:empty::before { content: ""; display: inline-block; width: 160px; height: 24px; border-radius: 8px; background: var(--soft); }
+@keyframes shimmer { to { background-position: -200% 0; } }

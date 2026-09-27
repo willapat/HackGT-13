@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import current_user_id
-from backend.db import get_client, now_iso
+from backend.db import get_client, now_iso, parallel
 from backend.models.api import FriendRequestIn, Respond, Username
 from backend.person import build_person
 from backend.status import calendar_busy, effective_status
@@ -162,32 +162,45 @@ def respond_request(request_id: UUID, body: Respond, uid: str = Depends(current_
 
 @router.get("/users/{user_id}/profile")
 def person_profile(user_id: UUID, uid: str = Depends(current_user_id)):
-    """Someone's profile as you're allowed to see it (see backend/person.py for what each relation gets)."""
-    db, target = get_client(), str(user_id)
-    rows = db.table("profiles").select("*").eq("id", target).limit(1).execute().data
-    if not rows:
-        raise HTTPException(status_code=404, detail="no such person")
-    mine = {m["town_id"]: (m.get("towns") or {}).get("name") or "Town"
-            for m in db.table("town_members").select("town_id, towns(name)").eq("user_id", uid).execute().data or []}
-    theirs = db.table("town_members").select("town_id, name, color").eq("user_id", target).execute().data or []
-    shared = [t for t in theirs if t["town_id"] in mine]
-    counts: dict[str, int] = {}
-    if shared:
-        for m in db.table("town_members").select("town_id").in_("town_id", [t["town_id"] for t in shared]).execute().data or []:
-            counts[m["town_id"]] = counts.get(m["town_id"], 0) + 1
-    shared_towns = [{"id": t["town_id"], "name": mine[t["town_id"]], "residents": counts.get(t["town_id"], 1),
-                     "their_name": t.get("name"), "their_color": t.get("color")} for t in shared]
+    """Someone's profile as you're allowed to see it (see backend/person.py for what each relation gets).
+    The lookups don't depend on each other, so they run in two parallel rounds instead of a dozen round trips
+    in a row (each thread gets its own Supabase client from get_client)."""
+    target, now = str(user_id), datetime.now(timezone.utc)
+    a, b = sorted((uid, target))
 
-    def friend_ids(person: str) -> set[str]:
+    def q(fn):
+        return lambda: fn(get_client())
+
+    def friend_ids(db, person: str) -> set[str]:
         return {r["to_user"] if r["from_user"] == person else r["from_user"] for r in _my_rows(db, person, "accepted")}
 
-    mutual_ids = (friend_ids(uid) & friend_ids(target)) - {uid, target} if target != uid else set()
-    mutual = list(_profiles(db, sorted(mutual_ids)).values())
-    a, b = sorted((uid, target))
-    bond = db.table("friendships").select("*").eq("user_a", a).eq("user_b", b).limit(1).execute().data
-    me_row = db.table("profiles").select("interests").eq("id", uid).limit(1).execute().data
-    now = datetime.now(timezone.utc)
-    busy = calendar_busy(db, [target], now).get(target) if shared_towns or target == uid else None
-    return build_person(uid, rows[0], pair_row(db, uid, target), shared_towns,
-                        (me_row[0].get("interests") if me_row else None) or [], mutual, bond[0] if bond else None,
+    first = {
+        "profile": q(lambda db: db.table("profiles").select("*").eq("id", target).limit(1).execute().data),
+        "mine": q(lambda db: db.table("town_members").select("town_id, towns(name)").eq("user_id", uid).execute().data or []),
+        "theirs": q(lambda db: db.table("town_members").select("town_id, name, color").eq("user_id", target).execute().data or []),
+        "my_friends": q(lambda db: friend_ids(db, uid)),
+        "their_friends": q(lambda db: friend_ids(db, target)),
+        "bond": q(lambda db: db.table("friendships").select("*").eq("user_a", a).eq("user_b", b).limit(1).execute().data),
+        "me": q(lambda db: db.table("profiles").select("interests").eq("id", uid).limit(1).execute().data),
+        "pair": q(lambda db: pair_row(db, uid, target)),
+        "busy": q(lambda db: calendar_busy(db, [target], now).get(target)),
+    }
+    got = {k: f.result() for k, f in {k: parallel.submit(fn) for k, fn in first.items()}.items()}
+    if not got["profile"]:
+        raise HTTPException(status_code=404, detail="no such person")
+    mine = {m["town_id"]: (m.get("towns") or {}).get("name") or "Town" for m in got["mine"]}
+    shared = [t for t in got["theirs"] if t["town_id"] in mine]
+    mutual_ids = (got["my_friends"] & got["their_friends"]) - {uid, target} if target != uid else set()
+    # Second round: what needed the first one (how many live in the shared towns, the mutual friends)
+    counts_job = parallel.submit(q(lambda db: db.table("town_members").select("town_id").in_("town_id", [t["town_id"] for t in shared]).execute().data or [])) if shared else None
+    mutual_job = parallel.submit(q(lambda db: list(_profiles(db, sorted(mutual_ids)).values())))
+    counts: dict[str, int] = {}
+    for m in counts_job.result() if counts_job else []:
+        counts[m["town_id"]] = counts.get(m["town_id"], 0) + 1
+    mutual = mutual_job.result()
+    shared_towns = [{"id": t["town_id"], "name": mine[t["town_id"]], "residents": counts.get(t["town_id"], 1),
+                     "their_name": t.get("name"), "their_color": t.get("color")} for t in shared]
+    busy = got["busy"] if shared_towns or target == uid else None
+    return build_person(uid, got["profile"][0], got["pair"], shared_towns,
+                        (got["me"][0].get("interests") if got["me"] else None) or [], mutual, got["bond"][0] if got["bond"] else None,
                         now, busy=busy)
