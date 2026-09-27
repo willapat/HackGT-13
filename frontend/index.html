@@ -374,6 +374,20 @@
               <div class="stats"><span><b id="stat-towns">0</b> towns</span><span><b id="stat-friends">0</b> friends</span><span><b id="stat-hangouts">0</b> hangouts</span></div>
             </div>
           </div>
+          <div class="card" id="schedule-card">
+            <div class="card-head">
+              <h3>Schedule</h3>
+              <div class="week-nav">
+                <button type="button" class="small" id="sched-prev" aria-label="Previous week">‹</button>
+                <span class="range" id="sched-range">This week</span>
+                <button type="button" class="small" id="sched-next" aria-label="Next week">›</button>
+                <button type="button" class="small" id="sched-today" hidden>Today</button>
+              </div>
+            </div>
+            <p class="sub">Your week, in your time. Add what you're doing and your character heads there. Google Calendar shows up too.</p>
+            <div id="sched-days"><p class="empty">Loading your week…</p></div>
+            <p class="msg" id="sched-msg" hidden></p>
+          </div>
           <div class="card">
             <h3>Highlights</h3>
             <div class="highlights" id="highlights"></div>
