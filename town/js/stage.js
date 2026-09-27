@@ -48,7 +48,7 @@ controls.minZoom = 0.6;
 controls.maxZoom = 5;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = 1.15;
-// Aim a little past the centre so the town's name (sign.js, behind the far corner) is in the opening view too
+// Aim a little past the centre of the town
 const LIFT = N * 0.07;
 controls.target.set(-LIFT, 0, -LIFT);
 camera.position.set(14 - LIFT, 13, 14 - LIFT);

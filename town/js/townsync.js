@@ -64,6 +64,7 @@ export function startTownSync(townId, initial, t) {
 
   // Chat bubbles for a new agent action (only new ones arrive over Realtime, so old chats never replay)
   function applyAction(a) {
+    if (a.details?.target_building_id && t.onTrip) t.onTrip(); // a trip: busy places re-glow (heat.js)
     (a.details?.lines || []).forEach((line, i) => {
       const speaker = t.friends[line.speaker_id] || t.friends[a.user_id];
       if (speaker) setTimeout(() => t.say(speaker, line.text, 1700), i * 1800);

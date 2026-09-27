@@ -19,6 +19,7 @@ from backend.town_map import buildings, house_building_id, in_bounds
 from backend.towngen import generate_town, grow, needs_to_grow
 from backend.towngen.catalog import GREENERY, LANDMARKS, LANDSCAPES, MAX_PLACES, PLACE_TYPES, STYLES
 from backend.routes.friends import are_friends
+from backend.paper import arrivals, build_paper, week_bounds
 
 router = APIRouter(prefix="/towns", tags=["towns"])
 
@@ -507,6 +508,42 @@ def building_visits(town_id: UUID, building_id: str, uid: str = Depends(current_
     for r in rows:
         latest.setdefault(r["user_id"], r)
     return [{"user_id": u, "action": r["action"], "at": r["created_at"]} for u, r in latest.items()]
+
+
+def _trips(db, tid: str, since: datetime, until: datetime | None = None) -> list[dict]:
+    q = (db.table("agent_actions").select("user_id, created_at, details").eq("town_id", tid)
+         .gte("created_at", since.isoformat()))
+    if until:
+        q = q.lt("created_at", until.isoformat())
+    return q.order("created_at").limit(5000).execute().data or []  # ponytail: 5000 rows a window, page if towns get busier
+
+
+def _place_names(db, tid: str) -> dict[str, str]:
+    return {pid: p.get("name") or pid for pid, p in ((load_town(db, tid).get("map") or {}).get("places") or {}).items()}
+
+
+@router.get("/{town_id}/heat")
+def town_heat(town_id: UUID, uid: str = Depends(current_user_id)):
+    """Visits to each place today (the viewer's day), for the glow on busy buildings: {building_id: visits}."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    midnight = datetime.now(user_tz(db, uid)).replace(hour=0, minute=0, second=0, microsecond=0)
+    places = _place_names(db, tid)
+    return {b: v["visits"] for b, v in arrivals(_trips(db, tid, midnight)).items() if b in places}
+
+
+@router.get("/{town_id}/paper")
+def town_paper(town_id: UUID, offset: int = Query(0, ge=-8, le=0, description="0 = this week, -1 = last week"),
+               uid: str = Depends(current_user_id)):
+    """The weekly paper on the park's notice board: the week's dates, busiest places, a summary, and pairs of
+    townmates with something real in common, each with a suggestion to meet (backend/paper.py)."""
+    db, tid = get_client(), str(town_id)
+    require_member(db, tid, uid)
+    start, end = week_bounds(datetime.now(user_tz(db, uid)), offset)
+    members = db.table("town_members").select("user_id, name, color, profiles(display_name, interests)").eq("town_id", tid).execute().data or []
+    runs = (db.table("brain_runs").select("output, created_at").eq("town_id", tid).gte("created_at", start.isoformat())
+            .lt("created_at", end.isoformat()).order("created_at", desc=True).limit(50).execute().data or [])
+    return build_paper(tid, start, end, members, _place_names(db, tid), _trips(db, tid, start, end), runs)
 
 
 @router.get("/{town_id}/activity")

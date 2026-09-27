@@ -5,20 +5,24 @@ import { startTownBackend } from './realtime.js';
 import { startTownSync } from './townsync.js';
 import { CH, GROUND, HELIPAD, NATURE, PARASOLS, PARK_TREES, PROPS, ROAD, ROOF_PROPS, STREET, VEHICLES, ZONES } from './assets.js';
 import { activeCam, startFollow, updateCamera } from './camera.js';
+import { addTownBanner } from './banner.js';
 import { buildCity, finishCity } from './city.js';
 import { applyTownNames, renameFriend, setStatus, trigger } from './demo.js';
 import { effects, partyLights, rainCloud, refreshHouseLabel, setHouseMood } from './effects.js';
 import { $, labels, logFeed, showCard } from './hud.js';
+import { heatSoon, startHeat } from './heat.js';
 import { EXTRA_MODELS, FRIENDS, PLACES, STADIUM, TOWN, TOWN_ID, townApi } from './layout.js';
 import { loadAll } from './models.js';
 import { updateOcclusion } from './occlusion.js';
+import { startPaper } from './paper.js';
 import './buildings.js'; // the building card (click a place's or house's name)
-import './heavens.js'; // sun, moon and stars
 import { startMine } from './mine.js'; // your bubble, house mood and mailbox
 import { friends, placeAgent, say, setCalendars, setPinned, spawnFriends, stepFriend, syncTrail, think, walkTo } from './people.js';
-import { addTownSign } from './sign.js';
 import { addStreetLamps, applyTownTime, lightWindows, patchWeather, updateSky, wireSkyControls } from './sky.js';
 import { animated, renderer, scene } from './stage.js';
+
+// Sun, moon and stars: off until they look right; ?sky=1 turns them on
+const heavens = new URLSearchParams(location.search).has('sky') ? await import('./heavens.js') : null;
 
 const clock = new THREE.Clock();
 const v = new THREE.Vector3();
@@ -35,6 +39,7 @@ function frame() {
   for (const fx of animated) fx.update(dt);
 
   updateCamera(dt, now);
+  heavens?.updateHeavens();
   updateOcclusion(dt);
   renderer.render(scene, activeCam);
 
@@ -70,7 +75,7 @@ fetch(`${window.LUMA_BACKEND || 'http://127.0.0.1:8000'}/demo/clock`)
 logFeed('Loading city…');
 await loadAll(allModels);
 buildCity();
-await addTownSign(TOWN?.town.name || 'Luma').catch((e) => console.warn('town sign', e));
+try { addTownBanner(TOWN?.town.name || 'Luma'); } catch (e) { console.warn('town banner', e); }
 addStreetLamps();
 scene.traverse((o) => { if (o.userData.building) lightWindows(o, o.userData.building); });
 finishCity(); // all tall scenery can fade; static scenery stops recomputing transforms
@@ -92,9 +97,11 @@ if (TOWN) {
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
   startTownSync(TOWN_ID, TOWN, {
-    friends, placeAgent, setCalendars, setStatus, say, setPinned, setHouseMood, refreshHouseLabel, logFeed, PLACES, applyTownTime,
+    friends, placeAgent, setCalendars, setStatus, say, setPinned, setHouseMood, refreshHouseLabel, logFeed, PLACES, applyTownTime, onTrip: heatSoon,
   });
   startMine();
+  startHeat(); // busy places glow
+  startPaper(); // the weekly paper on the park's notice board
 } else {
   logFeed('Town loaded. Demo buttons try the live backend, then fall back to scripted playback.');
   const { triggerViaBackend } = startTownBackend(townApi);
