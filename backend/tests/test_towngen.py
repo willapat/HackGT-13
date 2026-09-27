@@ -200,3 +200,55 @@ def test_growth_keeps_the_look(monkeypatch):
     made = towngen.generate_town("leafy suburb")
     tiles, town_map = towngen.grow({"tiles": made["tiles"], "map": made["map"]}, 9)
     assert len(tiles) == 21 and town_map["landscape"] == "autumn" and not {k for row in tiles for k in row} & set(TALL)
+
+
+def _spread(slots):
+    """Average distance of the home plots from their own middle: small = side by side."""
+    xs = [(s["block"][0] + s["block"][2]) / 2 for s in slots]
+    ys = [(s["block"][1] + s["block"][3]) / 2 for s in slots]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    return sum(abs(x - mx) + abs(y - my) for x, y in zip(xs, ys)) / len(xs)
+
+
+def test_homes_spread_evenly_unless_the_user_asks_for_them_together_or_in_groups():
+    assert TownPlan().homes == "spread"
+    # Up to 16 homes: at 24 the plots fill nearly the whole outer ring, so together can only wrap around it
+    for cap, size in towngen.TIERS[1:-1]:
+        even = build(TownPlan(size=size, home_slots=cap))[1]["home_slots"]
+        for homes in ("together", "groups"):
+            tiles, town_map = build(TownPlan(size=size, home_slots=cap, homes=homes))
+            assert len(town_map["home_slots"]) == cap
+            assert problems(tiles, town_map, homes_needed=cap, homes=homes) == [], (size, homes)
+        together = build(TownPlan(size=size, home_slots=cap, homes="together"))
+        assert _spread(together[1]["home_slots"]) < _spread(even) * 0.75, size
+        assert problems(*together, homes_needed=cap), "bunched homes still fail the default (even) rule"
+
+
+def test_the_model_can_place_homes_but_not_size_the_town():
+    from backend.towngen.prompt import planner_system_prompt
+    system = planner_system_prompt()
+    assert '"homes"' in system and '"home_slots"' not in system and '"size"' not in system
+
+
+def test_two_places_never_share_a_tile():
+    """spread() used to pick the same lot twice when a town had nearly as many places as lots (86 of 594 towns)."""
+    from collections import Counter
+    for size in range(11, 32, 2):
+        for n in range(1, 13):
+            for seed in range(4):
+                plan = TownPlan(size=size, name=f"T{seed}",
+                                places=[PlacePlan(id=f"p{i}", name=f"P{i}", model=(SMALL + MID)[i]) for i in range(n)])
+                tiles, town_map = build(plan)
+                counts = Counter(tuple(p["tile"]) for p in town_map["places"].values())
+                assert max(counts.values()) == 1, (size, n, seed)
+
+
+def test_a_map_with_two_names_on_one_tile_is_rejected():
+    import pytest
+    from pydantic import ValidationError
+    from backend.models.api import TownMap
+    one = {"name": "Café", "tile": [2, 1], "door": [1, 1]}
+    TownMap(places={"cafe": one, "gym": {**one, "tile": [3, 1]}})
+    with pytest.raises(ValidationError, match="share tile"):
+        TownMap(places={"cafe": one, "gym": {**one, "name": "Gym"}})
+    assert problems([["road"] * 11] * 11, {"places": {"a": one, "b": one}})[0].startswith("places a and b share tile")

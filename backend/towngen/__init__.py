@@ -139,7 +139,8 @@ def lay_out(plan: TownPlan, members: int, prompt: str) -> tuple[list[list[str]],
         plan.rows = []
     plan.home_slots, plan.size = tier_for(members)
     tiles, town_map = build(plan)
-    broken = problems(tiles, town_map, homes_needed=min(members, plan.home_slots), dense_core=plan.style not in ("suburbs", "village"))
+    broken = problems(tiles, town_map, homes_needed=min(members, plan.home_slots), dense_core=plan.style not in ("suburbs", "village"),
+                      homes=plan.homes)
     broken += [f"requested place '{p.id}' is missing" for p in plan.places if p.model in BUILDINGS and p.id not in town_map["places"]]
     broken += [f"requested {lm} doesn't fit a {len(tiles)}x{len(tiles)} town" for lm in plan.landmarks
                if lm in LANDMARK_TILES and not any(LANDMARK_TILES[lm] in row for row in tiles) and len(tiles) >= LANDMARK_MIN_SIZE[lm]]
