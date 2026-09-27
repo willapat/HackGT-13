@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
+from backend.socials import clean_facebook, clean_instagram
+
 # Matches the profiles.username check constraint; input is trimmed and lowercased first.
 Username = Annotated[
     str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v), Field(pattern=r"^[a-z0-9_]{3,20}$")
@@ -22,6 +24,20 @@ class ProfileUpdate(BaseModel):
     # IANA name from the browser (Intl), e.g. "America/Los_Angeles": the person's own "today" and plan hours.
     # Times themselves are always stored in UTC.
     timezone: str | None = Field(default=None, max_length=64)
+    # Optional usernames shown as links to friends and townmates. "@name", "name" or a pasted profile link all
+    # work; "" removes it. Cleaned to just the username (backend/socials.py).
+    instagram: str | None = Field(default=None, max_length=200)
+    facebook: str | None = Field(default=None, max_length=200)
+
+    @field_validator("instagram")
+    @classmethod
+    def _instagram(cls, v: str | None) -> str | None:
+        return v if v is None else (clean_instagram(v) or "")
+
+    @field_validator("facebook")
+    @classmethod
+    def _facebook(cls, v: str | None) -> str | None:
+        return v if v is None else (clean_facebook(v) or "")
 
     @field_validator("timezone")
     @classmethod
@@ -62,6 +78,13 @@ class TownMap(BaseModel):
 
     model_config = ConfigDict(extra="allow")
     places: dict[str, Place] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def one_name_per_tile(self):
+        from backend.town_map import shared_tiles
+        if clash := shared_tiles(self.places):
+            raise ValueError(clash[0])
+        return self
 
 
 class Home(BaseModel):
@@ -235,6 +258,25 @@ class EventCreate(BaseModel):
     building_id: str | None = Field(default=None, max_length=80)  # filled from text/kind if omitted
     travel_minutes: int | None = Field(default=None, ge=1, le=120)
     participant_ids: list[UUID] = Field(default_factory=list, max_length=10)  # other people going, besides you
+
+
+class ScheduleIn(BaseModel):
+    """Something you're doing, added from the profile Schedule panel. Times are on that date, in your zone."""
+
+    title: str = Field(min_length=1, max_length=120)
+    kind: Literal["class", "work", "social", "activity", "appointment"] = "activity"
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    start: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    place: Literal["home", "university", "library", "gym", "cafe", "market", "park", "downtown"] = "home"
+
+    @field_validator("title")
+    @classmethod
+    def one_line(cls, value: str) -> str:
+        text = " ".join(value.split())
+        if not text:
+            raise ValueError("add a name")
+        return text
 
 
 class Respond(BaseModel):

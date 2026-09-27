@@ -83,6 +83,9 @@ class TownPlan(BaseModel):
     background_density: float = 0.25     # share of free suburb street tiles given a background house, <= 0.35
     background_color: str = Field(default="#b8b2a7", pattern=r"^#[0-9a-fA-F]{6}$")
     outer_park: bool = True
+    # Where friends' home plots go in the outer ring: evenly around it (the default), side by side as one
+    # neighbourhood, or in a few small clusters. Only changed when the user's description asks.
+    homes: Literal["spread", "together", "groups"] = "spread"
     outer_park_name: str = Field(default="Pocket Park", max_length=40)
     landmarks: list[Literal["farm", "stadium"]] = Field(default_factory=list)
     decor: list[Literal["garden", "picnic", "plaza", "patio", "tree"]] = Field(default_factory=lambda: list(DECOR))

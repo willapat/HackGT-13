@@ -351,7 +351,9 @@ $('#username-form').onsubmit = async (e) => {
   const btn = $('#username-submit');
   busy(btn, true, 'Saving…');
   try {
-    me = await api('/me', { method: 'PATCH', body: { username, display_name } });
+    const body = { username, display_name };
+    for (const k of ['instagram', 'facebook']) if (socialInput(`#signup-${k}`)) body[k] = socialInput(`#signup-${k}`);
+    me = await api('/me', { method: 'PATCH', body });
     renderIdentity();
     route();
   } catch (err) {
@@ -372,6 +374,28 @@ let allFriends = [];
 let suggestions = []; // GET /friends/suggestions: friends of friends and townmates you haven't added
 let stats = null; // GET /me/stats: highlights, closest people, who to catch up with
 let notices = []; // GET /me/notifications: things that happened to you (a town you were in was deleted)
+
+// Instagram / Facebook links on a profile (the backend builds the URLs from the stored usernames)
+const SOCIAL_ICON = {
+  instagram: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r="0.6"/></svg>',
+  facebook: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 8.5h2.5V5H14a3.5 3.5 0 0 0-3.5 3.5V11H8v3.5h2.5V21H14v-6.5h2.5L17 11h-3V8.5z"/></svg>',
+};
+const socialUrl = { instagram: (u) => `https://www.instagram.com/${u}/`, facebook: (u) => (/^\d+$/.test(u) ? `https://www.facebook.com/profile.php?id=${u}` : `https://www.facebook.com/${u}`) };
+function renderSocials(box, links) {
+  const items = ['instagram', 'facebook'].filter((k) => links?.[k]).map((k) => {
+    const a = el('a', k === 'facebook' ? 'fb' : 'ig');
+    a.href = links[k];
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.innerHTML = SOCIAL_ICON[k];
+    a.append(k === 'instagram' ? 'Instagram' : 'Facebook');
+    return a;
+  });
+  box.replaceChildren(...items);
+  box.hidden = !items.length;
+}
+// What people typed ("@maya", a pasted link) as the API expects; the backend does the real cleanup
+const socialInput = (id) => $(id).value.trim();
 
 function renderChips(el, items) {
   el.innerHTML = '';
@@ -396,6 +420,7 @@ async function refreshAll() {
   renderFriends();
   renderInbox();
   renderProfile();
+  loadSchedule({ keepForm: true });
 }
 
 const townsIn = () => myTowns.filter((t) => t.towns);
@@ -1569,6 +1594,7 @@ function renderPerson(p) {
   if (p.status) $('#p-status').replaceChildren(el('span', `status-on ${p.status.status}`, `${p.status.source === 'calendar' ? '📅 ' : ''}${STATUS_LABEL[p.status.status]} · ${timeLeft(p.status.until)}`));
   $('#p-bio').textContent = p.bio;
   $('#p-bio').hidden = !p.bio;
+  renderSocials($('#p-socials'), p.socials);
   const stats = [];
   if (f.state === 'friends') stats.push('Friends');
   if (p.shared_towns.length) stats.push(`${p.shared_towns.length} ${p.shared_towns.length === 1 ? 'town' : 'towns'} together`);
@@ -1631,6 +1657,206 @@ function renderHighlights() {
   );
 }
 
+// ---- Profile schedule: the signed-in person's week, with add and remove ---------------------------
+let schedule = null;
+let scheduleOffset = 0;
+let scheduleAdding = null; // YYYY-MM-DD whose add form is open
+let scheduleTicket = 0;
+const PLACE_FOR_KIND = { class: 'university', work: 'downtown', social: 'cafe', activity: 'gym', appointment: 'library' };
+
+function localDate(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function parseDay(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function defaultTimes(date) {
+  if (date !== localDate()) return ['09:00', '10:00'];
+  const hour = new Date().getHours() + 1;
+  if (hour > 22) return ['21:00', '22:00'];
+  const p = (n) => String(n).padStart(2, '0');
+  return [`${p(hour)}:00`, `${p(hour + 1)}:00`];
+}
+
+function scheduleWhen(startIso, endIso) {
+  const s = new Date(startIso), e = new Date(endIso);
+  const hm = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const period = (d) => (d.getHours() < 12 ? 'AM' : 'PM');
+  if (period(s) === period(e)) return `${hm(s).replace(/\s*(AM|PM)$/i, '')}–${hm(e)}`;
+  return `${hm(s)}–${hm(e)}`;
+}
+
+function scheduleMeta(item) {
+  if (item.source === 'google') return 'Google Calendar';
+  const kind = (schedule?.kinds || []).find((k) => k.id === item.kind)?.label;
+  return [kind, item.place].filter(Boolean).join(' · ');
+}
+
+function renderSchedule() {
+  const range = $('#sched-range');
+  $('#sched-today').hidden = scheduleOffset === 0;
+  if (!schedule) {
+    range.textContent = 'This week';
+    return;
+  }
+  const fmt = (iso) => parseDay(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  range.textContent = schedule.offset === 0 ? 'This week' : `${fmt(schedule.week_start)} – ${fmt(schedule.week_end)}`;
+  range.title = schedule.offset === 0 ? `${fmt(schedule.week_start)} – ${fmt(schedule.week_end)}` : '';
+  const canAdd = townsIn().length > 0;
+  if (!canAdd && !schedule.days.some((d) => d.items.length)) {
+    $('#sched-days').replaceChildren(el('p', 'empty', 'Join a town and your week shows up here. What you add is where your character goes.'));
+    return;
+  }
+  const now = new Date();
+  const today = localDate();
+  $('#sched-days').replaceChildren(...schedule.days.map((day) => {
+    const block = el('section', `sched-day${day.date === today ? ' today' : ''}`);
+    const head = el('div', 'sched-head');
+    const when = el('div', 'sched-when');
+    when.append(day.date === today ? 'Today' : day.weekday, el('span', '', fmt(day.date)));
+    head.append(when);
+    if (canAdd) {
+      const add = el('button', 'small tonal', scheduleAdding === day.date ? 'Close' : 'Add');
+      add.type = 'button';
+      add.onclick = () => {
+        scheduleAdding = scheduleAdding === day.date ? null : day.date;
+        renderSchedule();
+        if (scheduleAdding) $('#sched-title')?.focus();
+      };
+      head.append(add);
+    }
+    block.append(head);
+    if (!day.items.length) block.append(el('p', 'sched-empty', 'Nothing yet'));
+    else {
+      const list = el('ul', 'sched');
+      for (const item of [...day.items].sort((a, b) => (a.start < b.start ? -1 : 1))) {
+        const li = el('li');
+        const start = new Date(item.start), end = new Date(item.end);
+        if (end < now) li.classList.add('past');
+        else if (start <= now) li.classList.add('now');
+        if (item.source === 'google') li.title = 'From Google Calendar. Remove it there and it leaves on the next sync.';
+        li.append(el('time', '', scheduleWhen(item.start, item.end)));
+        const body = el('div');
+        body.append(el('div', 'sched-title', item.title || 'Busy'));
+        const meta = scheduleMeta(item);
+        if (meta) body.append(el('div', 'sched-meta', meta));
+        li.append(body);
+        if (item.removable) {
+          const remove = el('button', 'small danger', 'Remove');
+          remove.type = 'button';
+          remove.onclick = () => removeScheduleItem(item, remove);
+          li.append(remove);
+        }
+        list.append(li);
+      }
+      block.append(list);
+    }
+    if (scheduleAdding === day.date) block.append(scheduleForm(day.date));
+    return block;
+  }));
+}
+
+function scheduleForm(date) {
+  const [start, end] = defaultTimes(date);
+  const form = el('form', 'sched-form');
+  form.id = 'sched-form';
+  const title = el('input');
+  title.id = 'sched-title';
+  Object.assign(title, { required: true, maxLength: 120, placeholder: 'Class, gym, dinner…', autocomplete: 'off' });
+  const times = el('div', 'sched-row');
+  const startIn = Object.assign(el('input'), { type: 'time', required: true, value: start });
+  startIn.setAttribute('aria-label', 'Start');
+  const endIn = Object.assign(el('input'), { type: 'time', required: true, value: end });
+  endIn.setAttribute('aria-label', 'End');
+  times.append(startIn, endIn);
+  const picks = el('div', 'sched-row');
+  const kind = el('select');
+  kind.setAttribute('aria-label', 'Kind');
+  for (const k of schedule.kinds || []) kind.append(Object.assign(el('option', '', k.label), { value: k.id }));
+  kind.value = 'activity';
+  const place = el('select');
+  place.setAttribute('aria-label', 'Place');
+  for (const p of schedule.places || []) place.append(Object.assign(el('option', '', p.label), { value: p.id }));
+  place.value = PLACE_FOR_KIND.activity;
+  kind.onchange = () => { if (!place.dataset.touched) place.value = PLACE_FOR_KIND[kind.value] || 'home'; };
+  place.onchange = () => { place.dataset.touched = '1'; };
+  picks.append(kind, place);
+  const actions = el('div', 'sched-row');
+  const save = el('button', 'primary small', 'Add to this day');
+  save.type = 'submit';
+  const cancel = el('button', 'small', 'Cancel');
+  cancel.type = 'button';
+  cancel.onclick = () => { scheduleAdding = null; renderSchedule(); };
+  actions.append(save, cancel);
+  form.append(title, times, picks, actions);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const name = title.value.trim();
+    message($('#sched-msg'), '');
+    if (!name) return message($('#sched-msg'), 'Add a name for it.');
+    if (endIn.value <= startIn.value) return message($('#sched-msg'), 'The end has to be after the start.');
+    busy(save, true, 'Adding…');
+    try {
+      const hhmm = (v) => v.slice(0, 5);
+      schedule = await api('/me/schedule', {
+        method: 'POST', body: { title: name, kind: kind.value, date, start: hhmm(startIn.value), end: hhmm(endIn.value), place: place.value },
+      });
+      scheduleOffset = schedule.offset ?? scheduleOffset;
+      scheduleAdding = null;
+      renderSchedule();
+      toast('Added to your week');
+    } catch (err) {
+      message($('#sched-msg'), err.message);
+      busy(save, false, 'Add to this day');
+    }
+  };
+  return form;
+}
+
+async function removeScheduleItem(item, button) {
+  const ok = await confirmDialog({
+    title: 'Remove this?',
+    body: `${item.title} comes off your week, and your character stops heading there.`,
+    confirmLabel: 'Remove', danger: true,
+  });
+  if (!ok) return;
+  busy(button, true, '…');
+  try {
+    await api(`/me/schedule/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    scheduleAdding = null;
+    await loadSchedule();
+    toast('Removed');
+  } catch (err) {
+    toast(err.message, 'error');
+    busy(button, false, 'Remove');
+  }
+}
+
+async function loadSchedule({ keepForm = false } = {}) {
+  if ($('#view-profile').hidden) return;
+  const ticket = ++scheduleTicket;
+  try {
+    const next = await api(`/me/schedule?offset=${scheduleOffset}`);
+    if (ticket !== scheduleTicket) return;
+    schedule = next;
+    message($('#sched-msg'), '');
+    if (keepForm && document.getElementById('sched-form')) return;
+    renderSchedule();
+  } catch (err) {
+    if (ticket !== scheduleTicket) return;
+    message($('#sched-msg'), err.message);
+    if (!schedule) $('#sched-days').replaceChildren(el('p', 'empty', "Couldn't load your week."));
+  }
+}
+
+$('#sched-prev').onclick = () => { scheduleOffset = Math.max(-8, scheduleOffset - 1); scheduleAdding = null; loadSchedule(); };
+$('#sched-next').onclick = () => { scheduleOffset = Math.min(12, scheduleOffset + 1); scheduleAdding = null; loadSchedule(); };
+$('#sched-today').onclick = () => { scheduleOffset = 0; scheduleAdding = null; loadSchedule(); };
+
 function showProfile() {
   renderProfile();
   show('profile');
@@ -1658,6 +1884,7 @@ function renderProfile() {
   $('#me-bio').textContent = me.bio || '';
   $('#me-bio').hidden = !me.bio;
   $('#me-bio-add').hidden = Boolean(me.bio);
+  renderSocials($('#me-socials'), Object.fromEntries(['instagram', 'facebook'].filter((k) => me[k]).map((k) => [k, socialUrl[k](me[k])])));
   $('#stat-towns').textContent = townsIn().length;
   $('#stat-friends').textContent = allFriends.length;
   $('#stat-hangouts').textContent = stats?.hangouts ?? 0;
@@ -1747,6 +1974,8 @@ const profile = (() => {
     $('#set-name').value = me.display_name || '';
     $('#set-username').value = me.username || '';
     $('#set-bio').value = me.bio || '';
+    $('#set-instagram').value = me.instagram || '';
+    $('#set-facebook').value = me.facebook || '';
     paintMyAvatars();
     interests = [...(me.interests || [])];
     message($('#profile-msg'), '');
@@ -1779,6 +2008,10 @@ const profile = (() => {
     const bio = $('#set-bio').value.split(/\s+/).join(' ').trim();
     if (bio !== (me.bio || '')) out.bio = bio;
     if (!same(interests, me.interests || [])) out.interests = interests;
+    for (const k of ['instagram', 'facebook']) {
+      const typed = socialInput(`#set-${k}`).replace(/^@/, '');
+      if (typed !== (me[k] || '')) out[k] = typed; // "" removes it
+    }
     return out;
   }
 
@@ -1814,6 +2047,8 @@ const profile = (() => {
   $('#set-name').oninput = update;
   $('#set-username').oninput = update;
   $('#set-bio').oninput = update;
+  $('#set-instagram').oninput = update;
+  $('#set-facebook').oninput = update;
   $('#interest-input').onkeydown = (e) => {
     const input = e.target;
     if ((e.key === 'Enter' || e.key === ',') && input.value.trim()) { e.preventDefault(); addInterest(input.value); }

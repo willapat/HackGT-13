@@ -202,9 +202,11 @@ export function startSchedule() {
       setOpen(false);
     }, true);
   }
+  // Picking someone relabels the pill ("Maya's day") but leaves it closed; open it to read their day.
   addEventListener('town:person', (e) => {
     viewedId = e.detail || null;
-    setOpen(true);
+    drawn = '';
+    render();
   });
   addEventListener('town:person-clear', () => {
     if (!viewedId) return;

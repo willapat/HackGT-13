@@ -29,7 +29,7 @@ export function getSupabase() {
 function errorText(data, status) {
   const d = data?.detail;
   if (typeof d === 'string') return d;
-  if (Array.isArray(d)) return d.map((e) => e.msg).join('; ');
+  if (Array.isArray(d)) return d.map((e) => String(e.msg).replace(/^Value error, /, '')).join('; ');
   return `Request failed (${status})`;
 }
 

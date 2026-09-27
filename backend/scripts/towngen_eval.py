@@ -35,6 +35,12 @@ CASES = {
                    {"style": {"town", "village", "suburbs"}, "no_towers": True}),
     "busy": ("A dense, busy city with offices and apartment towers and not much greenery",
              {"style": {"city"}, "greenery": {"less"}}),
+    # Homes spread evenly unless the description says where they go
+    "defaults": ("A friendly little town with a bakery and a bookshop", {"homes": {"spread"}}),
+    "neighbours": ("All our houses right next to each other on one street, like a little cul-de-sac",
+                   {"homes": {"together"}}),
+    "pairs": ("Our houses in two little clusters on either side of town, with a café in the middle",
+              {"homes": {"groups"}}),
 }
 
 
@@ -58,6 +64,8 @@ def check(made: dict, want: dict) -> dict:
         out["houses in town"] = bool(kinds & set(HOUSES))
     if style == "city":
         out["towers downtown"] = bool(kinds & set(TALL))
+    if "homes" in want:
+        out[f"homes are {'/'.join(sorted(want['homes']))} (got {plan.get('homes')})"] = plan.get("homes") in want["homes"]
     out["3D town will show the landscape"] = made["map"].get("landscape") == plan.get("landscape")
     return out
 

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Luma Privacy Policy</title>
+  <link rel="icon" href="app/logo.svg" />
+  <style>
+    :root { --bg: #fbf7ee; --card: #ffffff; --ink: #2b2a33; --muted: #6b6a75; --line: #e9e2d3; --accent: #2f8f7a; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1f2135; --card: #2a2d45; --ink: #f1ede4; --muted: #b3b0bf; --line: #3b3f5c; --accent: #6fd3bb; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 28px 24px; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    header img { width: 40px; height: 40px; border-radius: 10px; }
+    header a { color: inherit; text-decoration: none; font-weight: 800; font-size: 22px; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 18px; margin: 28px 0 8px; }
+    p, li { color: var(--ink); }
+    .muted { color: var(--muted); font-size: 14px; }
+    ul { padding-left: 20px; }
+    li { margin: 4px 0; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="app/logo.svg" alt="" />
+      <a href="./">Luma</a>
+    </header>
+    <div class="card">
+      <h1>Privacy Policy</h1>
+      <p class="muted">Last updated September 26, 2026</p>
+
+      <p>Luma is a small town where every resident is one of your real friends. It was built as a student project for HackGT 13. This page explains what Luma collects, why, and what you can do about it.</p>
+
+      <h2>What we collect</h2>
+      <ul>
+        <li><b>Your account:</b> your email address and a password (handled by our sign-in provider, Supabase). Your email is never shown to other people.</li>
+        <li><b>Your profile:</b> your name, @username, photo, bio, interests, character look, time zone, and the Instagram or Facebook username you choose to add.</li>
+        <li><b>Your friends and towns:</b> who you're friends with, friend requests, town invites, and the towns you're in (your house, the name and color you use there).</li>
+        <li><b>What you share:</b> posts and updates you choose to share, and who you shared them with. You pick how much each is shown: fully, vaguely, or not at all.</li>
+        <li><b>Activity in your towns:</b> where your character goes and what it does, so everyone in the town sees the same thing.</li>
+      </ul>
+
+      <h2>Google Calendar (only if you connect it)</h2>
+      <p>If you choose to connect Google Calendar, Luma asks Google for read-only access to your calendar events and your list of calendars. It can't create, change or delete anything in your calendar.</p>
+      <ul>
+        <li>Luma reads your timed events for the next week (start and end time, title and location) to send your character to the matching place in your town, like the library during a class.</li>
+        <li>To choose that place, an event's title and location may be sent to an AI model (see "AI features" below). Only a scrambled key and the chosen place are stored, never the title or location.</li>
+        <li>What we store for each event is its time and the place, shown to your townmates as something like "At Library" or "Busy". Your real event titles are never shown to anyone.</li>
+        <li>You can disconnect at any time in Settings → Calendar. That removes the events Luma copied and revokes Luma's access at Google. You can also remove access from your Google Account settings.</li>
+      </ul>
+      <p>Luma's use of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including its Limited Use requirements. Google data is only used to place your character and show when you're busy, and is never used for ads, sold, or used to train AI models.</p>
+
+      <h2>AI features</h2>
+      <p>Some features use AI models from third-party providers (xAI, and OpenRouter as a backup): the "town brain" that reads what your friends chose to share and updates the town, the characters that decide where to walk, post ideas, town generation, and matching calendar events to places. Only what's needed for that feature is sent. The AI is only allowed to use real things people shared, never to invent feelings or events about real people.</p>
+
+      <h2>Who can see what</h2>
+      <ul>
+        <li><b>Friends and people in your towns</b> see your name, @username, photo, bio, interests, Instagram and Facebook links, your character, and what you shared with them.</li>
+        <li><b>Anyone who searches your exact username</b> sees only your name, @username and photo.</li>
+        <li><b>Nobody</b> can find you by email.</li>
+        <li><b>Nothing leaves the town</b> (a message, an invite, a plan) unless a person approves it.</li>
+      </ul>
+
+      <h2>What we don't do</h2>
+      <ul>
+        <li>We don't sell your data or share it with advertisers.</li>
+        <li>We don't show ads.</li>
+        <li>We don't post or send messages as you anywhere outside Luma.</li>
+      </ul>
+
+      <h2>Where your data lives</h2>
+      <p>Data is stored with Supabase. The website is hosted on Vercel and the app's server on Fly.io. These services store or process data only to run Luma.</p>
+
+      <h2>Your choices</h2>
+      <ul>
+        <li><b>Edit</b> your profile any time in Settings → Profile.</li>
+        <li><b>Download</b> a copy of your data in Settings → Privacy &amp; data.</li>
+        <li><b>Delete your account</b> in Settings → Privacy &amp; data. This permanently removes your profile, friends, shared updates, calendar connection and characters.</li>
+      </ul>
+
+      <h2>Changes and contact</h2>
+      <p>If this policy changes, we'll update the date at the top. Questions? Open an issue on the project's <a href="https://github.com/willapat/HackGT-13/issues" target="_blank" rel="noopener noreferrer">GitHub page</a>.</p>
+    </div>
+  </main>
+</body>
+</html>

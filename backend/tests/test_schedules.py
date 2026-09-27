@@ -26,20 +26,21 @@ def test_free_slots_ignore_the_past():
     assert slots[0]["start"] == at(0, 16).isoformat()
 
 
-def test_live_keeps_the_hour_on_screen():
+def test_live_is_the_real_time():
     from backend.schedules import FAST_RATE, clock_update, mode_for_rate, project_town_time
 
     shown = datetime(2026, 9, 26, 14, 30, tzinfo=TOWN_TZ)
-    anchor, rate = clock_update(shown, hour=None, live=True, fast=False)
-    assert anchor == shown and rate == 1.0 and mode_for_rate(rate) == "live"
+    real = datetime(2026, 9, 27, 2, 31, tzinfo=timezone.utc)  # 10:31 PM in New York
+    anchor, rate = clock_update(shown, hour=None, live=True, fast=False, real_now=real)
+    assert anchor == real and (anchor.hour, anchor.minute) == (22, 31)
+    assert rate == 1.0 and mode_for_rate(rate) == "live"
     scrubbed, rate = clock_update(shown, hour=9.25, live=False, fast=False)
     assert (scrubbed.hour, scrubbed.minute) == (9, 15) and mode_for_rate(rate) == "scrub"
-    real = datetime(2026, 9, 26, 16, 0, tzinfo=timezone.utc)
     assert project_town_time(scrubbed, real, 0, real + timedelta(hours=3)) == scrubbed
-    resumed, rate = clock_update(scrubbed, hour=None, live=True, fast=False)
-    assert (resumed.hour, resumed.minute) == (9, 15) and rate == 1.0
+    resumed, rate = clock_update(scrubbed, hour=None, live=True, fast=False, real_now=real)
+    assert resumed == real and rate == 1.0  # Live leaves a paused minute for the real time
     later = project_town_time(resumed, real, rate, real + timedelta(hours=1))
-    assert (later.hour, later.minute) == (10, 15)
+    assert later == real + timedelta(hours=1)
     fast_anchor, fast_rate = clock_update(shown, hour=None, live=False, fast=True)
     assert fast_anchor == shown and fast_rate == FAST_RATE
     after_fast = project_town_time(fast_anchor, real, fast_rate, real + timedelta(seconds=120))

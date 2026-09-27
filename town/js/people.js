@@ -799,12 +799,26 @@ export function say(f, text, ms = 2600) {
   return wait(ms).then(() => { b.remove(); if (f.bubble === b) f.bubble = null; });
 }
 
-// What a person put above their own character (town_members.bubble): stays until it runs out or they clear it.
-// A passing chat line (say) covers it for a moment.
-export function setPinned(f, text) {
-  if ((f.pinned?.el.textContent ?? null) === (text || null)) return;
-  f.pinned?.remove();
-  f.pinned = text ? addLabel('bubble pinned', text, () => f.obj.position.clone().setY(0.75), () => f.obj.visible && !f.bubble) : null;
+// What a person put above their own character (town_members.bubble): stays until `until` or they clear it.
+// It comes down on this screen at `until` without waiting for the next sync. A passing chat line (say)
+// covers it for a moment.
+export function setPinned(f, text, until = null) {
+  if (!f) return;
+  clearTimeout(f.pinnedTimer);
+  f.pinnedTimer = null;
+  const endsIn = until ? Date.parse(until) - Date.now() : null;
+  if (text && endsIn != null && !(endsIn > 0)) text = null;
+  if ((f.pinned?.el.textContent ?? null) !== (text || null)) {
+    f.pinned?.remove();
+    f.pinned = text ? addLabel('bubble pinned', text, () => f.obj.position.clone().setY(0.75), () => f.obj.visible && !f.bubble) : null;
+  }
+  if (text && endsIn != null) {
+    f.pinnedTimer = setTimeout(() => {
+      f.pinned?.remove();
+      f.pinned = null;
+      f.pinnedTimer = null;
+    }, Math.min(endsIn, 2 ** 31 - 1));
+  }
 }
 
 export async function meet(a, b, place) {

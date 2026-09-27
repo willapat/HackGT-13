@@ -1,6 +1,6 @@
 // Your own spot in a real town: a bubble over your character, a mood on your house, and mailboxes.
 // Bubble and mood are saved for everyone (PUT /towns/{id}/members/me/bubble|mood; townsync.js draws other people's) and
-// run out after 3 hours, like a free/busy status (backend/house.py); the panel shows how long each has left.
+// run out on their own (bubble after a minute, mood after 3 hours; backend/house.py); the panel shows how long each has left.
 // Clicking a townmate's mailbox leaves them a note; yours lists what people left you (backend/routes/mailbox.py).
 import * as THREE from 'three';
 import { api, getSupabase } from '../../frontend/shared/session.js';
@@ -23,7 +23,9 @@ const ago = (iso) => {
 };
 const live = (x) => (x && Date.parse(x.until) > Date.now() ? x : null);
 const left = (x) => {
-  const mins = Math.max(1, Math.ceil((Date.parse(x.until) - Date.now()) / 60e3));
+  const ms = Date.parse(x.until) - Date.now();
+  if (ms < 60e3) return `${Math.max(1, Math.ceil(ms / 1000))}s`;
+  const mins = Math.ceil(ms / 60e3);
   return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
 };
 const el = (tag, cls, text) => Object.assign(document.createElement(tag), cls ? { className: cls } : {}, text != null ? { textContent: text } : {});
@@ -35,7 +37,7 @@ async function setBubble(text) {
   try {
     const row = await api(`/towns/${TOWN_ID}/members/me/bubble`, text ? { method: 'PUT', body: { text } } : { method: 'DELETE' });
     bubble = live(row?.bubble);
-    setPinned(f, bubble?.text || null);
+    setPinned(f, bubble?.text || null, bubble?.until || null);
     $('#say-text').value = '';
     renderMine();
   } catch (e) {
@@ -237,7 +239,7 @@ export async function startMine() {
   bubble = live(mine?.bubble);
   mood = live(mine?.home?.mood);
   renderMine();
-  setInterval(renderMine, 30000);
+  setInterval(() => { if (bubble || mood) renderMine(); }, 1000); // the bubble's seconds count down
   for (const q of QUICK) {
     const b = el('button', 'quick-emoji', q);
     b.type = 'button';

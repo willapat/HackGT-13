@@ -21,7 +21,7 @@
     } catch { /* backend unreachable: allow the offline demo */ }
   </script>
 </head>
-<body>
+<body class="loading">
   <div id="game"></div>
 
   <nav id="top">
@@ -128,7 +128,7 @@
     <form id="say" autocomplete="off">
       <input id="say-text" maxlength="60" placeholder="Say something over your character…" aria-label="Your bubble" />
       <span class="quick" id="say-quick"></span>
-      <button type="button" id="say-clear" class="ghost" hidden title="Take your bubble down (it comes down on its own after 3 hours)">✕</button>
+      <button type="button" id="say-clear" class="ghost" hidden title="Take your bubble down (it comes down on its own after a minute)">✕</button>
     </form>
     <button type="button" id="mood-open" title="Put a mood on your house for 3 hours">🏠 <span id="mood-now">Mood</span></button>
     <button type="button" id="mail-open" title="Your mailbox">📬<span id="mail-count" hidden></span></button>
@@ -172,7 +172,7 @@
   <div id="cards"></div>
 
   <div id="labels"></div>
-  <div id="follow" class="panel" hidden>Following <b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>
+  <div id="follow" class="panel" hidden><b id="follow-name"></b> <span class="follow-tip">drag to rotate · scroll to zoom</span> <button id="follow-exit">Exit (Esc)</button></div>
   <script type="importmap">
     { "imports": { "three": "./lib/three.module.js", "three/addons/": "./lib/addons/" } }
   </script>

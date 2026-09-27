@@ -1,6 +1,6 @@
 """Someone else's profile page. What you see depends on how you know them:
 
-- friends and townmates: name, @username, photo, bio, interests (shared ones marked), live free/busy status,
+- friends and townmates: name, @username, photo, bio, Instagram/Facebook links, interests (shared ones marked), live free/busy status,
   the towns you're both in, mutual friends, and your own connection with them (only you see that part);
 - anyone else (e.g. from username search): name, @username and photo, so you can decide to add them.
 
@@ -10,6 +10,7 @@ Never included: email, invite codes, towns you aren't both in, signals, calendar
 
 from datetime import datetime
 
+from backend.socials import social_links
 from backend.status import effective_status
 
 
@@ -47,6 +48,7 @@ def build_person(uid: str, profile: dict, friend_row: dict | None, shared_towns:
     return {
         **card,
         "bio": profile.get("bio") or "",
+        "socials": social_links(profile),  # Instagram / Facebook links, for friends and townmates only
         "character": avatar.get("character"),
         "status": effective_status(profile, now, busy),
         "interests": [{"name": i, "shared": i in mine} for i in sorted(theirs, key=lambda i: i not in mine)],

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -12,7 +13,7 @@ from backend.post_ideas import build_context, post_ideas
 from backend.posts import is_post, post_items, with_responses
 from backend.profile_stats import WEEK_DAYS, build_stats
 from backend.status import MAX_LENGTH, active_status, calendar_busy
-from backend.models.api import ProfileUpdate, StatusIn
+from backend.models.api import ProfileUpdate, ScheduleIn, StatusIn
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -40,6 +41,9 @@ def update_me(body: ProfileUpdate, uid: str = Depends(current_user_id)):
         changes["bio"] = " ".join(changes["bio"].split())  # one line, no stray whitespace
     if "interests" in changes:
         changes["interests"] = list(dict.fromkeys(i.strip().lower() for i in changes["interests"] if i.strip()))
+    for social in ("instagram", "facebook"):  # "" (after cleanup) means remove it
+        if changes.get(social) == "":
+            changes[social] = None
     if not changes:
         raise HTTPException(status_code=422, detail="nothing to update")
     db = get_client()
@@ -263,6 +267,41 @@ async def set_photo(request: Request, uid: str = Depends(current_user_id)):
 def delete_photo(uid: str = Depends(current_user_id)):
     """Remove your profile photo; your initials show again."""
     return _replace_photo(uid, None)
+
+
+@router.get("/schedule")
+def my_schedule(offset: int = Query(0, ge=-8, le=12), uid: str = Depends(current_user_id)):
+    """Your week, Monday to Sunday in your time zone. One row per event, even when every town has a copy."""
+    from backend.my_schedule import week_for
+
+    return week_for(get_client(), uid, offset)
+
+
+@router.post("/schedule", status_code=201)
+def add_my_schedule(body: ScheduleIn, uid: str = Depends(current_user_id)):
+    """Add something you're doing. Written once per town so your character heads there, then the week comes back."""
+    from backend.my_schedule import ScheduleError, add_event, week_for, week_offset
+    from backend.schedules import user_tz
+
+    db = get_client()
+    tz = user_tz(db, uid)
+    now = datetime.now(tz)
+    try:
+        began = add_event(db, uid, body, tz, now)
+    except ScheduleError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail)
+    return week_for(db, uid, week_offset(began, now))
+
+
+@router.delete("/schedule/{event_id}", status_code=204)
+def remove_my_schedule(event_id: UUID, uid: str = Depends(current_user_id)):
+    """Take an event you added off every town. Google Calendar copies stay until the next sync."""
+    from backend.my_schedule import ScheduleError, remove_event
+
+    try:
+        remove_event(get_client(), uid, str(event_id))
+    except ScheduleError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail)
 
 
 @router.get("/notifications")

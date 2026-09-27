@@ -4,7 +4,7 @@ hold no matter what the model or the user prompt says:
 - square, odd-sized grid; roads span the whole map, symmetric around the centre
 - a central park (pond in the middle) ringed by the densest, tallest buildings; paths lead in from the roads
 - one 2x2 home plot per member the size tier holds (house + driveway to a road + 2 yard tiles), only in the
-  outer suburb ring, spread evenly around it
+  outer suburb ring: spread evenly around it unless the user asked otherwise (plan.homes: together, groups)
 - sparse one-tile background houses (no plot) in the suburbs, never more than 35% of the free street tiles
 - a symmetric outer park (water centre, oaks in the corners, benches facing in) when there's room
 """
@@ -13,6 +13,7 @@ import math
 import random
 import zlib
 
+from backend.town_map import shared_tiles
 from backend.towngen.catalog import BUILDINGS, HOUSES, MID, SMALL, STADIUM, TALL, TownPlan
 
 MIN_SIZE, MAX_SIZE, LARGE = 11, 31, 17
@@ -64,11 +65,13 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
         return rng.choices([o for o, _ in fresh], [w for _, w in fresh])[0]
 
     def spread(items, k):
-        """k items spread along `items` with jitter: even overall, never a regular rhythm."""
+        """k different items spread along `items` with jitter: even overall, never a regular rhythm. Each pick comes
+        from its own stretch of the list, so no item is picked twice (two places never share a lot)."""
+        k = min(k, len(items))
         if not k:
             return []
         step = len(items) / k
-        return [items[min(len(items) - 1, int(i * step + rng.random() * step))] for i in range(k)]
+        return [items[rng.randrange(int(i * step), max(int(i * step) + 1, int((i + 1) * step)))] for i in range(k)]
     road = lambda x, y: inb(x, y) and T[y][x] == "road"
     outer = lambda x, y: max(abs(x - c), abs(y - c)) > edge
     core = lambda x, y: max(abs(x - c), abs(y - c)) < dists[0]
@@ -98,18 +101,29 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
                 if door and house in sq:
                     cands.append({"house": list(house), "driveway": [dx, dy], "door": door, "block": [x0, y0, x0 + 1, y0 + 1]})
                     break
-    # ...then pick one nearest each of n evenly spaced angles around the centre, without overlaps
+    # ...then pick one nearest each of n evenly spaced angles around the centre, without overlaps. When the user
+    # asked for it, "together" grows one neighbourhood from a random spot on the edge, and "groups" grows 2-3 small
+    # clusters from evenly spaced spots: each new plot is the free one nearest its group.
     tiles_of = lambda b: {(x, y) for x in range(b[0], b[2] + 1) for y in range(b[1], b[3] + 1)}
     centre_of = lambda s: ((s["block"][0] + s["block"][2]) / 2, (s["block"][1] + s["block"][3]) / 2)
     gap = lambda a, b: abs((a - b + math.pi) % (2 * math.pi) - math.pi)
+    dist = lambda s, t: abs(centre_of(s)[0] - centre_of(t)[0]) + abs(centre_of(s)[1] - centre_of(t)[1])
     n = max(1, plan.home_slots)
-    slots, used = [], set()
+    groups = {"together": 1, "groups": 2 if n <= 6 else 3}.get(plan.homes)
+    start = -math.pi + rng.random() * 2 * math.pi
+    slots, used, members = [], set(), {}
     for k in range(n):
-        target = -math.pi + (k + 0.5) * 2 * math.pi / n
         options = [s for s in cands if not tiles_of(s["block"]) & used]
         if not options:
             break
-        s = min(options, key=lambda s: gap(angle(*centre_of(s)), target))
+        if groups:
+            mine = members.setdefault(k % groups, [])
+            seed = start + (k % groups) * 2 * math.pi / groups
+            s = min(options, key=lambda s: min(dist(s, t) for t in mine) if mine else gap(angle(*centre_of(s)), seed))
+            mine.append(s)
+        else:
+            target = -math.pi + (k + 0.5) * 2 * math.pi / n
+            s = min(options, key=lambda s: gap(angle(*centre_of(s)), target))
         s["model"] = rng.choice(HOUSES)
         slots.append(s)
         used |= tiles_of(s["block"])
@@ -218,9 +232,10 @@ def build(plan: TownPlan) -> tuple[list[list[str]], dict]:
     return T, town_map
 
 
-def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1, dense_core: bool = True) -> list[str]:
+def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1, dense_core: bool = True,
+             homes: str = "spread") -> list[str]:
     """Checks the town rules on a built town. Empty list = OK. Used by tests and after every build."""
-    out = []
+    out = shared_tiles(town_map.get("places") or {})
     N = len(tiles)
     c = N // 2
     if any(len(r) != N for r in tiles) or N % 2 == 0:
@@ -241,7 +256,7 @@ def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1, dens
             out.append(f"home plot {b} is not a 2x2 in the suburbs")
         if tuple(door) not in walk or (2 * dx - door[0], 2 * dy - door[1]) != (hx, hy):
             out.append(f"home plot {b}: driveway doesn't lead straight from the house to a road")
-    if slots:  # evenly spread: no gap between neighbours bigger than ~2.5x an even share
+    if slots and homes == "spread":  # evenly spread: no gap between neighbours bigger than ~2.5x an even share
         angles = sorted(math.atan2((s["block"][1] + s["block"][3]) / 2 - c, (s["block"][0] + s["block"][2]) / 2 - c) for s in slots)
         gaps = [b - a for a, b in zip(angles, angles[1:])] + [angles[0] + 2 * math.pi - angles[-1]]
         if max(gaps) > 2.5 * 2 * math.pi / len(slots):

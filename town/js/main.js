@@ -115,4 +115,5 @@ if (TOWN) {
   const auto = params.get('auto');
   auto?.split(',').forEach((t, i) => setTimeout(() => triggerViaBackend(t), 1500 + i * 2500));
 }
+document.body.classList.remove('loading');
 frame();

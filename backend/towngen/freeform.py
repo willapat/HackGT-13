@@ -13,6 +13,7 @@ import heapq
 import random
 import zlib
 
+from backend.town_map import shared_tiles
 from backend.towngen.catalog import BUILDINGS, HOUSES, MID, SMALL, STADIUM, TALL, TownPlan
 
 LEGEND = {
@@ -106,7 +107,12 @@ class Map:
     def add_place(self, pid: str, name: str, model: str | None, at: list[int] | None) -> None:
         target = (min(max(at[0], 0), self.n - 1), min(max(at[1], 0), self.n - 1)) if at else None
         if model is None:  # an outdoor spot (a campfire circle, a beach): the tile stays as drawn
-            tile = target or self.spread_spot()
+            taken = {tuple(p["tile"]) for p in self.places.values()}
+            free = [t for t in self.cells() if t not in taken]  # never a tile another place already has
+            if not free:
+                return
+            tile = min(free, key=lambda t: abs(t[0] - target[0]) + abs(t[1] - target[1])) if target else \
+                self.spread_spot([t for t in free if self.walkable(*t)] or free)
             door = tile if self.walkable(*tile) else self.door_for(*tile) or self.make_door(*tile)
             self.protected |= {tile, door}
             self.places[pid] = {"name": name, "tile": list(tile), "door": list(door)}
@@ -377,7 +383,7 @@ def grow(town: dict, members: int) -> tuple[list[list[str]], dict]:
 
 def problems(tiles: list[list[str]], town_map: dict, homes_needed: int = 1) -> list[str]:
     """What would break the app in a drawn town. Empty list = OK."""
-    out = []
+    out = shared_tiles(town_map.get("places") or {})
     n = len(tiles)
     if n < MIN_SIZE or any(len(r) != n for r in tiles):
         out.append("grid must be square and at least 11 wide")

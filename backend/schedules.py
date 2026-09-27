@@ -73,9 +73,12 @@ def _at_hour(shown: datetime, hour: float) -> datetime:
 
 
 def clock_update(
-    shown: datetime, *, hour: float | None, live: bool, fast: bool, play: bool = False
+    shown: datetime, *, hour: float | None, live: bool, fast: bool, play: bool = False,
+    real_now: datetime | None = None,
 ) -> tuple[datetime, float]:
-    """The next anchor and rate. Live, Fast, and Play keep `shown`; they do not load a startup formula."""
+    """The next anchor and rate. Live is the real time now; Fast and Play continue from `shown`."""
+    if live and hour is None and not fast and not play:
+        return (real_now or datetime.now(timezone.utc)).astimezone(TOWN_TZ), 1.0
     anchor = _at_hour(shown, hour) if hour is not None else shown
     if fast:
         rate = FAST_RATE
@@ -166,12 +169,12 @@ def clock_mode() -> str:
 def set_town_clock(
     *, hour: float | None = None, live: bool = False, fast: bool = False, play: bool = False
 ) -> datetime:
-    """Slider, Live, Fast day, and Play. Each anchors at the hour already on screen."""
+    """Slider, Live, Fast day, and Play. Live jumps to the real time; the others anchor at the hour on screen."""
     from backend.db import get_client, now_iso
 
     shown = local_now()
-    anchor, rate = clock_update(shown, hour=hour, live=live, fast=fast, play=play)
     real = datetime.now(timezone.utc)
+    anchor, rate = clock_update(shown, hour=hour, live=live, fast=fast, play=play, real_now=real)
     if not settings.DEMO_TOWN_ID:
         return project_town_time(anchor, real, rate, real)
     db = get_client()
