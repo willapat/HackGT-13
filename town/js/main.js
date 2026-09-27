@@ -18,6 +18,7 @@ import { startPaper } from './paper.js';
 import './buildings.js'; // the building card (click a place's or house's name)
 import { startMine } from './mine.js'; // your bubble, house mood and mailbox
 import { friends, placeAgent, say, setCalendars, setPinned, spawnFriends, stepFriend, syncTrail, think, walkTo } from './people.js';
+import { ingestSchedules, startSchedule, tickSchedule } from './schedule.js';
 import { addStreetLamps, applyTownTime, lightWindows, patchWeather, updateSky, wireSkyControls } from './sky.js';
 import { animated, renderer, scene } from './stage.js';
 
@@ -39,6 +40,7 @@ function frame() {
   for (const fx of animated) fx.update(dt);
 
   updateCamera(dt, now);
+  tickSchedule();
   heavens?.updateHeavens();
   updateOcclusion(dt);
   renderer.render(scene, activeCam);
@@ -82,9 +84,11 @@ finishCity(); // all tall scenery can fade; static scenery stops recomputing tra
 patchWeather();
 wireSkyControls();
 spawnFriends();
+startSchedule();
+const calendars = (rows) => { setCalendars(rows); ingestSchedules(rows); };
 Object.assign(townApi, {
   friends, walkTo, say, setStatus, partyLights, rainCloud, showCard, logFeed, renameFriend,
-  PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, placeAgent, setCalendars, liveMode: Boolean(TOWN),
+  PLACES, FRIENDS, effects, trigger, applyTownTime, applyTownNames, placeAgent, setCalendars: calendars, liveMode: Boolean(TOWN),
 });
 if (TOWN) {
   // A real town: no scripted wandering or demo snapshot; residents move only as the database says
@@ -93,11 +97,11 @@ if (TOWN) {
   code.textContent = `Invite code ${TOWN.town.invite_code}`;
   code.hidden = false;
   code.onclick = () => navigator.clipboard?.writeText(TOWN.town.invite_code).then(() => logFeed('Invite code copied.'), () => {});
-  document.querySelectorAll('#triggers [data-trigger], #triggers h2:first-child, #triggers .note').forEach((e) => { e.hidden = true; });
+  document.querySelectorAll('#triggers [data-trigger], #triggers .demo-title, #triggers .note').forEach((e) => { e.hidden = true; });
   const homeless = TOWN.members.length - FRIENDS.length;
   logFeed(`${TOWN.town.name} loaded.${homeless ? ` ${homeless} member(s) haven't placed a house yet.` : ''}`);
   startTownSync(TOWN_ID, TOWN, {
-    friends, placeAgent, setCalendars, setStatus, say, setPinned, setHouseMood, refreshHouseLabel, logFeed, PLACES, applyTownTime, onTrip: heatSoon,
+    friends, placeAgent, setCalendars: calendars, setStatus, say, setPinned, setHouseMood, refreshHouseLabel, logFeed, PLACES, applyTownTime, onTrip: heatSoon,
   });
   startMine();
   startHeat(); // busy places glow

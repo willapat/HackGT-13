@@ -222,7 +222,9 @@ def demo_snapshot():
     town = (db.table("towns").select("tiles, map").eq("id", tid).limit(1).execute().data or [{}])[0]
     names = {m["user_id"]: member_name(m) for m in members}
     now = local_now()
-    schedules = events_for_users(db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3))
+    schedules = events_for_users(
+        db, list(names), now.replace(hour=0, minute=0, second=0, microsecond=0), now + timedelta(days=3), town_id=tid,
+    )
     for ev in schedules:
         ev["display_name"] = names.get(ev["user_id"]) or "Friend"
         ev["with_names"] = [names.get(uid) or "Friend" for uid in ev["with"]]

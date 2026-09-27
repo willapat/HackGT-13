@@ -40,6 +40,8 @@ export function startFollow(f) {
   lastFollowInput = 0;
   $('#follow-name').textContent = f.name;
   $('#follow').hidden = false;
+  // Name tags call this directly, so the schedule switches here rather than only on a canvas hit.
+  dispatchEvent(new CustomEvent('town:person', { detail: f.id }));
 }
 
 export function stopFollow() {
@@ -50,6 +52,7 @@ export function stopFollow() {
   controls.enabled = true;
   followControls.enabled = false;
   $('#follow').hidden = true;
+  dispatchEvent(new CustomEvent('town:person-clear'));
 }
 $('#follow-exit').onclick = stopFollow;
 
@@ -79,11 +82,19 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, activeCam);
   const targets = Object.values(friends).filter((f) => f.obj.visible).map((f) => f.obj);
-  const hit = raycaster.intersectObjects(targets, true).find((h) => h.object.userData.friendId);
-  if (hit) {
-    dispatchEvent(new CustomEvent('town:close-building'));
-    return focusFriend(hit.object.userData.friendId);
+  let friendId = null;
+  for (const h of raycaster.intersectObjects(targets, true)) {
+    for (let o = h.object; o; o = o.parent) {
+      if (o.userData.friendId) { friendId = o.userData.friendId; break; }
+    }
+    if (friendId) break;
   }
+  if (friendId) {
+    dispatchEvent(new CustomEvent('town:close-building'));
+    return focusFriend(friendId);
+  }
+  // Anywhere that isn't a person: the schedule panel returns to you (schedule.js)
+  dispatchEvent(new CustomEvent('town:person-clear'));
   // Otherwise a named building (a place or a friend's house) opens its card (buildings.js)
   for (let o = raycaster.intersectObjects(clickable, true)[0]?.object; o; o = o.parent) {
     if (o.userData.buildingId) return dispatchEvent(new CustomEvent('town:building', { detail: o.userData.buildingId }));
