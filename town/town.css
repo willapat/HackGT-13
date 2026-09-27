@@ -187,7 +187,7 @@ body.loading #triggers { display: none; }
   #feed { bottom: 200px; }
   #triggers { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
   #triggers:not(:has([data-trigger]:not([hidden]))) { left: auto; width: auto; }
-  #triggers:not(:has([data-trigger]:not([hidden]))):has(.drop-menu:not([hidden])) { left: 16px; }
+  #triggers:not(:has([data-trigger]:not([hidden]))):has(.drop-menu:not([hidden])) { left: auto; right: 16px; }
   #drops, #sky, #day { display: flex; flex-direction: column-reverse; gap: 8px; align-items: flex-end; }
   #triggers:has(.drop-menu:not([hidden])) #drops,
   #triggers:has(.drop-menu:not([hidden])) #sky,
@@ -460,7 +460,10 @@ button { font-family: var(--font-display) !important; }
   /* Above the time and day pills, which share this corner. camera.js lifts it by the stack's height. */
   #follow { top: auto; left: auto; right: 12px; transform: none; width: max-content; max-width: calc(100vw - 24px);
     bottom: calc(16px + env(safe-area-inset-bottom)); }
-  #triggers { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  #triggers { bottom: calc(16px + env(safe-area-inset-bottom)); right: 12px; }
+  #triggers:not(:has([data-trigger]:not([hidden]))):has(.drop-menu:not([hidden])) {
+    left: auto; right: 12px; width: min(300px, calc(100vw - 24px));
+  }
 
   /* building.js / mine.js place these over the thing you tapped; on a phone that can land off-screen */
   #building, #mail {
