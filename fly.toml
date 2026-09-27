@@ -1,5 +1,5 @@
 # Luma backend on Fly.io. Deploy with `fly deploy` from the repo root; secrets via `fly secrets set`.
-app = "luma-hackgt"
+app = "luma-hackgt-api"
 primary_region = "sjc"  # near Supabase (us-west-2); atl is closed to new machines
 
 [build]

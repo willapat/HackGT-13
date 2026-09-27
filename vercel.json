@@ -44,7 +44,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://luma-hackgt.fly.dev/:path*"
+      "destination": "https://luma-hackgt-api.fly.dev/:path*"
     }
   ]
 }

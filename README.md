@@ -96,10 +96,10 @@ Pushing to `main` deploys everything automatically:
 | Part | Where | Deploys when a push to `main` changes |
 |---|---|---|
 | Web app | Vercel (Git integration) | anything in the repo, but only `frontend/` and `town/` are published |
-| Backend | Fly.io, app `luma-hackgt` (GitHub Action in `.github/workflows/fly-deploy.yml`) | `backend/`, `requirements.txt`, `Dockerfile`, `fly.toml` |
+| Backend | Fly.io, app `luma-hackgt-api` (GitHub Action in `.github/workflows/fly-deploy.yml`) | `backend/`, `requirements.txt`, `Dockerfile`, `fly.toml` |
 | Database | Supabase (GitHub integration) | new files in `supabase/migrations/` |
 
-Pushes to other branches get a Vercel preview link and don't touch the backend or the database. The site reaches the backend through `/api`, which `vercel.json` forwards to `luma-hackgt.fly.dev`.
+Pushes to other branches get a Vercel preview link and don't touch the backend or the database. The site reaches the backend through `/api`, which `vercel.json` forwards to `luma-hackgt-api.fly.dev`.
 
 ## Contributing
 
