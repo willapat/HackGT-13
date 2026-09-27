@@ -13,7 +13,10 @@ import { scene } from './stage.js';
 export const friends = {};
 export const eventOwned = new Set();
 const WALK_SPEED = 0.9; // tiles per second when no travel_minutes is set
-// One second of walking per backend travel minute (8 min → 8s). Town-clock walks use the real minutes.
+// A walk you start (Go there) lasts the travel time you set, in real time: 10 seconds is stored as
+// 10/60 of a minute and plays for 10 seconds; 10 minutes plays for 10 minutes. The paused town clock
+// must not collapse that into a fraction of a second. Calendar walks follow the town clock while it
+// runs; if it would skip the trip, the same travel time is played in real time instead of a teleport.
 
 export function spawnFriends() {
   FRIENDS.forEach((def, i) => {
@@ -115,6 +118,7 @@ export function walkTo(f, target, shift = 0, timing = null) {
   f.travelMinutes = timing?.travelMinutes || null;
   f.departAt = timing?.departAt || null;
   f.walkStarted = performance.now();
+  if (f.travelMinutes) setAction(f, 'walk');
   return new Promise((resolve) => { f.resolveWalk = resolve; });
 }
 
@@ -136,18 +140,26 @@ export function minutesAway(f) {
   return left > 0 ? Math.round(left) : null;
 }
 
-// 0–1 along the path. depart_at is town time, so the server town clock (never the lighting slider) places them
-// on the route: 8:54 with a 8:50 departure and a 10 minute walk is 40% of the way, not already at the building.
+// How long this walk takes on the wall clock. Go there, and a trip the town clock would have skipped,
+// use the travel time itself. Other walks are one real second per travel minute.
+function travelMs(f) {
+  const mins = Number(f.travelMinutes) || 0;
+  if (f.holdCalendar || f.realPace) return mins * 60 * 1000;
+  return mins * 1000;
+}
+
+// 0–1 along the path. depart_at is town time, so a running town clock (never the lighting slider) places a
+// calendar walk on the route: 8:54 with an 8:50 departure and a 10 minute walk is 40% of the way.
 function walkProgress(f) {
   if (!f.travelMinutes) return null;
-  // A paused town clock does not move calendar walks. A walk you started yourself still plays:
-  // one real second per minute you typed, so "go now" is visible while the town clock is stopped.
-  if (f.departAt && (townClockRunning() || !f.holdCalendar)) {
+  // Your own walk ignores the town clock. A paused clock (and Play/Fast) used to finish a 10 second
+  // trip in a fraction of a second, which is the teleport.
+  if (!f.holdCalendar && !f.realPace && f.departAt && townClockRunning()) {
     const nowM = townMinutesNow();
     const startM = isoTownMinutes(f.departAt);
     if (nowM != null && startM != null) return Math.max(0, Math.min(1, (nowM - startM) / f.travelMinutes));
   }
-  const ms = f.travelMinutes * 1000;
+  const ms = Math.max(travelMs(f), 200);
   return Math.max(0, Math.min(1, (performance.now() - (f.walkStarted || 0)) / ms));
 }
 
@@ -175,6 +187,8 @@ function pointAlong(from, route, t) {
 function finishWalk(f, ok) {
   f.trailing = false;
   f.trailPlace = null;
+  f.replayWalk = false;
+  f.realPace = false;
   f.route = [];
   f.path = [];
   f.travelMinutes = null;
@@ -254,6 +268,44 @@ function doorWorld(place) {
   return toWorld(sidewalkPoint(place));
 }
 
+const AT_DOOR = 0.75;
+
+// Play the trip from where they are standing, over its travel time, with the walk clip and the trail.
+// Used when a placement would otherwise copy them onto the destination door.
+function replayWalk(f, place, minutes) {
+  walkTo(f, place, 0, { travelMinutes: Math.max(Number(minutes) || 0, 1 / 60) });
+  f.departAt = null;
+  f.realPace = true;
+  f.replayWalk = true;
+}
+
+function stepReplay(f) {
+  if (!f.replayWalk) return false;
+  const frac = walkProgress(f);
+  if (frac == null || !f.route?.length || !f.walkFrom) {
+    f.replayWalk = false;
+    f.realPace = false;
+    return false;
+  }
+  const { pos, face } = pointAlong(f.walkFrom, f.route, frac);
+  if (face && frac < 1) faceTowards(f, face);
+  f.obj.position.copy(pos);
+  if (frac >= 1) {
+    f.replayWalk = false;
+    f.realPace = false;
+    f.trailing = false;
+    f.trailPlace = null;
+    f.route = [];
+    f.path = [];
+    f.travelMinutes = null;
+    setAction(f, 'idle');
+    return false;
+  }
+  setAction(f, 'walk');
+  f.trailing = true;
+  return true;
+}
+
 // Where the calendar has them at `at`, including partway along a walk. One level of
 // recursion so a walk's start is the previous door, not an endless chain.
 function standWorld(blocks, home, at, depth = 0) {
@@ -272,22 +324,34 @@ function stepCalendar(f) {
   if (f.holdCalendar || !f.calendar?.length) return false;
   const nowM = townMinutesNow();
   if (nowM == null) return false;
+  if (stepReplay(f)) {
+    f.calMinute = nowM;
+    return true;
+  }
   const seg = segment(f.calendar, nowM, f.home);
   f.busy = true;
   f.nextThink = Infinity;
   f.destId = seg.destId === 'home' ? `house:${f.id}` : seg.destId;
   if (seg.phase !== 'walk') {
-    f.trailing = false;
-    f.trailPlace = null;
     const key = `at:${seg.destId}`;
     if (f.calKey !== key) {
+      const first = !f.calKey;
+      const door = doorWorld(seg.place);
       f.calKey = key;
+      if (!first && f.obj.position.distanceTo(door) > AT_DOOR) {
+        replayWalk(f, seg.place, seg.travel || 8);
+        stepReplay(f);
+        f.calMinute = nowM;
+        return true;
+      }
+      f.trailing = false;
+      f.trailPlace = null;
       f.route = [];
       f.path = [];
       f.departAt = null;
       f.travelMinutes = null;
       f.minutesLeft = null;
-      f.obj.position.copy(doorWorld(seg.place));
+      f.obj.position.copy(door);
       setAction(f, 'idle');
     }
     f.calMinute = nowM;
@@ -296,6 +360,16 @@ function stepCalendar(f) {
   const key = `walk:${seg.destId}:${Math.round(seg.depart)}`;
   const frac = Math.max(0, Math.min(1, (nowM - seg.depart) / seg.travel));
   if (f.calKey !== key) {
+    const first = !f.calKey;
+    const door = doorWorld(seg.place);
+    // The clock already passed the whole trip. Walk it anyway instead of appearing on the door.
+    if (!first && frac >= 1 && f.obj.position.distanceTo(door) > AT_DOOR) {
+      f.calKey = key;
+      replayWalk(f, seg.place, seg.travel);
+      stepReplay(f);
+      f.calMinute = nowM;
+      return true;
+    }
     const jumped = f.calMinute == null || Math.abs(nowM - f.calMinute) > 1.5;
     f.calKey = key;
     if (jumped) f.obj.position.copy(standWorld(f.calendar, f.home, seg.depart - 0.02));
@@ -305,6 +379,7 @@ function stepCalendar(f) {
     }
     walkTo(f, seg.place, 0, null);
     f.departAt = null;
+    f.realPace = false;
   }
   f.trailPlace = seg.place;
   if (f.route?.length && f.walkFrom) {
@@ -330,6 +405,10 @@ export function stepFriend(f, dt) {
       f.trailing = false;
       f.trailPlace = null;
       f.path = [];
+      f.route = [];
+      f.travelMinutes = null;
+      f.realPace = false;
+      f.departAt = null;
       setAction(f, 'idle');
       return;
     }
@@ -419,6 +498,8 @@ export function placeAgent(f, row) {
     // x/y is the curb this trip leaves from (home, or the event they just finished) — not a leftover visit.
     if (row.x != null && row.y != null) f.obj.position.copy(toWorld({ x: row.x, z: row.y }));
     walkTo(f, dest, 0, { travelMinutes: row.target.travel_minutes || 8, departAt: row.target.depart_at });
+    f.realPace = false;
+    f.arrivedOnce = true;
     if (row.target?.by === 'user') {
       const started = Date.parse(row.updated_at);
       if (Number.isFinite(started)) f.walkStarted = performance.now() - (Date.now() - started);
@@ -426,16 +507,28 @@ export function placeAgent(f, row) {
     placeAlongWalk(f);
     return;
   }
-  // Idle means the clock says they are already at this door. Stand there.
+  // Idle means the clock says they are already at this door. The first time we see them, stand there.
+  // A later change of place walks the travel time with the trail, instead of popping onto the door.
   if (dest?.door) {
-    f.obj.position.copy(toWorld(sidewalkPoint(dest)));
+    const spot = sidewalkPoint(dest);
+    if (f.arrivedOnce && !nearTile(f, spot)) {
+      const mins = Number(row.target?.travel_minutes) > 0 ? Number(row.target.travel_minutes) : 8;
+      f.realPace = true;
+      walkTo(f, dest, 0, { travelMinutes: mins });
+      f.departAt = null;
+      return;
+    }
+    f.obj.position.copy(toWorld(spot));
     setAction(f, 'idle');
+    f.arrivedOnce = true;
   }
 }
 
 export function interrupt(f) {
   f.trailing = false;
   f.trailPlace = null;
+  f.replayWalk = false;
+  f.realPace = false;
   f.path = [];
   f.route = [];
   f.travelMinutes = null;
