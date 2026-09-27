@@ -29,6 +29,10 @@ function setOpacity(root, a) {
     }
     for (const mat of [m.material].flat()) {
       mat.opacity = a;
+      // three.js bakes "opaque" into the shader (alpha forced to 1) and doesn't rebuild it when `transparent`
+      // flips. A material compiled while solid (e.g. re-patched by the weather code between fades) would then
+      // stay solid at opacity 0.1, so ask for the matching shader whenever it changes. Both variants are cached.
+      if (mat.transparent !== faded) mat.needsUpdate = true;
       mat.transparent = faded;
       mat.depthWrite = !faded;
     }
