@@ -539,11 +539,28 @@ def town_paper(town_id: UUID, offset: int = Query(0, ge=-8, le=0, description="0
     townmates with something real in common, each with a suggestion to meet (backend/paper.py)."""
     db, tid = get_client(), str(town_id)
     require_member(db, tid, uid)
-    start, end = week_bounds(datetime.now(user_tz(db, uid)), offset)
+    now = datetime.now(user_tz(db, uid))
+    start, end = week_bounds(now, offset)
+    # A finished week is written once and read from town_papers after that: no model call, same words for everyone.
+    # Only an AI-written paper is saved, so a failed call (fallback text) gets another try next time.
+    finished, week = end <= now, start.date().isoformat()
+    if finished:
+        try:
+            saved = db.table("town_papers").select("paper").eq("town_id", tid).eq("week_start", week).limit(1).execute().data
+            if saved:
+                return saved[0]["paper"]
+        except Exception as exc:  # before migration 20260926000022 lands: build it as usual
+            print(f"[paper] town_papers read: {exc!r}", flush=True)
     members = db.table("town_members").select("user_id, name, color, profiles(display_name, interests)").eq("town_id", tid).execute().data or []
     runs = (db.table("brain_runs").select("output, created_at").eq("town_id", tid).gte("created_at", start.isoformat())
             .lt("created_at", end.isoformat()).order("created_at", desc=True).limit(50).execute().data or [])
-    return build_paper(tid, start, end, members, _place_names(db, tid), _trips(db, tid, start, end), runs)
+    paper = build_paper(tid, start, end, members, _place_names(db, tid), _trips(db, tid, start, end), runs)
+    if finished and paper["source"] == "ai":
+        try:
+            db.table("town_papers").upsert({"town_id": tid, "week_start": week, "paper": paper}).execute()
+        except Exception as exc:
+            print(f"[paper] town_papers save: {exc!r}", flush=True)
+    return paper
 
 
 @router.get("/{town_id}/activity")
