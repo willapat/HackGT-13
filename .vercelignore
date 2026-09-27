@@ -1,0 +1,6 @@
+# Vercel only serves the two web folders (like serve.py). Never upload .env, backend or the asset tools.
+/*
+!frontend
+!town
+!vercel.json
+town/tools

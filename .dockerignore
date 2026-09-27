@@ -1,0 +1,6 @@
+# Only requirements.txt and backend/ go into the image. Never .env.
+*
+!requirements.txt
+!backend
+backend/tests
+**/__pycache__

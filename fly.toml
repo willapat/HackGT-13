@@ -1,0 +1,25 @@
+# Luma backend on Fly.io. Deploy with `fly deploy` from the repo root; secrets via `fly secrets set`.
+app = "luma-hackgt"
+primary_region = "sjc"  # near Supabase (us-west-2); atl is closed to new machines
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The brain, agent and calendar loops run inside this process, so keep exactly one machine awake.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
