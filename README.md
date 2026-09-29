@@ -28,7 +28,7 @@ Live at **https://luma-hackgt.vercel.app** · Built at HackGT 13.
 ```
 Browser ─── luma-hackgt.vercel.app ───┬── frontend/  account app (feed, friends, inbox, profile, settings)
   (Vercel, static)                    ├── town/      the 3D town (Three.js)
-                                      └── /api/* ──► FastAPI backend on Fly.io ──► Supabase (Postgres, Auth, Realtime)
+                                      └── /api/* ──► FastAPI backend on Vultr ──► Supabase (Postgres, Auth, Realtime)
                                                      ├─ town brain loop: signals → moods, news, facts (LLM)
                                                      ├─ character agent loop: who goes where, who chats (LLM)
                                                      └─ calendar loop: Google Calendar → events → where characters walk
@@ -49,7 +49,7 @@ Browser ─── luma-hackgt.vercel.app ───┬── frontend/  account a
 | `backend/` | FastAPI app (`main.py`), routes, the brain and agent loops, town generation (`towngen/`), tests (`tests/`) |
 | `supabase/migrations/` | Database schema, one SQL file per change |
 | `serve.py` | Local static server for `frontend/` and `town/` (never serves `.env`) |
-| `vercel.json`, `Dockerfile`, `fly.toml` | Deploy config for the web app and the backend |
+| `vercel.json`, `Dockerfile`, `deploy/vultr/` | Deploy config for the web app and the backend (server setup and redeploy scripts) |
 
 ## Running locally
 
@@ -98,10 +98,10 @@ Pushing to `main` deploys everything automatically:
 | Part | Where | Deploys when a push to `main` changes |
 |---|---|---|
 | Web app | Vercel (Git integration) | anything in the repo, but only `frontend/` and `town/` are published |
-| Backend | Fly.io, app `luma-hackgt-api` (GitHub Action in `.github/workflows/fly-deploy.yml`) | `backend/`, `requirements.txt`, `Dockerfile`, `fly.toml` |
+| Backend | A Vultr server in Atlanta running Docker, HTTPS by Caddy (GitHub Action in `.github/workflows/vultr-deploy.yml`) | `backend/`, `requirements.txt`, `Dockerfile`, `deploy/vultr/` |
 | Database | Supabase (GitHub integration) | new files in `supabase/migrations/` |
 
-Pushes to other branches get a Vercel preview link and don't touch the backend or the database. The site reaches the backend through `/api`, which `vercel.json` forwards to `luma-hackgt-api.fly.dev`.
+Pushes to other branches get a Vercel preview link and don't touch the backend or the database. The site reaches the backend through `/api`, which `vercel.json` forwards to the Vultr server at `45-32-211-68.sslip.io`. To set up a new server, run `deploy/vultr/setup.sh <ip>` from the repo root.
 
 ## Contributing
 

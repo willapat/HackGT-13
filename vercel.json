@@ -49,7 +49,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://luma-hackgt-api.fly.dev/:path*"
+      "destination": "https://45-32-211-68.sslip.io/:path*"
     },
     {
       "source": "/",

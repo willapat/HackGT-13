@@ -1,4 +1,5 @@
-# Luma backend (FastAPI + the brain/agent/calendar loops) for Fly.io. Config comes from Fly secrets, not .env.
+# Luma backend (FastAPI + the brain/agent/calendar loops). On the Vultr server, config comes from /opt/luma.env
+# (see deploy/vultr/setup.sh), never from a file baked into the image.
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app

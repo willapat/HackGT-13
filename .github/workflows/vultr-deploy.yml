@@ -1,0 +1,31 @@
+# Deploys the backend to the Vultr server on every push to main that touches it (the web app deploys through
+# Vercel's Git integration). The server pulls main and rebuilds (deploy/vultr/redeploy.sh). Needs two repo secrets:
+# VULTR_HOST (the server's IP) and VULTR_SSH_KEY (a private key whose public half is in the server's
+# /root/.ssh/authorized_keys).
+name: Deploy backend to Vultr
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - "deploy/vultr/**"
+  workflow_dispatch:
+
+concurrency:
+  group: vultr-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull, rebuild and restart on the server
+        env:
+          HOST: ${{ secrets.VULTR_HOST }}
+          KEY: ${{ secrets.VULTR_SSH_KEY }}
+        run: |
+          install -m 600 /dev/null key && printf '%s\n' "$KEY" > key
+          ssh -i key -o StrictHostKeyChecking=accept-new -o BatchMode=yes "root@$HOST" /opt/luma/deploy/vultr/redeploy.sh
